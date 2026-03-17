@@ -1,0 +1,51 @@
+# Project Context
+
+<!--
+Copy this file to SCRUM.md in your project root and fill it in.
+The Scrum Agent reads SCRUM.md automatically before analysis — anything
+you write here supplements the questionnaire answers and helps the LLM
+produce more accurate epics, stories, and sprint plans.
+
+There is no required format. Write in free-form markdown. Good things to include:
+  - Project background and goals
+  - Links to design docs, ADRs, or product specs
+  - Tech stack decisions already made
+  - Team conventions or constraints
+  - Screenshots or diagrams (as image links or descriptions)
+  - Anything you want the agent to know that the questionnaire doesn't cover
+-->
+
+## Background
+
+Brief description of what the project is and why it exists.
+
+## Key Links
+
+- Product spec: https://...
+- Architecture decision record: https://...
+- Figma designs: https://...
+- Existing codebase: https://github.com/org/repo
+
+## Tech Decisions Already Made
+
+- Language: TypeScript / Python / Go (reason: ...)
+- Database: PostgreSQL (existing infra)
+- Auth: OAuth via Auth0 (company standard)
+- Deployment: AWS ECS, existing CI/CD pipeline
+
+## Team Conventions
+
+- Sprint length: 2 weeks
+- Story point scale: Fibonacci (1, 2, 3, 5, 8, 13)
+- Definition of Done: unit tests + PR review + deployed to staging
+
+## Constraints
+
+- Must integrate with existing Salesforce CRM
+- GDPR compliance required — no PII in logs
+- Go-live deadline: Q3 2025
+
+## Out of Scope
+
+- Mobile app (web only for v1)
+- Admin portal (separate project)

@@ -1,0 +1,18 @@
+interactions:
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://test.atlassian.net/wiki/rest/api/content/99999?expand=body.storage
+  response:
+    body:
+      string: '{"statusCode":404,"data":{"authorized":false,"valid":false,"errors":[],"successful":false},"message":"No content found with id: 99999"}'
+    headers:
+      Content-Type:
+      - application/json;charset=UTF-8
+    status:
+      code: 404
+      message: Not Found
+version: 1

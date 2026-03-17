@@ -1,0 +1,18 @@
+interactions:
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://test.atlassian.net/wiki/rest/api/content/12345?expand=body.storage
+  response:
+    body:
+      string: '{"id":"12345","type":"page","status":"current","title":"System Architecture","body":{"storage":{"value":"<h1>System Architecture</h1><p>The platform uses a <b>microservices</b> architecture with the following components:</p><ul><li>API Gateway (Kong)</li><li>Auth Service (OAuth 2.0)</li><li>User Service</li></ul><p>All services communicate via <em>RabbitMQ</em> for async messaging.</p><br/><p>Deployment is handled via Kubernetes on AWS EKS.</p>","representation":"storage"}},"_links":{"webui":"/spaces/DOCS/pages/12345/System+Architecture","base":"https://test.atlassian.net/wiki"}}'
+    headers:
+      Content-Type:
+      - application/json;charset=UTF-8
+    status:
+      code: 200
+      message: OK
+version: 1

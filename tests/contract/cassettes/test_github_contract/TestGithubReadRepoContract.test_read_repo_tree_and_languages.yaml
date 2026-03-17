@@ -1,0 +1,50 @@
+interactions:
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://api.github.com/repos/test-org/test-repo
+  response:
+    body:
+      string: '{"id":123456,"name":"test-repo","full_name":"test-org/test-repo","default_branch":"main","stargazers_count":42,"forks_count":7,"open_issues_count":3,"description":"A test repository for contract testing","url":"https://api.github.com/repos/test-org/test-repo"}'
+    headers:
+      Content-Type:
+      - application/json; charset=utf-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://api.github.com/repos/test-org/test-repo/git/trees/HEAD?recursive=1
+  response:
+    body:
+      string: '{"sha":"abc123def","tree":[{"path":"src","type":"tree","sha":"aaa111","mode":"040000","url":"https://api.github.com/repos/test-org/test-repo/git/trees/aaa111"},{"path":"src/main.py","type":"blob","sha":"bbb222","size":1200,"mode":"100644","url":"https://api.github.com/repos/test-org/test-repo/git/blobs/bbb222"},{"path":"src/utils.py","type":"blob","sha":"bbb333","size":800,"mode":"100644","url":"https://api.github.com/repos/test-org/test-repo/git/blobs/bbb333"},{"path":"pyproject.toml","type":"blob","sha":"ccc444","size":150,"mode":"100644","url":"https://api.github.com/repos/test-org/test-repo/git/blobs/ccc444"},{"path":"README.md","type":"blob","sha":"ddd555","size":200,"mode":"100644","url":"https://api.github.com/repos/test-org/test-repo/git/blobs/ddd555"},{"path":"Dockerfile","type":"blob","sha":"eee666","size":90,"mode":"100644","url":"https://api.github.com/repos/test-org/test-repo/git/blobs/eee666"},{"path":"Makefile","type":"blob","sha":"fff777","size":300,"mode":"100644","url":"https://api.github.com/repos/test-org/test-repo/git/blobs/fff777"}],"truncated":false,"url":"https://api.github.com/repos/test-org/test-repo/git/trees/abc123def"}'
+    headers:
+      Content-Type:
+      - application/json; charset=utf-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://api.github.com/repos/test-org/test-repo/languages
+  response:
+    body:
+      string: '{"Python":15000,"Shell":3000,"Dockerfile":500}'
+    headers:
+      Content-Type:
+      - application/json; charset=utf-8
+    status:
+      code: 200
+      message: OK
+version: 1

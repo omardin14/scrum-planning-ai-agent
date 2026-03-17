@@ -1,0 +1,389 @@
+# serializer version: 1
+# name: TestRenderAnalysisPanel.test_compact
+  '''
+  ╭───────────────────────── Project Analysis: TodoApp ──────────────────────────╮
+  │                                                                              │
+  │  Description: Full-stack todo app with auth                                  │
+  │  Type: greenfield                                                            │
+  │                                                                              │
+  │  Goals:                                                                      │
+  │    - Ship MVP in 6 weeks                                                     │
+  │    - Support 100 concurrent users                                            │
+  │  Tech Stack:                                                                 │
+  │    - React                                                                   │
+  │    - FastAPI                                                                 │
+  │    - PostgreSQL                                                              │
+  │                                                                              │
+  │  Target State: Production deployment on AWS                                  │
+  │  Sprint Planning: 2-week sprints x 3 sprints                                 │
+  │                                                                              │
+  │  Assumptions:                                                                │
+  │    - Team has React experience                                               │
+  │                                                                              │
+  ╰──────────────────────────────────────────────────────────────────────────────╯
+  
+  '''
+# ---
+# name: TestRenderAnalysisPanel.test_full
+  '''
+  ╭───────────────────────── Project Analysis: TodoApp ──────────────────────────╮
+  │                                                                              │
+  │  Description: Full-stack todo app with auth                                  │
+  │  Type: greenfield                                                            │
+  │                                                                              │
+  │  Goals:                                                                      │
+  │    - Ship MVP in 6 weeks                                                     │
+  │    - Support 100 concurrent users                                            │
+  │  End Users:                                                                  │
+  │    - individual developers                                                   │
+  │    - small teams                                                             │
+  │  Tech Stack:                                                                 │
+  │    - React                                                                   │
+  │    - FastAPI                                                                 │
+  │    - PostgreSQL                                                              │
+  │  Integrations:                                                               │
+  │    - GitHub Actions                                                          │
+  │  Constraints:                                                                │
+  │    - Must use existing CI pipeline                                           │
+  │  Risks:                                                                      │
+  │    - Third-party OAuth provider downtime                                     │
+  │  Out of Scope:                                                               │
+  │    - Mobile app                                                              │
+  │                                                                              │
+  │  Target State: Production deployment on AWS                                  │
+  │  Sprint Planning: 2-week sprints x 3 sprints                                 │
+  │                                                                              │
+  │  Assumptions:                                                                │
+  │    - Team has React experience                                               │
+  │                                                                              │
+  ╰──────────────────────────────────────────────────────────────────────────────╯
+  
+  '''
+# ---
+# name: TestRenderAnalysisPanel.test_no_assumptions_or_contributions
+  '''
+  ╭───────────────────────── Project Analysis: Minimal ──────────────────────────╮
+  │                                                                              │
+  │  Description: Simple project                                                 │
+  │  Type: greenfield                                                            │
+  │                                                                              │
+  │  Goals:                                                                      │
+  │    - Launch                                                                  │
+  │  End Users:                                                                  │
+  │    - developers                                                              │
+  │  Tech Stack:                                                                 │
+  │    - Python                                                                  │
+  │  Integrations:                                                               │
+  │  (none)                                                                      │
+  │  Constraints:                                                                │
+  │  (none)                                                                      │
+  │  Risks:                                                                      │
+  │  (none)                                                                      │
+  │  Out of Scope:                                                               │
+  │  (none)                                                                      │
+  │                                                                              │
+  │  Target State: Deployed                                                      │
+  │  Sprint Planning: 2-week sprints x 2 sprints                                 │
+  │                                                                              │
+  ╰──────────────────────────────────────────────────────────────────────────────╯
+  
+  '''
+# ---
+# name: TestRenderEpicsTable.test_all_priorities_represented
+  '''
+                       Epics                     
+  ┏━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━┓
+  ┃ ID ┃ Title         ┃ Priority ┃ Description ┃
+  ┡━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━┩
+  │ E1 │ Critical Epic │ critical │ Urgent      │
+  ├────┼───────────────┼──────────┼─────────────┤
+  │ E2 │ High Epic     │ high     │ High prio   │
+  ├────┼───────────────┼──────────┼─────────────┤
+  │ E3 │ Medium Epic   │ medium   │ Med prio    │
+  ├────┼───────────────┼──────────┼─────────────┤
+  │ E4 │ Low Epic      │ low      │ Low prio    │
+  └────┴───────────────┴──────────┴─────────────┘
+                     4 epic(s)                   
+  
+  '''
+# ---
+# name: TestRenderEpicsTable.test_compact
+  '''
+                   Epics                 
+  ┏━━━━┳━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━┓
+  ┃ ID ┃ Title               ┃ Priority ┃
+  ┡━━━━╇━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━┩
+  │ E1 │ User Authentication │ high     │
+  ├────┼─────────────────────┼──────────┤
+  │ E2 │ Task Management     │ medium   │
+  └────┴─────────────────────┴──────────┘
+                 2 epic(s)               
+  
+  '''
+# ---
+# name: TestRenderEpicsTable.test_empty_list
+  '''
+                   Epics                 
+  ┏━━━━┳━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━┓
+  ┃ ID ┃ Title ┃ Priority ┃ Description ┃
+  ┡━━━━╇━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━┩
+  └────┴───────┴──────────┴─────────────┘
+                 0 epic(s)               
+  
+  '''
+# ---
+# name: TestRenderEpicsTable.test_full
+  '''
+                              Epics                            
+  ┏━━━━┳━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━┓
+  ┃ ID ┃ Title               ┃ Priority ┃ Description         ┃
+  ┡━━━━╇━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━┩
+  │ E1 │ User Authentication │ high     │ OAuth2 and JWT flow │
+  ├────┼─────────────────────┼──────────┼─────────────────────┤
+  │ E2 │ Task Management     │ medium   │ CRUD for tasks      │
+  └────┴─────────────────────┴──────────┴─────────────────────┘
+                            2 epic(s)                          
+  
+  '''
+# ---
+# name: TestRenderSprintPlan.test_compact
+  '''
+  2 sprint(s) | Velocity: 10 pts | Total: 5 pts
+  ╭────────────────────────────────── Sprint 1 ──────────────────────────────────╮
+  │ Goal: Establish auth foundation                                              │
+  │ ━━━━━━────────────── 3/10 pts                                                │
+  ╰──────────────────────────────────────────────────────────────────────────────╯
+  ╭────────────────────────────────── Sprint 2 ──────────────────────────────────╮
+  │ Goal: Core task CRUD                                                         │
+  │ ━━━━──────────────── 2/10 pts                                                │
+  ╰──────────────────────────────────────────────────────────────────────────────╯
+  
+  '''
+# ---
+# name: TestRenderSprintPlan.test_empty_sprints
+  '''
+  0 sprint(s) | Velocity: 10 pts | Total: 0 pts
+  
+  '''
+# ---
+# name: TestRenderSprintPlan.test_full
+  '''
+  2 sprint(s) | Velocity: 10 pts | Total: 5 pts
+  ╭────────────────────────────────── Sprint 1 ──────────────────────────────────╮
+  │ Goal: Establish auth foundation                                              │
+  │ ━━━━━━────────────── 3/10 pts                                                │
+  │                                                                              │
+  │ ┏━━━━━┳━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓                     │
+  │ ┃ID   ┃ Pts ┃ Priority ┃ Story                         ┃                     │
+  │ ┡━━━━━╇━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩                     │
+  │ │US-1 │  3  │ high     │ log in with email and password│                     │
+  │ └─────┴─────┴──────────┴───────────────────────────────┘                     │
+  ╰──────────────────────────────────────────────────────────────────────────────╯
+  ╭────────────────────────────────── Sprint 2 ──────────────────────────────────╮
+  │ Goal: Core task CRUD                                                         │
+  │ ━━━━──────────────── 2/10 pts                                                │
+  │                                                                              │
+  │ ┏━━━━━┳━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━┓                                  │
+  │ ┃ID   ┃ Pts ┃ Priority ┃ Story            ┃                                  │
+  │ ┡━━━━━╇━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━┩                                  │
+  │ │US-2 │  2  │ medium   │ create a new task│                                  │
+  │ └─────┴─────┴──────────┴──────────────────┘                                  │
+  ╰──────────────────────────────────────────────────────────────────────────────╯
+  
+  '''
+# ---
+# name: TestRenderSprintPlan.test_overcapacity_sprint
+  '''
+  1 sprint(s) | Velocity: 5 pts | Total: 5 pts
+  ╭────────────────────────────────── Sprint 1 ──────────────────────────────────╮
+  │ Goal: Too much work                                                          │
+  │ ━━━━━━━━━━━━━━━━━━━━ 5/5 pts                                                 │
+  │                                                                              │
+  │ ┏━━━━━┳━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓                     │
+  │ ┃ID   ┃ Pts ┃ Priority ┃ Story                         ┃                     │
+  │ ┡━━━━━╇━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩                     │
+  │ │US-1 │  3  │ high     │ log in with email and password│                     │
+  │ │US-2 │  2  │ medium   │ create a new task             │                     │
+  │ └─────┴─────┴──────────┴───────────────────────────────┘                     │
+  ╰──────────────────────────────────────────────────────────────────────────────╯
+  
+  '''
+# ---
+# name: TestRenderStoriesTable.test_compact
+  '''
+                           Stories — User Authentication                          
+  ┏━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━┳━━━━━━━━━━┓
+  ┃ ID   ┃ Story                                                ┃ Pts ┃ Priority ┃
+  ┡━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━╇━━━━━━━━━━┩
+  │ US-1 │ As a developer, I want to log in with email and      │  3  │ high     │
+  │      │ password, so that I can access my personal task      │     │          │
+  │      │ list.                                                │     │          │
+  └──────┴──────────────────────────────────────────────────────┴─────┴──────────┘
+                             Stories — Task Management                            
+  ┏━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━┳━━━━━━━━━━┓
+  ┃ ID   ┃ Story                                                ┃ Pts ┃ Priority ┃
+  ┡━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━╇━━━━━━━━━━┩
+  │ US-2 │ As a user, I want to create a new task, so that I    │  2  │ medium   │
+  │      │ can track my work.                                   │     │          │
+  └──────┴──────────────────────────────────────────────────────┴─────┴──────────┘
+  
+  '''
+# ---
+# name: TestRenderStoriesTable.test_empty_list
+  ''
+# ---
+# name: TestRenderStoriesTable.test_full
+  '''
+                           Stories — User Authentication                          
+  ┏━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━┓
+  ┃ ID   ┃ Story                                   ┃ Pts ┃ Priority ┃ Discipline ┃
+  ┡━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━┩
+  │ US-1 │ As a developer, I want to log in with   │  3  │ high     │ backend    │
+  │      │ email and password, so that I can       │     │          │            │
+  │      │ access my personal task list.           │     │          │            │
+  │      │                                         │     │          │            │
+  │      │   Given a valid email and password      │     │          │            │
+  │      │   When the user submits the login form  │     │          │            │
+  │      │   Then they are redirected to the       │     │          │            │
+  │      │ dashboard                               │     │          │            │
+  │      │   Given an authenticated session        │     │          │            │
+  │      │   When the user clicks logout           │     │          │            │
+  │      │   Then the session is invalidated       │     │          │            │
+  │      │                                         │     │          │            │
+  │      │   DoD: ✓ AC Met  ✓ Docs  ✓ Testing  ✓   │     │          │            │
+  │      │ Code Merged  ✗ SDLC  ✓ Sign-off  ✗      │     │          │            │
+  │      │ Know. Sharing                           │     │          │            │
+  └──────┴─────────────────────────────────────────┴─────┴──────────┴────────────┘
+                             Stories — Task Management                            
+  ┏━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━┓
+  ┃ ID   ┃ Story                                   ┃ Pts ┃ Priority ┃ Discipline ┃
+  ┡━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━┩
+  │ US-2 │ As a user, I want to create a new task, │  2  │ medium   │ fullstack  │
+  │      │ so that I can track my work.            │     │          │            │
+  │      │                                         │     │          │            │
+  │      │   Given I am logged in                  │     │          │            │
+  │      │   When I submit the task form           │     │          │            │
+  │      │   Then the task is saved                │     │          │            │
+  │      │                                         │     │          │            │
+  │      │   DoD: ✓ AC Met  ✓ Docs  ✓ Testing  ✓   │     │          │            │
+  │      │ Code Merged  ✓ SDLC  ✓ Sign-off  ✓      │     │          │            │
+  │      │ Know. Sharing                           │     │          │            │
+  └──────┴─────────────────────────────────────────┴─────┴──────────┴────────────┘
+  
+  '''
+# ---
+# name: TestRenderStoriesTable.test_multiple_stories_per_epic
+  '''
+                           Stories — User Authentication                          
+  ┏━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━┓
+  ┃ ID   ┃ Story                                   ┃ Pts ┃ Priority ┃ Discipline ┃
+  ┡━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━┩
+  │ US-1 │ As a developer, I want to log in with   │  3  │ high     │ backend    │
+  │      │ email and password, so that I can       │     │          │            │
+  │      │ access my personal task list.           │     │          │            │
+  │      │                                         │     │          │            │
+  │      │   Given a valid email and password      │     │          │            │
+  │      │   When the user submits the login form  │     │          │            │
+  │      │   Then they are redirected to the       │     │          │            │
+  │      │ dashboard                               │     │          │            │
+  │      │   Given an authenticated session        │     │          │            │
+  │      │   When the user clicks logout           │     │          │            │
+  │      │   Then the session is invalidated       │     │          │            │
+  │      │                                         │     │          │            │
+  │      │   DoD: ✓ AC Met  ✓ Docs  ✓ Testing  ✓   │     │          │            │
+  │      │ Code Merged  ✗ SDLC  ✓ Sign-off  ✗      │     │          │            │
+  │      │ Know. Sharing                           │     │          │            │
+  ├──────┼─────────────────────────────────────────┼─────┼──────────┼────────────┤
+  │ US-3 │ As a admin, I want to reset a user      │  2  │ medium   │ fullstack  │
+  │      │ password, so that account recovery is   │     │          │            │
+  │      │ possible.                               │     │          │            │
+  │      │                                         │     │          │            │
+  │      │   Given a valid email and password      │     │          │            │
+  │      │   When the user submits the login form  │     │          │            │
+  │      │   Then they are redirected to the       │     │          │            │
+  │      │ dashboard                               │     │          │            │
+  │      │                                         │     │          │            │
+  │      │   DoD: ✓ AC Met  ✓ Docs  ✓ Testing  ✓   │     │          │            │
+  │      │ Code Merged  ✓ SDLC  ✓ Sign-off  ✓      │     │          │            │
+  │      │ Know. Sharing                           │     │          │            │
+  └──────┴─────────────────────────────────────────┴─────┴──────────┴────────────┘
+  
+  '''
+# ---
+# name: TestRenderTasksTable.test_compact
+  '''
+                            Tasks — User Authentication                           
+  ┏━━━━┳━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+  ┃ ID ┃ Label ┃ Title                                                           ┃
+  ┡━━━━╇━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+  │    │       │ [US-1] As a developer, I want to log in with email and          │
+  │    │       │ password, so that I can access my personal task list.           │
+  ├────┼───────┼─────────────────────────────────────────────────────────────────┤
+  │ T1 │ Code  │ Implement JWT middleware                                        │
+  ├────┼───────┼─────────────────────────────────────────────────────────────────┤
+  │ T2 │ Code  │ Write login endpoint                                            │
+  └────┴───────┴─────────────────────────────────────────────────────────────────┘
+                              Tasks — Task Management                             
+  ┏━━━━┳━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+  ┃ ID ┃ Label ┃ Title                                                           ┃
+  ┡━━━━╇━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+  │    │       │ [US-2] As a user, I want to create a new task, so that I can    │
+  │    │       │ track my work.                                                  │
+  ├────┼───────┼─────────────────────────────────────────────────────────────────┤
+  │ T3 │ Code  │ Create task model                                               │
+  └────┴───────┴─────────────────────────────────────────────────────────────────┘
+  
+  '''
+# ---
+# name: TestRenderTasksTable.test_empty_list
+  ''
+# ---
+# name: TestRenderTasksTable.test_full
+  '''
+                            Tasks — User Authentication                           
+  ┏━━━━┳━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+  ┃ ID ┃ Label ┃ Title                          ┃ Description                    ┃
+  ┡━━━━╇━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+  │    │       │ [US-1] As a developer, I want  │                                │
+  │    │       │ to log in with email and       │                                │
+  │    │       │ password, so that I can access │                                │
+  │    │       │ my personal task list.         │                                │
+  ├────┼───────┼────────────────────────────────┼────────────────────────────────┤
+  │ T1 │ Code  │ Implement JWT middleware       │ Add JWT validation to FastAPI  │
+  ├────┼───────┼────────────────────────────────┼────────────────────────────────┤
+  │ T2 │ Code  │ Write login endpoint           │ POST /auth/login with rate     │
+  │    │       │                                │ limiting                       │
+  └────┴───────┴────────────────────────────────┴────────────────────────────────┘
+                              Tasks — Task Management                             
+  ┏━━━━┳━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+  ┃ ID ┃ Label ┃ Title                          ┃ Description                    ┃
+  ┡━━━━╇━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+  │    │       │ [US-2] As a user, I want to    │                                │
+  │    │       │ create a new task, so that I   │                                │
+  │    │       │ can track my work.             │                                │
+  ├────┼───────┼────────────────────────────────┼────────────────────────────────┤
+  │ T3 │ Code  │ Create task model              │ SQLAlchemy Task model with due │
+  │    │       │                                │ date                           │
+  └────┴───────┴────────────────────────────────┴────────────────────────────────┘
+  
+  '''
+# ---
+# name: TestRenderTasksTable.test_multiple_tasks_per_story
+  '''
+                            Tasks — User Authentication                           
+  ┏━━━━┳━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+  ┃ ID ┃ Label ┃ Title                          ┃ Description                    ┃
+  ┡━━━━╇━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+  │    │       │ [US-1] As a developer, I want  │                                │
+  │    │       │ to log in with email and       │                                │
+  │    │       │ password, so that I can access │                                │
+  │    │       │ my personal task list.         │                                │
+  ├────┼───────┼────────────────────────────────┼────────────────────────────────┤
+  │ T1 │ Code  │ Implement JWT middleware       │ Add JWT validation to FastAPI  │
+  ├────┼───────┼────────────────────────────────┼────────────────────────────────┤
+  │ T2 │ Code  │ Write login endpoint           │ POST /auth/login with rate     │
+  │    │       │                                │ limiting                       │
+  └────┴───────┴────────────────────────────────┴────────────────────────────────┘
+  
+  '''
+# ---

@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Least-privilege token — these jobs only check out code and run tests.
+permissions:
+  contents: read
+
+# Cancel in-progress runs on the same branch when a new push arrives.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Fast gate ────────────────────────────────────────────────────────────
+  # Unit tests — also enforced locally by the pre-commit hook in
+  # .pre-commit-config.yaml. Running them in CI too catches contributors
+  # who haven't installed pre-commit.
+  unit:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+      - run: uv python install 3.11
+      - run: uv sync --extra dev
+      - run: make test-fast
+
+  # ── Slow suite ───────────────────────────────────────────────────────────
+  # Integration + contract tests (marked @pytest.mark.slow) — too slow for
+  # pre-commit but must pass before any PR merges. All external calls are
+  # mocked or VCR-replayed; no real API keys required.
+  integration:
+    name: Integration & contract tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+      - run: uv python install 3.11
+      - run: uv sync --extra dev
+      - run: make test
+
+  # ── Golden evaluators ────────────────────────────────────────────────────
+  # LLM-output quality checks against the golden dataset.
+  # Kept separate so a quality regression doesn't block unrelated PRs.
+  eval:
+    name: Golden evaluators
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+      - run: uv python install 3.11
+      - run: uv sync --extra dev
+      - run: make eval
+
+  # ── Code quality ─────────────────────────────────────────────────────────
+  lint:
+    name: Lint (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+      - run: uv python install 3.11
+      - run: uv sync --extra dev
+      - run: make lint
+
+  format-check:
+    name: Format check (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+      - run: uv python install 3.11
+      - run: uv sync --extra dev
+      - run: uv run ruff format --check src/ tests/

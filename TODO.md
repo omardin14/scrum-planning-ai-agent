@@ -1,0 +1,1366 @@
+# Scrum AI Agent — TODO
+
+Comprehensive task list for building the project. Check items off as they're completed.
+
+---
+
+## Phase 1: Project Setup
+
+- [x] Initialise Python project structure (`src/`, `tests/`, `pyproject.toml`)
+- [x] Set up virtual environment and dependency management (Poetry or pip)
+- [x] Install core dependencies: `langchain`, `langgraph`, `langchain-anthropic`, `rich`, `prompt_toolkit`
+- [x] Create entry point (`src/main.py` or `scrum_agent/cli.py`)
+- [x] Set up environment variable handling (`.env` for API keys)
+- [x] Configure LangSmith tracing (optional, for development)
+- [x] Set up `pytest` and initial test structure
+
+---
+
+## Phase 2: CLI Shell
+
+- [x] Build basic terminal REPL loop (read input → process → display output)
+- [x] Integrate `rich` for markdown rendering in terminal
+- [x] Integrate `prompt_toolkit` for input handling (history, multiline, autocomplete)
+- [x] Implement streaming output (token-by-token display)
+- [x] Build welcome screen / banner
+- [x] Add `--resume` flag for session resumption
+- [x] Add `--help` flag with usage instructions
+- [x] Handle graceful exit (Ctrl+C, `exit`, `quit`)
+- [x] Add phase headers / section dividers in terminal output (e.g., `─── Phase 1: Project Context ───`)
+
+---
+
+## Phase 3: LangGraph Agent — Single Node + REPL Integration
+
+- [x] Define custom `StateGraph` state schema (messages + scrum state fields)
+- [x] Create LLM instance with Anthropic Claude via `langchain-anthropic`
+- [x] Write system prompt with Scrum Master persona and constraints from README
+- [x] Build `call_model` node
+- [x] Build `should_continue` routing function
+- [x] Wire basic graph: `START → agent → END`
+- [x] Compile graph and test with a simple project description → epics output
+- [x] Wire REPL to LangGraph agent (replace echo loop with graph invocation)
+- [x] Maintain conversation history across REPL turns
+- [x] Handle API errors gracefully in REPL (network, auth, unexpected)
+- [x] Test REPL-graph integration (monkeypatched)
+- [x] Add graph visualisation for development (`draw_mermaid_png`) add the .png to the README.md
+
+---
+
+## Phase 4: Project Intake Questionnaire
+
+- [x] Design questionnaire state (which questions asked, answers collected, current phase)
+- [x] Build `project_intake` node that asks questions one at a time
+- [x] Implement Phase 1 questions — Project Context (Q1–Q5)
+- [x] Implement Phase 2 questions — Team & Capacity (Q6–Q10)
+- [x] Implement Phase 3 questions — Technical Context (Q11–Q14)
+- [x] Implement Phase 3a questions — Codebase Context (Q15–Q20)
+- [x] Implement Phase 4 questions — Risks & Unknowns (Q21–Q23)
+- [x] Implement Phase 5 questions — Preferences & Process (Q24–Q26)
+- [x] Implement adaptive skip logic (skip questions already answered in initial description)
+- [x] Implement follow-up probing for vague answers
+- [x] Handle "skip" and "I don't know" responses with sensible defaults
+- [x] Handle "skip" and adaptive skip logic in the UI
+- [x] Build intake summary output (structured project overview)
+- [x] Add user confirmation step before proceeding (`[Confirm / Edit]`)
+- [x] Implement edit flow — let user revise specific answers from the summary
+- [x] Calculate default velocity when not provided (engineers × 5)
+- [x] Ability for the user to fill in the questionnaire at their own time as a .md file, extract and process it
+- [x] Ability to Export Questionnaire with Answers as .md in the end
+
+---
+
+## Phase 5: Multi-Node Agent Graph
+
+- [x] Build `project_analyzer` node — extracts scope, goals, constraints from intake answers
+- [x] Build `epic_generator` node — decomposes scope into epics
+- [x] Build `story_writer` node — breaks epics into user stories with ACs and points
+- [x] Build `task_decomposer` node — breaks stories into sub-tasks
+- [x] Build `sprint_planner` node — allocates stories to sprints based on capacity
+- [x] Wire full graph with conditional edges between all nodes
+- [x] Add human review checkpoints after each generation node
+- [x] Implement `[Accept / Edit / Reject]` flow at each checkpoint
+- [x] Implement re-planning on rejection (feed user feedback back into the node)
+- [x] Add graph visualisation for development (`draw_mermaid_png`) update the .png in the README.md
+
+
+### Story Writer — Scrum Standards Enforcement
+
+- [x] Enforce story format: "As a [persona], I want to [goal], so that [benefit]"
+- [x] Generate acceptance criteria in Given/When/Then format
+- [x] Ensure AC coverage: happy path + negative path + edge cases + error states
+- [x] Enforce story points on Fibonacci scale (1, 2, 3, 5, 8)
+- [x] Implement 8-point cap — auto-split stories exceeding 8 points
+- [x] Apply story splitting strategies (by workflow step, business rule, data type, etc.)
+- [x] Validate stories against the Story Checklist before presenting to user
+- [x] Assign priority levels (Critical, High, Medium, Low)
+- [x] Tag stories by discipline where possible (frontend, backend, fullstack)
+
+### Sprint Planner
+
+- [x] Use provided velocity or calculate default (engineers × 5)
+- [x] Allocate stories to sprints without exceeding capacity
+- [x] Respect priority ordering (Critical/High first)
+- [x] Schedule spike stories early to de-risk unknowns
+- [x] Handle blocked stories — push to later sprints
+- [x] Generate sprint focus/goal summary per sprint
+- [x] Display total points and per-sprint breakdown
+- [x] Validate no sprint exceeds capacity
+
+---
+
+## Phase 6: UX Overhaul
+
+### 6A: Welcome Screen & Onboarding
+
+**Problem**: Bare `Panel("Scrum AI Agent")` — no warmth, no guidance on what to type.
+
+- [x] Branded welcome panel with tagline, quick-start hint, and version (`cli.py`) — replaced with animated splash screen (`ui/splash.py`)
+- [x] Conversational opener before first prompt: *"Tell me about your project..."* (`repl.py`)
+- [x] Interactive intake mode selection menu — [1] Smart / [2] Full / [3] Quick / [4] Offline with export/import sub-menu (`repl.py`, `prompts/intake.py`)
+- [x] Add `__version__` to `__init__.py`
+- [x] Wire `--version` CLI flag (`cli.py`)
+
+### 6B: Questionnaire Overhaul
+
+**Problem**: 26 free-text questions asked one-by-one feels like a government form.
+
+- [x] Add `QUESTION_METADATA` to `prompts/intake.py` (type: `free_text` | `single_choice` | `yes_no`, options, defaults)
+- [x] Add `PHASE_INTROS` — conversational phase openers (`prompts/intake.py`)
+- [x] Refactor `project_intake` node for conversational phrasing and option metadata (`agent/nodes.py`)
+- [x] Render numbered option menus for choice questions in REPL (e.g. `[1] 1 week  [2] 2 weeks *(default)*  [3] 3 weeks`)
+- [x] Support `defaults` command to batch-accept all defaults for a phase (skip ahead)
+- [x] Add optional `_question_meta` transient field for passing question type to REPL (`agent/state.py`)
+- [x] Dynamic follow-up choices: vague-answer probes now show 2-4 LLM-generated options as numbered menu
+
+**Questions becoming selection menus** (6 of 26):
+
+| Q | Topic | Options |
+|---|-------|---------|
+| Q2 | Project type | Greenfield / Existing codebase / Hybrid |
+| Q8 | Sprint length | 1 week / 2 weeks / 3 weeks / 4 weeks |
+| Q16 | Code hosting | GitHub / Azure DevOps / GitLab / Bitbucket / Local |
+| Q18 | Repo structure | Monorepo / Multi-repo / Microservices / Monolith |
+| Q24 | Estimation style | Fibonacci points / T-shirt sizes / No estimates |
+| Q26 | Output format | Jira / Markdown / Both |
+
+### 6C: Output Formatting with Rich Tables
+
+**Problem**: Pipeline output (epics, stories, tasks, sprints) is dumped as raw markdown — hard to scan.
+
+- [x] Create `src/scrum_agent/formatters.py` with Rich `Table`/`Panel` rendering for all artifacts
+- [x] `render_analysis_panel(analysis)` → Panel with sections
+- [x] `render_epics_table(epics)` → Table: ID, Title, Priority (colour-coded), Description
+- [x] `render_stories_table(stories, epics)` → Table grouped by epic: ID, Story, Points, Priority, Discipline
+- [x] `render_tasks_table(tasks, stories)` → Table grouped by story: ID, Title, Description
+- [x] `render_sprint_plan(sprints, velocity)` → Per-sprint panels with capacity bar
+- [x] Priority colour map: critical=red, high=yellow, medium=blue, low=dim
+- [x] Wire formatters into REPL — render structured artifacts instead of streaming raw markdown
+- [x] `render_intake_summary(qs)` → compact Rich Tables per phase with short labels, source tags, stats line
+- [x] Wire intake summary formatter into REPL (3 display paths: pre-loaded, import, main loop transition)
+
+### 6C½: Smart Intake — Reduce 26 Questions to 2-4
+
+**Problem**: Even with accelerators (skip, defaults, suggestions), every question is shown one-by-one. 26 questions feels too long.
+
+- [x] Add intake mode constants (ESSENTIAL_QUESTIONS, SMART/QUICK_ESSENTIALS, Q2_TO_Q15_MAP, MERGED_Q3_Q4_PROMPT, QUICK_FALLBACK_DEFAULTS) to `prompts/intake.py`
+- [x] Add `intake_mode`, `extracted_questions`, `_pending_merged_questions` fields to `QuestionnaireState`
+- [x] Add `--quick` and `--full-intake` CLI flags (mutually exclusive)
+- [x] Wire `intake_mode` through `run_repl()` → graph state → `project_intake` node
+- [x] Implement smart mode: auto-apply extractions + defaults, only ask essential gaps (2-4 Qs typically)
+- [x] Implement quick mode: only Q6 (team size) and Q11 (tech stack) asked, everything else auto-filled
+- [x] Merge Q3+Q4 into single prompt when both are gaps
+- [x] Auto-derive Q15 from Q2 (deterministic mapping, no LLM call)
+- [x] Enhance intake summary with provenance markers (extracted / defaulted / answered stats)
+- [x] Standard mode (26-Q flow) preserved unchanged via `--full-intake` flag
+- [x] Tests for all new helpers, modes, CLI flags, and state fields (36 new tests)
+
+### 6D: Spinners & Progress Indicators
+
+**Problem**: No feedback during LLM calls — app looks frozen.
+
+- [x] Wrap `graph.invoke()` with `console.status(spinner="dots")` and contextual messages
+- [x] Spinner messages: *"Processing your answer..."* / *"Analysing project..."* / *"Generating epics..."* / etc.
+- [x] Pipeline progress line after questionnaire: `[2/5] Generating epics...`
+- [x] Elapsed time shown after each step: `(took 3.2s)`
+
+### 6E: Interactive Review Menus
+
+**Problem**: Accept/Edit/Reject is text-based with fragile keyword matching — unrecognised text triggers accidental rejection.
+
+- [x] Replace free-text review with numbered inline selector: `[1] Accept  [2] Edit  [3] Reject`
+- [x] Accept both numbers (`1`/`2`/`3`) and existing keywords — eliminates accidental rejection from typos
+
+### 6F: CLI Flags & Error Messages
+
+- [x] `--quick` flag — minimal intake (replaces `--no-questionnaire`), only asks team size and tech stack
+- [x] `--export-only` flag — auto-accept all review checkpoints, output markdown
+- [x] Improved `--help` with usage examples
+- [x] Actionable error messages (network errors → "Check ANTHROPIC_API_KEY", rate limits → auto-retry with countdown)
+- [x] Consistent colour vocabulary: green=success, yellow=warning, red=error, blue=info, dim=hints
+
+### 6G: Nice-to-Have (post-must-haves)
+
+- [x] Style intake question messages with visual hierarchy — dim preamble (extraction summary, remaining count), stream question text
+- [x] Status bar via `prompt_toolkit` `bottom_toolbar` (project name, phase, session)
+- [x] `/compact` and `/verbose` toggle for output detail level
+- [x] Terminal bell after long operations
+- [x] Dark/light `--theme` flag
+- [x] Show "Includes: X, Y, Z" line on export so user knows it is cumulative (all content generated so far)
+
+---
+
+## Phase 7: Tools
+
+### Source Control Integration Tools
+
+- [x] `github_read_repo` — read repo structure, file tree, and key files via GitHub API
+- [x] `github_read_file` — fetch a specific file's contents from a GitHub repo
+- [x] `github_list_issues` — list open issues and PRs to understand current work in progress
+- [x] `github_read_readme` — fetch README and contributing docs for project context
+- [x] `azdevops_read_repo` — read repo structure, file tree, and key files via Azure DevOps API
+- [x] `azdevops_read_file` — fetch a specific file's contents from an Azure DevOps repo
+- [x] `azdevops_list_work_items` — list existing work items / backlog for context
+- [x] Set up authentication for GitHub (PAT or GitHub App token)
+- [x] Set up authentication for Azure DevOps (PAT)
+- [x] Auto-detect platform from repo URL provided during questionnaire
+- [x] Rate limiting and pagination handling for API calls
+- [x] Feed repo scan results into `project_analyzer` and `epic_generator` nodes for grounded output
+
+### Pure Python Tools
+
+- [x] `read_codebase` — scan local repo structure, identify languages, frameworks, key files
+- [x] `export_markdown` — export full Scrum plan (epics, stories, tasks, sprints) as `.md` file
+
+### LLM-Powered Tools
+
+- [x] `estimate_complexity` — analyze code/requirements for story point estimation
+- [x] `generate_acceptance_criteria` — write ACs from story descriptions
+
+### Atlassian (Jira + Confluence) Integration Tools
+
+#### Jira
+
+- [x] Set up Jira authentication (API token, base URL, project key)
+- [x] `jira_read_board` — read existing board state (sprints, backlog, velocity)
+- [x] `jira_create_epic` — create epics in Jira
+- [x] `jira_create_story` — create stories with ACs, points, priority, and sprint assignment
+- [x] `jira_create_sprint` — create and manage sprints
+- [x] Add user confirmation before any Jira write operation
+- [x] Handle Jira API errors gracefully (auth failures, rate limits, network issues)
+- [x] Map internal story IDs to Jira ticket keys after creation
+- [x] Link stories to their parent epics in Jira
+- [x] Add labels to the stories that have code
+
+#### Confluence
+
+- [x] Set up Confluence authentication (shared Atlassian API token + base URL + space key)
+- [x] `confluence_search_docs` — search for pages by keyword/label so the agent can locate relevant documentation before planning
+- [x] `confluence_read_page` — fetch and parse a Confluence page (strips ADF/HTML to plain text for LLM context)
+- [x] `confluence_read_space` — list pages in a space to discover architecture docs, ADRs, runbooks, and product specs
+- [x] Feed Confluence context into `project_analyzer` — surface relevant docs in the analysis prompt alongside repo and Jira data
+- [x] `confluence_create_page` — publish the generated sprint plan or project brief as a Confluence page (with user confirmation)
+- [x] `confluence_update_page` — update an existing page (e.g. append a new sprint plan to a running sprint log)
+- [x] Handle Confluence API errors gracefully (401/403/404/429, page not found, space not found)
+- [x] Add user confirmation before any Confluence write operation
+- [x] Truncate large pages at 8 000 chars (same pattern as GitHub/AzDO file tools)
+
+### Tool Registration
+
+- [x] Register all tools with `@tool` decorator and descriptive docstrings
+- [x] Create `ToolNode` and bind tools to LLM with `bind_tools`
+- [x] Implement tool risk level routing (auto-execute / log / human approval)
+- [x] Regenerate the Graph image in the Readme.md with the new tools
+
+---
+
+## Phase 7.2: UI & General Improvements
+
+### App
+- [x] Can we make the application LLM Agnostic? so it works with for example openai, anthropic, gemini...etc
+
+### UI
+- [x] adding a config markdown file to contain any urls, screenshots, documents, text ..etc (Similar to the .claude folder)
+    - [x] LLM to scan that file and use it for more context in the beginning of the process
+- [x] Questionnaire question of greenfield or hybrid if answered as exisiting or hybrid needs a url or repo confirmation or the user to input one
+
+### Landing Page and Set up Expereince
+- [x] I plan to expand the agent to handle multiple things in the future, such as coding, sprint review..etc so would be nice if the startupo page was choose which option you want (`e.g 1. Project Planning`) the work we did so far should be under project planning.
+- [x] Welcome screen for first time setting up if no creds are available
+    - [x] Ask users to provide the credentials either via terminal or creating a ~ directory (.scrum-agent)  and explain what they are and how to create and what permissions they need.
+    - [x] Store those credentials in the ~ directory (.scrum-agent) and read them from there on startup.
+
+### Full-Screen Dashboard UI Overhaul
+
+Replacing inline text prompts with full-screen, block-character dashboard screens using Rich Live + raw terminal input. Rounded borders, consistent padding, arrow-key navigation.
+
+- [x] Create `ui/` package (`src/scrum_agent/ui/__init__.py`)
+- [x] Create `ui/_logos.py` — block-character ASCII art logos (Claude, Gemini, OpenAI)
+- [x] Create `ui/provider_select.py` — full-screen provider selection (Step 1 of setup wizard)
+- [x] Wire `_collect_provider()` in `setup_wizard.py` to use new full-screen selector
+- [ ] Polish provider select layout — centering, card sizing, brand colours
+- [ ] Full-screen API key entry screen (Step 2 of setup wizard)
+- [ ] Full-screen integrations screen (Step 3 of setup wizard)
+- [x] Full-screen mode selection menu (replace inline numbered menu)
+- [x] Full-screen offline sub-menu (Export/Import) with export success screen and import file path input
+- [x] Full-screen TUI session (`ui/session.py`) — replaces REPL for Smart/Full intake with description input, intake questions, summary review, pipeline stages, and chat screens
+- [ ] Full-screen welcome/landing screen
+
+### TUI Visual Polish
+
+Pipeline artifact rendering, scrolling, animations, and layout refinements.
+
+- [x] TUI-specific renderers for pipeline artifacts (stories, epics, tasks, sprint plan) — replaces shared `formatters.py` table-based rendering with text-block layouts
+- [x] Stories: rounded boxes per story with metadata header (ID · pts · priority · discipline), story text, Given/When/Then ACs, DoD checklist
+- [x] Epics: rounded boxes per epic with header line (E1 · Title · priority), description in grey
+- [x] Tasks: rounded boxes per story group with story header, story text, individual tasks with descriptions
+- [x] Sprint plan: summary line at top, each sprint in rounded box with capacity bar + points, goal, story list
+- [x] Analysis: TUI-specific renderer with styled key-value fields, bullet sections, assumptions in yellow panel
+- [x] Sticky group headers in pipeline viewport — epic titles pin at top when scrolling, with decryption-style morph animation between sections
+- [x] Scrollbar for pipeline stages and summary review — vertical `│` track with `┃` thumb, right-aligned column
+- [x] Fixed viewport height calculation (removed stale scroll indicator line budget)
+- [x] Project card border: one-shot white pulse on Enter instead of continuous animation
+- [x] Project resume: fixed enum deserialization crash (`Priority`, `StoryPointValue`, `Discipline` restored from JSON)
+- [x] Given/When/Then and DoD styling — proper colour hierarchy instead of dim
+- [x] Bottom border fix when sticky headers reduce viewport height
+- [ ] Rework intra-generation loading animation
+- [ ] Implement editing of each pipeline item (epic, story, task, sprint)
+
+---
+
+## Phase 8: Memory & Session Persistence
+
+- [x] Save project metadata to `~/.scrum-agent/projects.json` (name, description, pipeline progress, artifact counts, Jira sync)
+- [x] Load and display saved projects in Planning menu with real data
+- [x] Rename REPL history file from `history` to `repl-history`
+- [x] Auto-migrate old history file at startup
+- [x] Add save points in TUI session (after description, intake review, each pipeline stage, chat)
+- [x] Show pipeline progress on project cards (e.g. "3/7 stages complete" with color-coded status)
+- [x] Launch TUI session when selecting an existing project (fresh session — no full state resume yet)
+- [x] Viewport scrolling for project list with half-card peek stubs at edges
+### 8A: SQLite Persistence
+- [x] Add `langgraph-checkpoint-sqlite` dependency
+- [x] Create `SessionStore` (custom SQLite metadata table, not `SqliteSaver` as graph checkpointer — avoids `operator.add` reducer incompatibility and zero-arg `create_graph` test constraint)
+- [x] Assign human-readable session IDs: `<project-slug>-<YYYY-MM-DD>` (e.g. `lendflow-2026-03-06`); internal ID `new-<8hex>-<YYYY-MM-DD>` for uniqueness
+- [x] Store session metadata (project name, created_at, last_modified, last_node_completed)
+- [x] Show "Session saved: lendflow-2026-03-06" confirmation on clean exit
+- [x] Write `tests/test_sessions.py` (17 tests — round-trip, slug, display name, persistence)
+
+### 8B: Session Resumption
+- [x] Implement `--resume` flag: load session by ID or `latest` keyword
+- [x] If `--resume` passed without ID → interactive session picker (project name, date, last completed step)
+- [x] Resume from last completed node — skip already-done steps, don't re-run epics if sprint planning failed
+- [x] Handle stale/corrupt sessions gracefully (warn and offer fresh start instead of crash)
+- [x] Add `--list-sessions` flag to show all saved sessions in a Rich table
+
+### 8C: Session Lifecycle
+- [x] Handle session ID collisions (same project run twice on same day → append `-2`, `-3`, etc.)
+- [x] Handle schema version mismatch — store `schema_version` in metadata, warn and offer fresh start on mismatch
+- [x] Auto-prune sessions older than 30 days (configurable, opt-out via config)
+
+### 8D: Tests
+- [x] Test `SqliteSaver` round-trip (save state → reload → all fields match)
+- [x] Test `--resume latest` picks the most recent session
+- [x] Test resume skips already-completed nodes
+- [x] Test stale/corrupt session fallback behaviour
+- [x] Test session ID collision handling (`-2`, `-3` suffix)
+
+---
+
+## Phase 9: UI Overhaul Niky addition
+- [ ]
+- [ ]
+- [ ]
+
+---
+
+## Phase 10: Context Enrichment
+
+_Replaces the original "RAG — Codebase Ingestion" plan. The codebase scanner (`tools/codebase.py`),
+GitHub/Azure DevOps repo tools, and Confluence tools already provide context to `project_analyzer`.
+Vector-store RAG (Chroma/embeddings) is deferred until there's evidence the direct-context approach
+is insufficient for real projects._
+
+### Already Done
+- [x] Local codebase scanner with language detection and tree output (`read_codebase`)
+- [x] Skip binary files, node_modules, build artifacts (`_SKIP_DIRS`)
+- [x] Codebase context fed into `project_analyzer` via `_scan_repo_context`
+- [x] Confluence page ingestion for project docs
+- [x] Questionnaire file import (`--questionnaire` flag)
+
+### Remaining
+- [x] Targeted file content retrieval — `read_local_file` tool lets the LLM read specific files from local repos
+- [x] Large codebase handling — budget-limited tree output (`_MAX_TREE_CHARS`), auto-collapses large dirs
+- [x] PRD/design doc ingestion — `scrum-docs/` directory for .md/.txt/.rst files (export from Google Docs, Notion, etc.)
+- [x] PDF support in `scrum-docs/` via `pymupdf` optional dependency (`uv sync --extra pdf`)
+---
+
+## Phase 11: Guardrails
+
+### Input Guardrails
+
+- [x] Validate project descriptions are not empty or too vague (follow-up probing via `probed_questions`)
+- [x] Trigger follow-up questions for insufficient context (vague-answer detection + dynamic choices)
+- [x] Detect and handle prompt injection attempts (`input_guardrails.py` — heuristic pattern blocklist)
+- [x] Cap input length to prevent abuse (`MAX_INPUT_CHARS = 5000` in `input_guardrails.py`)
+
+### Tool Guardrails
+
+- [x] Implement human-in-the-loop routing in the graph (`pending_review` checkpoints after each pipeline step)
+- [x] Require explicit user confirmation for high-risk tools (review gate before Jira/Confluence writes)
+- [x] Auto-execute low-risk tools (read, search, export — no confirmation needed)
+- [x] Log and display medium-risk tool outputs (`_display_tool_activity` in REPL — shows tool name + result snippet)
+
+### Output Guardrails
+
+- [x] Validate story format matches "As a [persona], I want to [goal], so that [benefit]" (enforced in prompts)
+- [x] Validate all stories have Given/When/Then acceptance criteria (enforced in prompts)
+- [x] Enforce story points in 1–8 range, auto-split if >8 (enforced in prompts + `auto_split_stories`)
+- [x] Programmatic validation of story format (`validate_story_format` in `output_guardrails.py`)
+- [x] Validate AC coverage (happy, negative, edge, error) — `validate_ac_coverage` checks for negative keywords
+- [x] Validate sprint load does not exceed capacity — `validate_sprint_capacity` compares points vs velocity
+- [x] Flag when generated scope exceeds stated project scope — `validate_scope_vs_capacity` checks total pts vs planned capacity
+- [x] Push back on unrealistic sprint loads — warnings displayed after artifact rendering in REPL
+
+---
+
+## Phase 12: Testing
+
+### Unit Tests
+
+- [x] Test state transitions in the graph (`test_state.py`, `test_nodes.py`)
+- [x] Test velocity calculation (default and provided) (`test_nodes.py`)
+- [x] Test story point validation (reject >8, accept 1–8) (`test_state.py`)
+- [x] Test sprint capacity allocation (`test_nodes.py`)
+- [x] Test prompt formatting and template rendering (`test_*_prompt.py` files)
+- [x] Test tool input/output validation (`test_tools_jira.py`, `test_tools_llm.py` — input edge cases)
+- [x] Test auto-split logic (`test_nodes.py::TestAutoSplitBoundary` — boundary, redistribution, enum)
+
+### Integration Tests
+
+- [x] Test session save and resume (`test_sessions.py`, `test_cli.py` Phase 8D)
+- [x] Test Confluence integration with mock API (`test_tools_confluence.py`)
+- [x] Test Jira integration with mock API (`test_tools_jira.py`)
+- [x] Test full graph execution with mock LLM responses
+- [x] Test questionnaire flow end-to-end
+- [x] Test epic → story → task → sprint pipeline
+
+### E2E Tests — Graph-Level (priority: high)
+
+Drive the compiled graph with scripted inputs and mocked LLM, assert on full pipeline output.
+No REPL, no UI — tests routing, state flow, and node chaining end-to-end.
+
+- [x] Create shared E2E helpers: multi-stage LLM mock (returns different JSON per pipeline stage), state builder
+- [x] Test full questionnaire → pipeline flow (Q1–Q26 → analyzer → epics → stories → tasks → sprints)
+- [x] Test quick intake mode skips to pipeline with defaults
+- [x] Test smart intake mode extracts answers and skips answered questions
+- [x] Test review loop: reject epics → re-generate with feedback → accept
+- [x] Test review loop: edit stories → re-generate with edits → accept
+- [x] Test fallback path: garbage LLM responses at every stage still produce valid artifacts
+- [x] Test resume: save state mid-pipeline, reload, continue from where it left off
+
+### E2E Tests — REPL-Level (priority: medium)
+
+Drive `run_repl()` with fake PromptSession inputs and captured Rich console output.
+Tests the full stack: input handling, Rich panels, review checkpoints, toolbar, exit.
+
+- [x] Test happy path: intake → pipeline → "Goodbye" (assert key panels appear in output)
+- [x] Test Ctrl-C / Ctrl-D graceful exit at each pipeline stage
+- [x] Test `/export` command produces valid JSON/Markdown output
+- [x] Test `/resume` command lists sessions and resumes selected one
+- [x] Test error recovery: LLM error mid-pipeline shows message, doesn't crash REPL
+
+### Golden Datasets (priority: high)
+
+Curated project descriptions with expected outputs, run as regression tests.
+Uses LangSmith Datasets + Evaluators or plain pytest with structural assertions.
+
+- [x] Create 3–5 curated project descriptions as test fixtures (e.g. todo app, SaaS platform, mobile app, API gateway, ML pipeline)
+- [x] Define structural evaluators: epic count (3–6), stories per epic (2–5), story point range (1–8 Fibonacci), AC format (Given/When/Then)
+- [x] Validate epic generation: titles relevant to project, priorities assigned, no duplicates
+- [x] Validate story generation: correct epic_id references, personas match end_users, points are Fibonacci
+- [x] Validate task generation: correct story_id references, 2–5 tasks per story
+- [x] Validate sprint planning: all stories allocated, capacity ≤ velocity, no orphans
+- [x] Add `make eval` command to run golden dataset suite separately from unit tests
+- [x] Run golden datasets in CI after every change to catch regressions
+
+### Contract Tests — Recorded API Responses (priority: high)
+
+Use `pytest-recording` (VCR.py) to record real API responses once, replay in CI.
+Catches schema changes and SDK mismatches without network calls on every push.
+Covers all integrations: Jira, Confluence, GitHub, Azure DevOps, and LLM providers.
+
+**Setup:**
+- [x] Add `pytest-recording` (VCR.py wrapper) to dev dependencies
+- [x] Create `tests/cassettes/` directory for recorded response fixtures
+- [x] Add `make record` command to re-record cassettes against real APIs
+- [x] Add cassette files to git (they're test fixtures, not secrets — scrub tokens before committing)
+
+**Jira (atlassian-python-api / jira):**
+- [x] Record `jira_read_board` — board info, active sprint, issues list
+- [x] Record `jira_create_epic` — epic creation with summary, description, priority
+- [x] Record `jira_create_story` — story creation with AC, points, epic link
+- [x] Record `jira_create_sprint` — sprint creation with name, start/end dates
+- [x] Record error responses: 401 (bad token), 404 (missing project), 429 (rate limit)
+
+**Confluence (atlassian-python-api):**
+- [x] Record `confluence_search_docs` — CQL search returning page titles and URLs
+- [x] Record `confluence_read_page` — page content with HTML → plain text conversion
+- [x] Record `confluence_read_space` — space page listing
+- [x] Record `confluence_create_page` — page creation with storage format body
+- [x] Record error responses: 401 (bad token), 404 (missing space)
+
+**GitHub (PyGithub):**
+- [x] Record `github_read_repo` — repo tree listing with file types
+- [x] Record `github_read_file` — file content retrieval
+- [x] Record `github_list_issues` — issues with labels, pagination
+- [x] Record `github_read_readme` — README.md content
+- [x] Record error responses: 401 (bad PAT), 404 (missing repo), 403 (rate limit)
+
+**Azure DevOps (azure-devops):**
+- [x] Record `azdevops_read_repo` — repo file tree listing
+- [x] Record `azdevops_read_file` — file content retrieval
+- [x] Record `azdevops_list_work_items` — work items with types, states, assignees
+- [x] Record error responses: 401 (bad PAT), 404 (missing project)
+
+**LLM Providers (langchain-anthropic / langchain-openai / langchain-google-genai):**
+- [x] Record Claude (Anthropic) — analyzer prompt → JSON response, streaming tokens
+- [x] Record GPT-4o (OpenAI) — same prompt, compare response schema compatibility
+- [x] Record Gemini (Google) — same prompt, compare response schema compatibility
+- [x] Record error responses: 401 (bad API key), 429 (rate limit), 529 (overloaded)
+- [x] Record off-topic classifier responses (cheap models: Haiku, gpt-4o-mini, Gemini Flash)
+- [x] Verify all providers return parseable JSON for each pipeline stage
+
+
+**Add to CI:**
+- [x] Add Contract Tests to CI
+
+### Smoke Tests — Real APIs on Schedule (priority: low)
+
+Run against real APIs on a weekly cron job, not on every push.
+Catches token expiry, API deprecations, and SDK drift.
+
+- [x] Create `tests/smoke/` directory for smoke test files
+- [x] Add `make smoke-test` command (runs only smoke tests with real credentials)
+- [x] Add GitHub Actions workflow: weekly cron (Monday 6am), uses repository secrets
+- [x] Alert on failure: Slack/email notification when smoke tests break using the Slack App in Github
+- [x] Smoke: Jira — create and delete a test epic in a sandbox project
+- [x] Smoke: Confluence — create and delete a test page in a sandbox space
+- [x] Smoke: GitHub — read a known public repo (e.g. the project's own repo)
+- [x] Smoke: Azure DevOps — read a known project/repo in the test org
+- [x] Smoke: Anthropic Claude — send a simple prompt, assert non-empty response
+- [x] Smoke: OpenAI GPT-4o — send a simple prompt, assert non-empty response (if configured)
+- [x] Smoke: Google Gemini — send a simple prompt, assert non-empty response (if configured)
+
+### Test Infrastructure Improvements (priority: high → medium)
+
+**Fix test_repl.py flaky isolation (priority: high):**
+18 tests pass in isolation but fail in the full suite — shared mutable state leaking between tests.
+- [x] Identify the leaking module-level state in `scrum_agent.repl` (likely graph instance, session, or questionnaire)
+- [x] Add `tests/integration/conftest.py` with autouse fixture to reset module-level state before each test
+- [x] Verify all 18 flaky tests pass reliably in full suite after fix
+- [x] Add CI check: `make test` must have zero failures (not just "known flaky" exceptions)
+
+**ReAct loop integration test (priority: high):**
+The LLM → tool → LLM feedback loop is a critical path with no dedicated test.
+- [x] Test: LLM returns tool_calls → ToolNode executes tool → result fed back → LLM produces final answer
+- [x] Test: LLM calls multiple tools in sequence (e.g. read_board then create_epic)
+- [x] Test: tool raises error → LLM sees error message → responds gracefully (no crash, no infinite loop)
+- [x] Test: human_review node intercepts high-risk tool → confirmation flow → tool executes
+
+**Graph topology validation (priority: medium):**
+Catch wiring mistakes when nodes or edges are added/removed.
+- [x] Test: every node is reachable from START (no orphan nodes)
+- [x] Test: every node has at least one outgoing edge or reaches END (no dead ends)
+- [x] Test: all node names in conditional edges match registered nodes
+- [x] Test: adding a new node without an edge fails at compile time (verify LangGraph enforces this)
+
+**Tool registration sync check (priority: medium):**
+Ensure every `@tool`-decorated function in `src/scrum_agent/tools/` is registered in `get_tools()`.
+- [x] Scan all modules in the tools package for `@tool`-decorated functions
+- [x] Assert every discovered tool name appears in `get_tools()` result
+- [x] Assert no tool is registered twice (duplicate detection)
+
+**Snapshot testing for Rich output (priority: medium):**
+Catch visual regressions in terminal panel rendering.
+- [x] Add `syrupy` to dev dependencies (pytest snapshot assertion plugin)
+- [x] Snapshot `_format_epics()` output with sample data
+- [x] Snapshot `_format_stories()` output with sample data
+- [x] Snapshot `_format_tasks()` output with sample data
+- [x] Snapshot `_format_sprints()` output with sample data
+- [x] Snapshot project analysis panel output
+- [x] Add `--snapshot-update` to `make test` docs for when intentional format changes are made
+
+**Token budget assertions (priority: low):**
+Catch prompt size regressions that increase LLM cost.
+- [x] Assert analyzer prompt stays under 20K chars (~5K tokens) for a typical questionnaire
+- [x] Assert epic generator prompt stays under 15K chars
+- [x] Assert story writer prompt stays under 20K chars (includes all epics)
+- [x] Assert sprint planner prompt stays under 15K chars
+- [x] Assert system prompt stays under 5K chars
+- [x] Log actual token counts in CI output for trend monitoring
+
+**Schema validation on contract tests (priority: low):**
+When using VCR recorded responses, validate response schemas before parsing.
+- [x] Define expected response schemas for each Jira endpoint (fields, types)
+- [x] Define expected response schemas for each Confluence endpoint
+- [x] Define expected response schemas for each GitHub endpoint
+- [x] Define expected response schemas for LLM JSON output (analysis, epics, stories, tasks, sprints)
+- [x] Assert recorded responses match schemas — catch silent field additions/removals
+
+### Red Teaming (priority: medium)
+
+Adversarial inputs to test guardrails, fallbacks, and edge cases.
+
+- [x] Test with vague / empty project descriptions → fallback analysis still usable
+- [x] Test with contradictory requirements → agent flags conflicts or picks sensible defaults
+- [x] Test with absurdly large scope (50+ features) → still produces ≤ 6 epics, stories capped
+- [x] Test prompt injection attempts → input guardrails block, system prompt holds
+- [x] Test with extremely long inputs → length check rejects, no crash
+- [x] Test with gibberish / non-English inputs → off-topic classifier blocks or agent handles gracefully
+
+---
+
+## Phase 13: v1.0 — Production Release (Project Planning Agent)
+
+_Ship the existing project planning agent as a usable product. Everything
+needed to let real users plan projects: polish, reliability, deployment,
+and documentation. New agents come after this is live._
+
+### 13A: Reliability & Edge Cases
+
+#### Quick wins (group together — small, isolated changes)
+- [x] Ability to choose the sprint you want (default to the next one)
+- [x] Ask sprint length in Smart Intake (give options with 2 weeks a default) followed by another question of how many sprints you aim to complete it in as a choice question in the smart questionnaire (default: no preference / let the agent decide)
+- [x] A dedicated Sub Task for Documentation (For user stories that have docuemntation in D.O.D) which includes in the description key elements to document and the link to the confulence docs and readme (IF PROVIDED)
+- [x] Sub Tasks labels: "Code", "Documentation", "Infrastructure", "Testing" auto-tagged
+- [x] Testing plans included in sub tasks — auto-generate test plan section in each subtask that has code involved
+- [x] Handle projects that don't need epics (small scope → stories only)
+- [x] AI coding prompt per task — add `ai_prompt` field to Task with ARC-structured instruction for Cursor/Claude Code
+- [x] Add a Prompt rating for your input to say how good the prompt was
+
+#### Dynamic capacity retrieval
+_Replace manual velocity input with data-driven defaults. Based on analysis of Capacity_Plan_Template.xlsx — real feature capacity is ~24% of gross after deductions._
+
+**Capacity calculator (intake Q27–Q30):**
+- [x] Add intake questions for capacity deductions: bank holidays (days), planned leave (days), unplanned leave (%), onboarding (dev-sprints)
+- [x] Add intake questions for KTLO/BAU: dedicated KTLO engineers, expected unplanned work (dev-sprints)
+- [x] Add discovery % deductions (defaults: 5% discovery)
+- [x] Auto-detect bank holidays using real sprint window dates (not intake-time locale guess)
+- [x] Add support for detecting bank holidays by region/country (100+ countries via `holidays` package with 3-layer locale fallback)
+- [x] Fix GB subdivision holidays (Easter Monday, August bank holiday) — use ENG default subdivision
+- [x] Compute net velocity per sprint with all deductions (bank holidays, leave, unplanned %, onboarding)
+- [x] Compute net feature capacity: gross - deductions - KTLO - platform/discovery tax
+- [x] Use net capacity instead of raw velocity in sprint_planner capacity checks
+- [x] Surface capacity breakdown in analysis review screen (gross → deductions → net)
+- [x] Per-sprint velocity — only sprints with bank holidays get reduced capacity, others keep full velocity
+- [x] Convert inline helpers to @tools: _fetch_jira_velocity, _fetch_active_sprint_number, _load_user_context
+- [x] Add capacity breakdown to scrum-plan.md export and HTML report
+- [x] Persist all capacity fields in session save/load whitelists
+
+**Jira-based velocity:**
+- [x] Pull sprint history from Jira (completed points per sprint)
+- [x] Calculate rolling average velocity (last 3–5 sprints)
+- [x] Handle edge cases: new teams with no history, outlier sprints
+
+**Task enrichment:**
+- [x] Auto-tagged task labels: Code, Documentation, Infrastructure, Testing — `TaskLabel` enum + colour-coded display in REPL tables, TUI, and markdown
+- [x] Auto-generated test plan per Code/Infrastructure task — parser extracts `test_plan` field, all 3 renderers display it
+- [x] Dedicated documentation sub-task for stories with Documentation in DoD — includes key elements to document + Confluence/README URLs from intake
+- [x] AI coding prompt per task (`ai_prompt` field) — ARC-structured instruction for Cursor/Claude Code/Copilot, includes project context and tech stack
+- [x] Fix TUI task editor silently resetting label, test_plan, ai_prompt to defaults on save
+
+**Small project handling:**
+- [x] Analyzer LLM sets `skip_epics` for small projects (≤2 sprints AND ≤3 goals)
+- [x] Deterministic guardrail: `skip_epics` only allowed when scope is genuinely small, regardless of LLM output
+- [x] Sentinel epic uses project name as title (not generic "Project Backlog")
+- [x] Use E1 instead of E0 so 1-epic and multi-epic projects share same UI and rendering paths
+- [x] Removed all E0 special-casing — same validation bounds, renderers, story writer rules for all projects
+
+**Prompt quality rating:**
+- [x] Deterministic scoring from QuestionnaireState tracking sets (no LLM call)
+- [x] Letter grade (A/B/C/D) + percentage with breakdown (answered/extracted/defaulted/skipped/probed)
+- [x] Actionable suggestions including SCRUM.md hint and high-value question tips
+- [x] Displayed on analysis review screen in both TUI and REPL
+
+**Infrastructure & reliability:**
+- [x] Per-session log files — cleaned up on project deletion
+- [x] Surface API errors in TUI — user-friendly error panels for auth/billing/network errors instead of silent return to project select
+- [x] Fix CodeQL false positives: use full string assertions instead of domain substrings in tests
+- [x] Fix locale fallback test for CI where LANG env var differs
+- [x] Fix Q10 range parsing to use upper bound consistently
+
+**Story & sprint UX (uncommitted — this session):**
+- [x] Add `title` field to UserStory — short summary (3-7 words) shown in sprint views instead of epic name
+- [x] Sprint TUI: highlight bank-holiday-impacted sprints with amber border + holiday annotation
+- [x] Sprint TUI: use per-sprint net velocity in capacity bars (not flat velocity)
+- [x] Ask team availability during smart intake — per-person PTO/leave tracking with date-based sub-loop after bank holidays
+- [x] Capacity overflow: 3 options — extend sprints (recommended), increase team size, or keep as-is (overloaded, not recommended)
+
+**How to verify — all features on `feature/phase-13A-continued`:**
+
+_Task enrichment:_
+1. **Task labels** — `make run`, complete a plan. In the task review screen, each task should show a colour-coded label badge (Code/Documentation/Infrastructure/Testing). In `scrum-plan.md` export, tasks show `**Label:** Code` etc.
+2. **Test plans** — tasks labelled Code or Infrastructure should have a "Test Plan" section listing what to test (unit, integration, edge cases). Documentation/Testing tasks should have no test plan.
+3. **Documentation sub-task** — for any story with "Documentation" marked as applicable in its DoD, the last task should be a consolidated documentation sub-task. Its description should reference Confluence/README URLs if they were provided during intake (Q14).
+4. **AI prompt** — every task should have an `ai_prompt` field. In the TUI task detail, it appears as a collapsible section. In `scrum-plan.md`, it appears under each task. The prompt should include project name, tech stack, and ARC-structured guidance.
+
+_Small project handling:_
+5. **Epic skip** — `make run` with a very small project (e.g. "build a calculator app, 1 sprint, 2 goals"). The analyzer should create a single epic named after the project. The epic review step still appears. Stories use standard 2-5 per-epic bounds.
+
+_Prompt quality:_
+6. **Prompt rating** — after intake, the analysis review screen shows a letter grade (A/B/C/D) with percentage, breakdown counts, and suggestions. Try skipping questions to get a lower grade. Providing a SCRUM.md file should improve the score.
+
+_Capacity planning:_
+7. **Capacity breakdown** — after intake, the analysis screen should show "Capacity Planning" with gross velocity, deductions (bank holidays, leave, unplanned %, onboarding, KTLO, discovery), and net velocity. If bank holidays are detected, a per-sprint breakdown appears.
+8. **Bank holiday detection** — the system auto-detects holidays based on locale. UK users near Easter should see Easter Monday detected. The intake summary shows detected holidays.
+9. **Bank holiday sprint highlighting** — in the sprint TUI view:
+   - Impacted sprints have an **amber border** on the header box
+   - A `⚠ −1d capacity: Easter Monday` annotation appears below the header
+   - The capacity bar uses the **reduced velocity** (e.g. 4/4 pts instead of 4/5 pts)
+   - Non-impacted sprints remain white-bordered with full velocity
+
+_PTO / planned leave:_
+10. **PTO sub-loop in smart mode** — `make run`, complete intake in smart mode. After bank holidays are resolved (Q28), a "Does anyone have planned leave?" prompt appears with [1] Yes / [2] No. Typing an invalid option (e.g. "4") should re-prompt, not skip.
+11. **PTO date collection** — choose Yes, enter a name, start date (DD/MM/YYYY), and end date. Verify:
+    - Invalid date formats are rejected with a helpful message
+    - End date before start date is rejected
+    - Dates outside the planning window (past dates, dates beyond sprint range) are rejected
+    - After entering, a summary shows (e.g. "Omar: 17/04 – 18/04 (2 working days)") with [1] Add another / [2] Done
+12. **PTO in capacity breakdown** — after accepting intake, the analysis screen "Capacity" section should show PTO in per-sprint breakdown (e.g. "Sprint 1: 3 pts (PTO: Omar 2d)"). The deductions line should show "Planned leave: 2 day(s) (Omar 2d)".
+13. **PTO in sprint TUI** — in the sprint plan view, sprints impacted by PTO should show a 📋 PTO annotation line (e.g. "PTO: Omar 2d") similar to the bank holiday ⚠ annotation.
+14. **PTO in exports** — `scrum-plan.md` per-sprint velocity section should include PTO annotations alongside bank holidays (e.g. "Sprint 1: **3 pts** — PTO: Omar 2d").
+15. **PTO + bank holidays combined** — enter PTO that overlaps with a bank-holiday sprint. Both should appear in annotations, and velocity should reflect both deductions without double-counting.
+16. **Quick mode skips PTO** — `make run` in quick mode. The PTO question should NOT appear; planned leave defaults to 0.
+17. **No PTO** — answer "No" to the PTO question. Behaviour should be identical to before the feature was added (planned_leave = 0, no PTO annotations).
+
+_Capacity overflow:_
+18. **3-option overflow screen** — `make run` with a small team (1 engineer) and many stories that exceed 1-sprint capacity. The overflow screen should show 3 options: (1) Extend to N sprints (recommended), (2) Keep M sprints — increase team to K engineers, (3) Keep M sprints, 1 engineer (sprints will exceed velocity).
+19. **Extend sprints** — choose option 1. Sprints should extend to the recommended count, velocity unchanged.
+20. **Increase team** — re-run, choose option 2. Sprint count stays at original target, velocity scales up (e.g. 3 engineers × 5 pts = 15 pts/sprint). Sprint plan header shows "Team expanded from 1 to 3 engineer(s)". No sprint should have "HARD DEADLINE" in prompt.
+21. **Keep as-is (overload)** — re-run, choose option 3. Sprint count stays at original, velocity unchanged, sprints may exceed velocity cap.
+22. **Jira team size cap** — when Jira is connected, the "increase team" option should never suggest more engineers than the Jira org has. If the team is already at the Jira cap (or the computed team size equals the current team), option 2 is replaced with a note: "Increase team is unavailable — your Jira board has N team member(s), which is already the maximum."
+23. **Jira velocity JQL fallback** — when Jira's `completedPoints` from the sprint report is zero (common with next-gen/team-managed boards), the system should fall back to summing `customfield_10016` (story points) from Done issues via JQL. Check the debug log for `JQL fallback story_points=` lines confirming the fallback fired. Velocity should reflect actual completed work, not zero.
+
+_Context sources & SCRUM.md:_
+24. **Context sources in TUI** — `make run`, complete intake, reach analysis. The analysis panel should show a "Context Sources" section with ✓/✗/— indicators for SCRUM.md, Repository, and Confluence. If SCRUM.md exists, it shows ✓ green; if missing, ✗ red.
+25. **SCRUM.md auto-population** — populate SCRUM.md with project context (tech stack, sprint length, constraints, etc.), then `make run` in smart mode. The preamble should say "N from SCRUM.md" and those questions should be pre-filled. Check the intake summary for `*(from SCRUM.md)*` provenance markers.
+26. **Description wins over SCRUM.md** — type a project description that mentions a different tech stack than SCRUM.md. The description's tech stack should take priority; SCRUM.md fills only gaps.
+27. **No SCRUM.md** — delete or rename SCRUM.md and run. Only description extraction should fire (no SCRUM.md preamble line). Everything works as before.
+
+_Story titles:_
+28. **Story titles in sprint view** — each story in the sprint TUI shows its own title (e.g. "Create Bookmark Endpoint") instead of the epic name. Stories without titles fall back to the goal text.
+29. **Exports** — `scrum-plan.md` story headings use `## US-E1-001: Create Bookmark Endpoint` (title). HTML export card titles use the short title.
+
+_Infrastructure:_
+30. **Log files** — after running, check `~/.scrum-agent/logs/` for per-session log files. Deleting a project should clean up its logs.
+31. **API error handling** — set an invalid `ANTHROPIC_API_KEY` and run. The TUI should show a user-friendly error panel (not a traceback or silent failure).
+
+_Backward compatibility:_
+32. **Resume old sessions** — resume a session saved before these changes. Stories with no `title` field should render with `story.goal` in sprint views. No crash on missing capacity fields.
+
+_Tests:_
+33. `make test-fast` — 2207 pass, `make lint` — clean, `make snapshot-update` — 2 snapshots updated for formatter column change.
+
+
+
+#### Re-architect Greenfield projects for Harness Engineering (Include Github/Azure Devops push for the arhcitecture: https://github.com/nikomain/harness-engineering-boilerplate/tree/main)
+- [ ]
+
+
+#### Smart intake improvements - For Exisiting Repo Track
+_Make the adaptive questionnaire smarter — extract more, ask less, validate answers._
+
+**Smarter extraction:**
+- [ ] Relax extraction rules — infer Q2 (project type) from keywords like "refactor", "migrate", "legacy"
+- [ ] Extract integrations (Q12) from tech stack keywords (Stripe, Auth0, Firebase, etc.)
+- [ ] Extract architectural constraints (Q13) from infra signals (Kubernetes, microservices, AWS)
+
+**Adaptive question text:**
+- [ ] Personalise Q7 (roles) based on Q6 team size — "You said 5 engineers; what are their roles?"
+- [ ] Personalise Q12 (integrations) with hints from Q11 tech stack
+- [ ] Reference Q2 answer in Q13 — greenfield vs existing has different constraint concerns
+
+**Cross-question validation:**
+- [ ] Detect contradictions — Q2="Greenfield" but Q17 has an existing repo URL
+- [ ] Flag unrealistic combos — Q8 sprint length × Q10 target sprints > 6 months → confirm scope
+- [ ] Sanity-check velocity (Q9) against team size (Q6) — flag if wildly off
+
+**Follow-up quality:**
+- [ ] Custom follow-up templates per question (not just generic "tell me more")
+- [ ] Q3 (problem): "Who experiences this problem? Give 2-3 user personas"
+- [ ] Q11 (tech stack): "What's the primary language and framework?"
+- [ ] Q21 (risks): "Which risk should be addressed earliest?"
+
+**Answer confidence signalling:**
+- [ ] Track answer source: `direct`, `extracted`, `defaulted`, `probed` per question
+- [ ] Show breakdown in intake summary: "12 direct, 3 extracted, 7 defaulted"
+- [ ] Pass confidence hints to downstream nodes — low-confidence areas → recommend spikes
+
+#### Jira board & ticket format setup
+_Auto-configure a Jira project to match the agent's output format._
+- [ ] Project board with swimlanes (todo, in-progress, in-test, security-review, human-feedback, done)
+- [ ] User story ticket format (description, acceptance criteria, definition of done, test plan, prompt)
+- [ ] UI option to set up a new Jira project or analyse an existing project for compatibility
+
+
+#### "Create in Jira" option
+_Push artifacts to Jira. Two modes: inline (during pipeline) and selective (post-plan menu)._
+
+**Inline — during pipeline review checkpoints (epic, story, task, sprint):**
+- [ ] Add "Create in Jira" as option [4] in review checkpoint menu (Accept / Edit / Export / Create in Jira)
+- [ ] Disabled state — greyed out / unselectable when `JIRA_BASE_URL` not configured; show `(Jira not configured)` hint
+- [ ] Creates only that phase's artifacts directly — no sub-menu (e.g. at epic review → creates epics only)
+- [ ] Confirmation gate — "This will create N epics in Jira. Proceed? [Y/n]"
+- [ ] After creating, continue pipeline as normal (same as Accept)
+
+**Selective — post-plan menu only:**
+- [ ] Sub-menu on selection — "What would you like to create in Jira?":
+  - `[1] Everything` — create all resource types in dependency order
+  - `[2] Epics`
+  - `[3] User stories`
+  - `[4] Tasks (sub-tasks)`
+  - `[5] Sprints`
+  - `[6] Back`
+- [ ] Track creation state per resource type in `ScrumState` (e.g. `jira_created: dict[str, bool]`)
+- [ ] Disable already-created resource types in sub-menu — greyed out with `(already created)` hint
+- [ ] Disable top-level "Create in Jira" when all types created — show `(all created ✓)`
+- [ ] After "Refine plan" regenerates artifacts, reset creation state for affected types (edited epics → reset epics, stories, tasks, sprints)
+
+**Creation logic (shared by both modes):**
+- [ ] Create epics as Jira epics with title, description, priority
+- [ ] Create user stories as Jira stories linked to their parent epic, with AC in description
+- [ ] Create tasks as Jira sub-tasks linked to their parent story
+- [ ] Create sprints on the board and assign stories to the correct sprint
+- [ ] Enforce creation order — stories require epics to exist first; tasks require stories; sprints require stories assigned
+- [ ] Progress feedback — show a progress bar / spinner as each resource is created
+- [ ] Error handling — if a create fails mid-way, report what was created and what failed (no silent partial creates)
+- [ ] Idempotency guard — warn if artifacts appear to already exist in Jira (e.g. duplicate epic titles on the same board)
+
+#### Post-plan menu & refinement loop
+_After the sprint plan is ready, replace the open-ended "keep chatting" with a structured menu.
+The user picks what to do next; "Refine" leads to a sub-menu of which phase to edit, then loops
+back to the menu when done._
+
+**Post-plan menu:**
+- [ ] Show a numbered menu after sprint plan acceptance:
+  - `[1] Create in Jira` — push artifacts (ties into "Create in Jira" feature above)
+  - `[2] Export plan` — save as HTML + Markdown (existing export flow)
+  - `[3] Analyse plan` — LLM review of the full plan for gaps, risks, and improvements (see below)
+  - `[4] Refine plan` — structured edit loop (see below)
+  - `[5] Ask questions` — read-only Q&A about the plan (current ReAct chat)
+  - `[6] Start new project` — reset session
+- [ ] Disable `[1] Create in Jira` when Jira not configured (same disabled style as review option)
+- [ ] After completing any action (export, Jira create, Q&A), return to this menu
+
+**Analyse plan (`[3]`):**
+- [ ] Single LLM call with all artifacts (analysis, epics, stories, tasks, sprints) as context
+- [ ] Produce a structured report:
+  - **Coverage gaps** — requirements from intake that aren't addressed by any story
+  - **Risk flags** — overloaded sprints, single-person dependencies, missing testing stories
+  - **Missing non-functionals** — no stories for security, observability, CI/CD, documentation
+  - **Story quality** — vague acceptance criteria, missing edge cases, stories too large (8+ points)
+  - **Sprint balance** — uneven load distribution, back-loaded critical path items
+  - **Recommendations** — specific suggestions (e.g. "Add a spike for auth provider evaluation in Sprint 1")
+- [ ] Display report as a Rich panel (not as chat — structured output like the artifact reviews)
+- [ ] After viewing, return to post-plan menu — user can then choose Refine to act on findings
+
+**Refinement sub-menu (`[4] Refine plan`):**
+- [ ] Show "What would you like to refine?" with options:
+  - `[1] Questionnaire answers` — re-open intake summary with edit flow, then re-run analyzer → epic → story → task → sprint pipeline
+  - `[2] Epics` — jump to epic review checkpoint (accept/edit), then re-run story → task → sprint
+  - `[3] User stories` — jump to story review checkpoint, then re-run task → sprint
+  - `[4] Tasks` — jump to task review checkpoint, then re-run sprint
+  - `[5] Sprint plan` — jump to sprint review checkpoint only
+  - `[6] Back` — return to post-plan menu
+- [ ] Cascade regeneration — editing an upstream phase clears and regenerates all downstream artifacts (existing `_clear_downstream_artifacts` logic)
+- [ ] After refinement completes (final sprint plan accepted), return to post-plan menu
+
+### 13B: Production Infrastructure
+- [ ] Containerised deployment (Docker / Docker Compose)
+- [ ] Secret management (env vars → vault or cloud-native secrets)
+- [ ] Add token budget tracking per session
+- [ ] Add cost estimation before write operations ("This will create 14 tickets. Proceed?")
+- [ ] Implement model fallback chain (primary → backup → static response)
+- [ ] Add retry with exponential backoff for API failures
+- [ ] Add request timeout handling
+
+### 13C: Observability
+- [ ] LangSmith observability for production tracing
+- [ ] Error tracking and alerting (agent failures, API timeouts, LLM errors)
+- [ ] Token usage tracking per session
+- [ ] Health check endpoint
+
+### 13D: Packaging & Distribution
+- [ ] Package as installable CLI tool (`pip install scrum-agent` or `pipx`)
+- [ ] CI/CD pipeline for the project itself (lint, test, build, publish)
+- [ ] Comprehensive README with quick-start guide
+- [ ] Write deployment instructions (Docker, local, cloud)
+- [ ] `.env.example` review — ensure all options are documented
+- [ ] Tag v1.0.0 release
+
+---
+
+# Multi-Agent Transformation
+
+_Everything below Phase 13 transforms the shipped project planning CLI into a
+multi-agent platform with a web UI. The v1.0 planning agent becomes the
+**Project Planning Agent** — the first of many specialised agents that share a
+common state store and communicate via a central orchestrator. Each phase ships
+independently — users get value from each new agent as it lands._
+
+## Architecture
+
+```
+┌────────────────────────────────────────────────────────────────────┐
+│  Web Frontend (React / Next.js)                                    │
+│  Sprint board · Standup dashboard · Refinement voting · PR views   │
+└───────────────────────────┬────────────────────────────────────────┘
+                            │ WebSocket / REST
+┌───────────────────────────▼────────────────────────────────────────┐
+│  API + Orchestrator Layer (FastAPI)                                 │
+│  Auth · Team management · Event routing · Webhook receivers        │
+│  Agent dispatcher — routes tasks to the right specialised agent     │
+└──┬──────┬──────┬──────┬──────┬──────┬──────┬──────┬───────────────┘
+   │      │      │      │      │      │      │      │
+   ▼      ▼      ▼      ▼      ▼      ▼      ▼      ▼
+ Scrum  Daily  Sprint Review  Backlog  Code  QA   DevOps Security
+ Master Standup Review  &     Refine-  Agent Agent Agent  Agent
+ Agent  Agent  Agent   Retro  ment
+                       Agent  Agent
+└────────────────────────────────────────────────────────────────────┘
+  Shared: PostgreSQL · Vector Store (Chroma) · Jira/GitHub/Slack APIs
+```
+
+---
+
+## Phase 14: Platform Foundation — Web App & Multi-Agent Infrastructure
+
+_Extract the core agent into a backend service, add auth, team management,
+and the orchestrator that routes work to specialised agents._
+
+### 14A: API Layer
+- [ ] Create FastAPI backend wrapping the existing agent core
+- [ ] RESTful endpoints: `/projects`, `/sessions`, `/agents/{name}/invoke`
+- [ ] WebSocket endpoint for real-time streaming (replaces REPL streaming)
+- [ ] Move session persistence from local SQLite to PostgreSQL
+- [ ] Auth: JWT-based authentication with team/role support
+- [ ] Team management: invite members, assign roles (Scrum Master, Dev, PO, QA)
+- [ ] API key management for external integrations (Jira, GitHub, Slack)
+
+### 14B: Agent Orchestrator
+- [ ] Central dispatcher that routes tasks to the correct specialised agent
+- [ ] Shared state store — agents read/write to a common project state (PostgreSQL + Redis)
+- [ ] Agent-to-agent messaging — structured handoffs (e.g. Code Agent → QA Agent)
+- [ ] Event bus for async triggers (webhook → event → agent invocation)
+- [ ] Agent registry — discover available agents, their capabilities, and health
+- [ ] Concurrency control — prevent two agents from modifying the same artifact simultaneously
+
+### 14C: Web Frontend
+- [ ] React/Next.js app with project dashboard
+- [ ] Sprint board view (kanban columns: To Do, In Progress, Review, Done)
+- [ ] Real-time updates via WebSocket (agent actions appear live)
+- [ ] Project setup wizard (replaces CLI questionnaire with a guided form)
+- [ ] Artifact viewers: epic/story/task detail panels with edit capability
+- [ ] Agent activity feed — shows what each agent is doing and has done
+- [ ] Notification system (in-app + email/Slack for important events)
+
+### 14D: CLI Preservation
+- [ ] Keep CLI as a first-class client (power users, local repo scanning, CI/CD scripting)
+- [ ] CLI talks to the API layer (same as web frontend)
+- [ ] `scrum-agent login` — authenticate against the API
+- [ ] `scrum-agent sync` — push local session to server, pull remote changes
+- [ ] Offline mode — full local functionality, sync when connected
+
+---
+
+## Phase 15: Project Planning Agent (existing pipeline, enhanced)
+
+_The current single-agent pipeline becomes the Project Planning Agent — responsible
+for project setup, decomposition into epics/stories/tasks, and sprint planning.
+This phase also includes rebranding: rename "Scrum AI" labels, CLI name, and
+user-facing strings from scrum-master terminology to project planning terminology._
+
+### 15A: Rebrand to Project Planning Agent
+- [ ] Rename CLI entry point: `scrum-agent` → `planbot` (or chosen name)
+- [ ] Rename "Scrum AI" label in REPL to "Planning Agent" (AI_LABEL, AI_QUESTION_LABEL)
+- [ ] Rename package: `scrum_agent` → new package name (if desired, or keep internal name)
+- [ ] Update README, CLAUDE.md, and all user-facing docs
+- [ ] Update Docker image name and PyPI package name
+- [ ] Rename `SCRUM.md` convention to `PROJECT.md` (keep SCRUM.md as deprecated alias)
+
+### 15B: Enhanced Planning
+- [ ] Project board and ticket format setup (auto-configure Jira board, columns, workflows)
+- [ ] Dynamic capacity retrieval — pull team availability from Jira/calendar APIs
+- [ ] Sprint planning risk adviser — analyse constraints, dependencies, team history before planning
+- [ ] Story labels: "Code", "Documentation", "Infrastructure", "Testing" auto-tagged based on content
+- [ ] Testing plans included in stories — auto-generate test plan section in each story’s AC
+
+### 15C: Vector-Store RAG (Chroma)
+- [ ] Add `chromadb` + `langchain-chroma` dependencies
+- [ ] `VectorStore` wrapper: init, ingest, query, reset (persisted in project DB)
+- [ ] Codebase ingestion with language-aware chunking (`RecursiveCharacterTextSplitter`)
+- [ ] Document ingestion: scrum-docs, SCRUM.md, Confluence pages
+- [ ] Incremental re-indexing (only changed files)
+- [ ] `vector_search` tool for semantic search across codebase + docs
+- [ ] Hybrid retrieval: vector similarity + BM25 keyword matching
+- [ ] Wire retriever into epic_generator and story_writer nodes
+
+---
+
+## Phase 16: Daily Standup Agent
+
+_Monitors team communication (Slack), collects standup updates, identifies
+blockers and patterns, and provides actionable insights to the Scrum Master._
+
+### 16A: Slack Integration
+- [ ] Slack bot: `/standup` command to submit daily updates
+- [ ] Parse standup format: What I did · What I’m doing · Blockers
+- [ ] Accept updates via DM or channel thread
+- [ ] Scheduled reminders for missing standups (configurable time)
+- [ ] Thread-based follow-up questions when updates are vague
+
+### 16B: Performance Insights
+- [ ] Track velocity trends per engineer and per team over sprints
+- [ ] Detect patterns: consistently blocked engineers, scope creep, uneven workload
+- [ ] Compare planned vs actual story points per sprint
+- [ ] Identify stories that have been "In Progress" too long
+- [ ] Weekly digest: team health summary with trends and recommendations
+
+### 16C: Recommendations Engine
+- [ ] Flag at-risk stories (no progress for N days, blocked, reassigned multiple times)
+- [ ] Suggest pair programming when an engineer is stuck on a complex story
+- [ ] Recommend workload rebalancing when capacity is uneven
+- [ ] Detect and flag anti-patterns: hero culture, knowledge silos, skipped ceremonies
+- [ ] Push recommendations to Slack channel or web dashboard
+
+### 16D: Testing
+- [ ] Mock Slack API tests for standup collection
+- [ ] Test pattern detection with synthetic sprint data
+- [ ] Test recommendation engine with edge cases (empty sprints, single-person teams)
+
+---
+
+## Phase 17: Sprint Review Agent
+
+_Facilitates mid-sprint and end-of-sprint reviews. Analyses progress against
+the sprint goal and recommends scope adjustments._
+
+### 17A: Mid-Sprint Review
+- [ ] Triggered automatically at sprint midpoint (or on-demand via `/review`)
+- [ ] Pull current sprint state from Jira: completed, in-progress, not started
+- [ ] Calculate burndown trajectory — on track, ahead, or behind
+- [ ] Recommend scope changes: stories to pull in (ahead) or defer (behind)
+- [ ] Present recommendations to team via web UI or Slack with accept/reject buttons
+- [ ] Auto-update Jira when team approves scope changes
+
+### 17B: End-of-Sprint Review
+- [ ] Generate sprint report: planned vs delivered, velocity, carry-over stories
+- [ ] Summarise what was accomplished and how it delivers customer value
+- [ ] Compare actual vs estimated story points — identify estimation gaps
+- [ ] Risk analysis update — new risks discovered during the sprint
+- [ ] Draft stakeholder-ready report (formatted for governance/compliance if needed)
+- [ ] Archive sprint data for historical trend analysis
+
+### 17C: Retrospective Facilitation
+- [ ] Collect anonymous feedback (web form or Slack DM): went well, improve, action items
+- [ ] AI-powered theme clustering — group similar feedback automatically
+- [ ] Voting on action items (web UI with real-time vote counts)
+- [ ] Track action item follow-through across sprints (did we actually do it?)
+- [ ] Detect recurring themes that never get resolved — escalate
+
+### 17D: Testing
+- [ ] Test burndown calculation with various sprint scenarios
+- [ ] Test scope change recommendations (ahead/behind/on-track)
+- [ ] Test retrospective clustering with diverse feedback inputs
+
+---
+
+## Phase 18: Backlog Refinement Agent
+
+_Facilitates collaborative backlog refinement sessions. Provides tools for
+story discussion, estimation voting, and acceptance criteria improvement._
+
+### 18A: Refinement Session Management
+- [ ] Create refinement sessions linked to a set of stories/epics
+- [ ] Present stories one-by-one with full context (description, AC, dependencies)
+- [ ] Real-time discussion thread per story (web UI + optional Slack bridge)
+- [ ] Time-box per story with configurable defaults (5 min discussion, 2 min voting)
+- [ ] Session summary: refined stories, updated estimates, unresolved questions
+
+### 18B: Estimation Voting (built-in web UI)
+- [ ] Custom voting UI in the web frontend — no third-party dependency
+- [ ] Each team member votes simultaneously (hidden until reveal)
+- [ ] Support Fibonacci (1,2,3,5,8,13) and T-shirt (XS,S,M,L,XL) scales
+- [ ] AI-suggested estimate based on historical data and story complexity
+- [ ] Highlight large variance in votes — trigger discussion before re-vote
+- [ ] Auto-update Jira story points after team consensus
+- [ ] Voting history tracked for estimation accuracy insights over time
+
+### 18C: Story Enhancement
+- [ ] AI-driven suggestions: missing AC, ambiguous requirements, implicit dependencies
+- [ ] "What about..." prompts — edge cases the team might not have considered
+- [ ] Acceptance criteria completeness check (happy path, error, edge, security)
+- [ ] Auto-detect stories that should be split (too large, multiple concerns)
+- [ ] Documentation generation for refined stories
+
+### 18D: Testing
+- [ ] Test voting mechanics (hidden votes, reveal, variance detection)
+- [ ] Test AI estimation against historical sprint data
+- [ ] Test story enhancement suggestions with various story types
+
+---
+
+## Phase 19: Coding Agent Integration Hub
+
+_Rather than building a coding agent from scratch (competing with Copilot, Claude Code,
+Cursor, Devin, etc.), this phase makes the platform the **brain that tells coding agents
+what to do** and the **quality gate that reviews what they produce**. The platform owns
+the spec and the review — the coding agent is pluggable._
+
+### 19A: Story Spec Export (universal format)
+- [ ] Define a structured story spec format (markdown + frontmatter YAML) containing:
+  description, AC (Given/When/Then), test plan, related files, dependencies, architecture context
+- [ ] Export spec to clipboard / file / stdout for manual use with any tool
+- [ ] Include codebase context from vector store (relevant files, patterns, conventions)
+- [ ] Include architecture decisions from SCRUM.md / Confluence / scrum-docs
+- [ ] Spec quality score — warn if AC is vague, test plan is missing, or scope is unclear
+
+### 19B: GitHub / Azure DevOps Integration
+- [ ] Write story spec to GitHub Issue (with labels, assignee, milestone)
+- [ ] Write story spec to Azure DevOps Work Item
+- [ ] GitHub Copilot Workspace picks up Issues natively — zero extra integration
+- [ ] Link PRs back to stories automatically (branch naming convention + webhook)
+- [ ] Track story status from Issue/PR lifecycle (opened → in review → merged → done)
+
+### 19C: MCP Server (Claude Code / AI IDE integration)
+- [ ] Expose stories as an MCP tool server (`get_next_story`, `get_story_spec`, `mark_done`)
+- [ ] Claude Code, Windsurf, and other MCP-compatible tools can pull stories directly
+- [ ] Serve codebase context alongside the story (relevant files, test patterns)
+- [ ] Bi-directional: coding agent reports progress/blockers back via MCP
+- [ ] Auth: token-scoped access per developer
+
+### 19D: IDE Extensions
+- [ ] VS Code extension: sidebar showing assigned stories, one-click to load spec into editor
+- [ ] JetBrains plugin: same functionality for IntelliJ/WebStorm/PyCharm users
+- [ ] Story context injected into editor’s AI assistant (Copilot, Cursor, Cody, etc.)
+- [ ] "Start working" button: creates branch, loads spec, opens relevant files
+
+### 19E: CLI Integration
+- [ ] `planbot work [story-key]` — fetch story spec, create branch, output spec to terminal
+- [ ] Pipe-friendly: `planbot spec PROJ-123 | claude-code` or similar
+- [ ] `planbot done [story-key]` — mark story complete, trigger QA Agent review
+- [ ] Works offline with cached story specs from last sync
+
+### 19F: Webhook / API (bring-your-own-agent)
+- [ ] REST API: `GET /stories/{key}/spec` returns the full structured spec
+- [ ] Webhook: notify external systems when a story is ready for development
+- [ ] Support custom coding agents (Devin, SWE-Agent, OpenHands, internal tools)
+- [ ] Agent-agnostic callback: any tool can POST results (PR link, status, blockers)
+
+### 19G: Documentation Generation (post-merge)
+- [ ] Triggered after PR merge — auto-generate docs for completed stories
+- [ ] Update README sections affected by code changes
+- [ ] Generate changelog entries per story/sprint
+- [ ] Create/update Confluence pages for significant features
+- [ ] Label documentation stories as "Documentation" in Jira
+
+### 19H: Testing
+- [ ] Test spec export format with various story types (frontend, backend, infra)
+- [ ] Test GitHub Issue creation and PR-to-story linking
+- [ ] Test MCP server with mock client
+- [ ] Test webhook delivery and callback handling
+
+---
+
+## Phase 20: QA Agent
+
+_AI-powered quality gate that reviews PRs against story specs. Outsources
+test execution to the project’s own CI pipeline and existing testing frameworks
+(pytest, Jest, Playwright, Cypress, etc.) — the agent provides the intelligence,
+not the infrastructure._
+
+### 20A: PR Review (your AI — unique value)
+- [ ] Triggered when a PR is opened or updated (via GitHub/AzDO webhook)
+- [ ] Validate against story AC — does the code actually implement what was specified?
+- [ ] AI diff analysis: logic errors, missing edge cases, code smell detection
+- [ ] Post structured review comments on the PR (by file, with severity levels)
+- [ ] Suggest improvements with code snippets, not just complaints
+
+### 20B: Test Plan Validation (your AI + external runners)
+- [ ] Read the test plan from the story’s AC (Given/When/Then scenarios)
+- [ ] Map test plan items to existing automated tests (or flag missing coverage)
+- [ ] Suggest additional test cases the developer may have missed
+- [ ] Integrate with CI: read test results from GitHub Actions / Azure Pipelines / Jenkins
+- [ ] Integrate with coverage tools: Codecov, Coveralls, SonarQube — read reports, don’t regenerate
+- [ ] Post coverage delta as PR comment ("Coverage: 84% → 87%, +3 new files covered")
+
+### 20C: Quality Gates (your orchestration + external signals)
+- [ ] Aggregate signals: CI status + coverage delta + AI review + security scan results
+- [ ] Quality score per PR (0-100 composite from all sources)
+- [ ] Block merge when critical issues found (configurable severity threshold)
+- [ ] Track quality trends over time per engineer and per module
+- [ ] Flag regressions: "This module’s coverage dropped from 85% to 72%"
+
+### 20D: Testing
+- [ ] Test PR analysis with synthetic diffs (clean code, buggy code, missing tests)
+- [ ] Test CI result ingestion from mock GitHub Actions / Azure Pipelines
+- [ ] Test quality scoring with various signal combinations
+
+---
+
+## Phase 21: DevOps Agent
+
+_AI intelligence layer over existing DevOps tools. Monitors and diagnoses
+CI/CD pipelines, manages repo configuration, and orchestrates deployments —
+but delegates actual infrastructure to Terraform Cloud, ArgoCD, GitHub Actions,
+and other existing tools._
+
+### 21A: CI/CD Intelligence (your AI + existing pipelines)
+- [ ] Monitor pipeline runs via GitHub Actions / Azure Pipelines / Jenkins APIs
+- [ ] Diagnose failed builds — read logs, identify root cause, suggest fix
+- [ ] Detect flaky tests — track failure patterns, flag unreliable tests
+- [ ] Pipeline performance tracking — build time trends, bottleneck identification
+- [ ] Suggest pipeline optimisations (caching, parallelism, unnecessary steps)
+- [ ] Post diagnosis to PR or Slack when a build fails
+
+### 21B: Repository Management (your orchestration + GitHub/AzDO APIs)
+- [ ] Branch protection rules — configure/enforce per project policy via API
+- [ ] Auto-merge approved PRs that pass all checks (configurable policy)
+- [ ] Stale branch cleanup — identify and archive old feature branches
+- [ ] Release management — auto-tag, generate release notes, create GitHub releases
+- [ ] Integrate with existing CODEOWNERS and review requirements
+
+### 21C: Deployment Orchestration (your intelligence + external IaC)
+- [ ] Integrate with Terraform Cloud / Pulumi / ArgoCD — trigger deployments, read state
+- [ ] Deployment tracking — which commit is deployed where (read from CD tool APIs)
+- [ ] Rollback recommendations when post-deploy metrics degrade
+- [ ] Integrate with cloud cost tools (Infracost, AWS Cost Explorer) — alert on spend spikes
+- [ ] Preview environment management — trigger creation/teardown via existing IaC
+
+### 21D: Testing
+- [ ] Test pipeline diagnosis with synthetic build logs
+- [ ] Test branch management with mock GitHub API
+- [ ] Test deployment tracking with mock CD tool responses
+
+---
+
+## Phase 22: Security Agent
+
+_AI orchestration layer that aggregates findings from best-in-class security
+scanners (Snyk, Semgrep, SonarQube, GitHub Advanced Security, Trivy) and
+provides unified, story-aware security intelligence. Doesn’t replace scanners —
+makes them smarter by correlating findings with your project context._
+
+### 22A: Code Security Review (your AI + external scanners)
+- [ ] Integrate with Semgrep / SonarQube / CodeQL — ingest scan results via API
+- [ ] AI enrichment: correlate findings with story context, assess real exploitability
+- [ ] Detect hardcoded secrets via GitLeaks / GitHub Secret Scanning integration
+- [ ] Reduce noise: suppress false positives, prioritise by actual risk to this project
+- [ ] Post unified security review on PRs (one comment thread, not five scanner bots)
+
+### 22B: Dependency Security (your orchestration + Snyk/Dependabot/OSV)
+- [ ] Integrate with Snyk / Dependabot / OSV.dev — pull vulnerability data via API
+- [ ] AI triage: assess impact on your codebase (is the vulnerable function actually used?)
+- [ ] Auto-raise PRs for critical dependency updates (via Dependabot or Renovate)
+- [ ] License compliance checking — flag incompatible licenses
+- [ ] Track vulnerability resolution time per team
+
+### 22C: Infrastructure Security (your AI + Trivy/Checkov/tfsec)
+- [ ] Integrate with Trivy / Checkov / tfsec — ingest IaC scan results
+- [ ] AI enrichment: prioritise findings by blast radius and business impact
+- [ ] Compliance mapping: link findings to GDPR, SOC2, PCI-DSS controls
+- [ ] Security posture dashboard — unified score from all integrated scanners
+- [ ] Trend tracking — is the security posture improving or degrading?
+
+### 22D: Testing
+- [ ] Test scanner result ingestion with mock API responses (Snyk, Semgrep, Trivy)
+- [ ] Test AI triage with intentionally vulnerable code + scanner output
+- [ ] Test false positive suppression accuracy
+
+---
+
+## Phase 23: Product Discovery Agent
+
+_Analyses feature requests, customer feedback, and market signals to help
+the Product Owner make informed backlog prioritisation decisions._
+
+### 23A: Feature Request Analysis
+- [ ] Ingest feature requests from Jira, Slack, email, or web form
+- [ ] Compare against product strategy/goals — is this aligned?
+- [ ] Score by impact (users affected), effort (complexity estimate), and strategic fit
+- [ ] Cluster similar requests to identify demand patterns
+- [ ] Auto-suggest: accept (add to backlog), park (add to discovery), or archive
+
+### 23B: User Feedback Loop
+- [ ] Ingest customer feedback from support tickets, NPS surveys, app reviews
+- [ ] Sentiment analysis and theme extraction
+- [ ] Link feedback to existing stories/epics ("12 users mentioned this pain point")
+- [ ] Surface feedback during refinement sessions for relevant stories
+- [ ] Track feature adoption post-release — did users actually use it?
+
+### 23C: Testing
+- [ ] Test scoring model with diverse feature requests
+- [ ] Test clustering with overlapping and distinct requests
+- [ ] Test sentiment analysis with mixed feedback
+
+---
+
+## Phase 24: Observability & Analytics Agent
+
+_Monitors all agent activity, tracks team performance metrics, and provides
+executive-level dashboards and reports._
+
+### 24A: Agent Observability
+- [ ] LangSmith integration for production tracing across all agents
+- [ ] Token usage tracking per agent, per session, per team
+- [ ] Cost attribution — which agents/features consume the most tokens
+- [ ] Agent performance metrics: latency, success rate, user satisfaction
+- [ ] Error tracking and alerting (agent failures, API timeouts, LLM errors)
+
+### 24B: Team Analytics Dashboard
+- [ ] Velocity trends (per team, per sprint, per engineer — anonymised option)
+- [ ] Sprint predictability score — how often does the team deliver what it planned?
+- [ ] Cycle time tracking — from story creation to deployment
+- [ ] Blocker frequency and resolution time
+- [ ] Cross-sprint comparison with configurable date ranges
+
+### 24C: Executive Reports
+- [ ] Auto-generated weekly/sprint/monthly reports
+- [ ] Progress against OKRs/milestones with RAG status
+- [ ] Resource utilisation and capacity planning insights
+- [ ] Risk register with AI-assessed likelihood and impact
+- [ ] Exportable to PDF, Confluence, or email
+
+---
+
+## Phase 25: Platform Deployment & Infrastructure
+
+_Production infrastructure for the multi-agent platform._
+
+- [ ] Containerised deployment (Docker Compose for dev, Kubernetes for prod)
+- [ ] Secret management (HashiCorp Vault or cloud-native secrets manager)
+- [ ] PostgreSQL for persistent state (sessions, team data, sprint history)
+- [ ] Redis for real-time state and agent-to-agent messaging
+- [ ] Chroma (or Pinecone) for vector store in production
+- [ ] API rate limiting and request throttling
+- [ ] Horizontal scaling — multiple agent workers behind a queue
+- [ ] Health checks and readiness probes for each agent
+- [ ] Backup and disaster recovery for project data
+
+---
+
+## Phase 26: Platform Production Readiness
+
+- [ ] Add token budget tracking per session
+- [ ] Add cost estimation before write operations ("This will create 14 tickets. Proceed?")
+- [ ] Implement model fallback chain (primary → backup → static response)
+- [ ] Add retry with exponential backoff for API failures
+- [ ] Add request timeout handling
+- [ ] LangSmith observability for production tracing
+- [ ] Comprehensive deployment documentation
+- [ ] Package as installable CLI tool (`pip install scrum-agent` or `pipx`)
+- [ ] CI/CD pipeline for the platform itself (lint, test, build, deploy)
+- [ ] Security audit of the platform (auth, data handling, API security)
+- [ ] Load testing — concurrent users, multiple agents, large projects
+- [ ] Tag v1.0.0 release

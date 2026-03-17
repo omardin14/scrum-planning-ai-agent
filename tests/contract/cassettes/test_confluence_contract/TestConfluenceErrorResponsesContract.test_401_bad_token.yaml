@@ -1,0 +1,18 @@
+interactions:
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://test.atlassian.net/wiki/rest/api/search?start=0&limit=10&cql=type+%3D+page+AND+%28title+~+%22test%22+OR+text+~+%22test%22%29+AND+space+%3D+%22DOCS%22
+  response:
+    body:
+      string: '{"statusCode":401,"data":{"authorized":false,"valid":true,"errors":[],"successful":false},"message":"Client must be authenticated to access this resource."}'
+    headers:
+      Content-Type:
+      - application/json;charset=UTF-8
+    status:
+      code: 401
+      message: Unauthorized
+version: 1

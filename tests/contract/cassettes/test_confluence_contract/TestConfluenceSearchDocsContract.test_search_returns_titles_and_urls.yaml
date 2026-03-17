@@ -1,0 +1,18 @@
+interactions:
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://test.atlassian.net/wiki/rest/api/search?start=0&limit=10&cql=type+%3D+page+AND+%28title+~+%22architecture%22+OR+text+~+%22architecture%22%29+AND+space+%3D+%22DOCS%22
+  response:
+    body:
+      string: '{"results":[{"id":"12345","type":"page","status":"current","title":"System Architecture","excerpt":"<p>This document describes the <b>architecture</b> of the platform including microservices, data flow, and deployment topology.</p>","_links":{"webui":"/spaces/DOCS/pages/12345/System+Architecture"}},{"id":"12346","type":"page","status":"current","title":"Architecture Decision Records","excerpt":"<p>ADRs for key <b>architecture</b> decisions made during the project.</p>","_links":{"webui":"/spaces/DOCS/pages/12346/Architecture+Decision+Records"}}],"start":0,"limit":10,"size":2,"_links":{"base":"https://test.atlassian.net/wiki","context":"/wiki"}}'
+    headers:
+      Content-Type:
+      - application/json;charset=UTF-8
+    status:
+      code: 200
+      message: OK
+version: 1

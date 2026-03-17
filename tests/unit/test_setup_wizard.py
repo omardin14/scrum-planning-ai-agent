@@ -1,0 +1,397 @@
+"""Tests for the first-run setup wizard."""
+
+import os
+from io import StringIO
+
+from rich.console import Console
+
+from scrum_agent.setup_wizard import _PROVIDERS, is_first_run, run_setup_wizard, save_config
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_console() -> Console:
+    return Console(file=StringIO(), highlight=False)
+
+
+def _patch_config_file(monkeypatch, tmp_path):
+    """Redirect get_config_file() to a path inside tmp_path."""
+    config_file = tmp_path / ".env"
+    monkeypatch.setattr("scrum_agent.setup_wizard.get_config_file", lambda: config_file)
+    monkeypatch.setattr("scrum_agent.config.get_config_file", lambda: config_file)
+    return config_file
+
+
+def _mock_inputs(*values):
+    """Return a prompt mock that yields values from a list."""
+    it = iter(values)
+    return lambda *a, **kw: next(it)
+
+
+def _mock_select_provider(provider_key: str, *, api_key: str = "", issue_tracking: dict | None = None):
+    """Return a mock select_provider that returns the provider dict.
+
+    provider_key: "1" for Anthropic, "2" for OpenAI, "3" for Google, or None for cancel.
+    api_key: optional API key — when set, the wizard skips inline key prompt.
+    issue_tracking: optional dict of Jira/Confluence env vars.
+
+    The full-screen select_provider returns a dict with optional keys:
+        api_key, vc_env_var, vc_token, issue_tracking
+    This mock emulates that so the wizard doesn't need inline prompts.
+    """
+    if provider_key is None:
+        return lambda *a, **kw: None
+
+    p = dict(_PROVIDERS[provider_key])  # shallow copy
+    if api_key:
+        p["api_key"] = api_key
+    if issue_tracking:
+        p["issue_tracking"] = issue_tracking
+    return lambda *a, **kw: p
+
+
+def _patch_provider(monkeypatch, provider_key: str, **kwargs):
+    """Patch select_provider to return the given provider without full-screen UI."""
+    monkeypatch.setattr(
+        "scrum_agent.setup_wizard.select_provider",
+        _mock_select_provider(provider_key, **kwargs),
+    )
+
+
+# ---------------------------------------------------------------------------
+# TestIsFirstRun
+# ---------------------------------------------------------------------------
+
+
+class TestIsFirstRun:
+    def test_returns_true_when_config_absent(self, monkeypatch, tmp_path):
+        _patch_config_file(monkeypatch, tmp_path)
+        assert is_first_run() is True
+
+    def test_returns_false_when_config_exists(self, monkeypatch, tmp_path):
+        config_file = _patch_config_file(monkeypatch, tmp_path)
+        config_file.write_text("ANTHROPIC_API_KEY=sk-ant-test\n")
+        assert is_first_run() is False
+
+    def test_returns_true_when_config_only_whitespace(self, monkeypatch, tmp_path):
+        """A file with only newlines/spaces should be treated as empty."""
+        config_file = _patch_config_file(monkeypatch, tmp_path)
+        config_file.write_text("\n")
+        assert is_first_run() is True
+
+    def test_returns_true_when_config_only_blank_lines(self, monkeypatch, tmp_path):
+        config_file = _patch_config_file(monkeypatch, tmp_path)
+        config_file.write_text("\n\n  \n")
+        assert is_first_run() is True
+
+
+# ---------------------------------------------------------------------------
+# TestSaveConfig
+# ---------------------------------------------------------------------------
+
+
+class TestSaveConfig:
+    def test_writes_key_value_lines(self, monkeypatch, tmp_path):
+        _patch_config_file(monkeypatch, tmp_path)
+        data = {"ANTHROPIC_API_KEY": "sk-ant-abc", "GITHUB_TOKEN": "ghp_xyz"}
+        path = save_config(data)
+        content = path.read_text()
+        assert "ANTHROPIC_API_KEY=sk-ant-abc\n" in content
+        assert "GITHUB_TOKEN=ghp_xyz\n" in content
+
+    def test_skips_empty_values(self, monkeypatch, tmp_path):
+        _patch_config_file(monkeypatch, tmp_path)
+        data = {"ANTHROPIC_API_KEY": "sk-ant-abc", "GITHUB_TOKEN": ""}
+        path = save_config(data)
+        content = path.read_text()
+        assert "GITHUB_TOKEN" not in content
+
+    def test_returns_path_written(self, monkeypatch, tmp_path):
+        config_file = _patch_config_file(monkeypatch, tmp_path)
+        path = save_config({"ANTHROPIC_API_KEY": "sk-ant-abc"})
+        assert path == config_file
+
+
+# ---------------------------------------------------------------------------
+# TestRunSetupWizard
+# ---------------------------------------------------------------------------
+# After the full-screen provider selector, prompts are:
+#   1. ANTHROPIC_API_KEY:         → step 2 (masked)
+#   2. GitHub [y/N]:              → step 3
+#   3. Jira [y/N]:                → step 3
+#   4. Azure DevOps [y/N]:        → step 3
+
+
+class TestRunSetupWizard:
+    def test_happy_path_anthropic_key_saves_and_returns_true(self, monkeypatch, tmp_path):
+        _patch_config_file(monkeypatch, tmp_path)
+        _patch_provider(monkeypatch, "1")
+        monkeypatch.setattr(
+            "scrum_agent.setup_wizard.prompt",
+            _mock_inputs("sk-ant-validkey", "n", "n", "n"),
+        )
+        console = _make_console()
+        result = run_setup_wizard(console)
+        assert result is True
+        content = (tmp_path / ".env").read_text()
+        assert "ANTHROPIC_API_KEY=sk-ant-validkey" in content
+        assert "LLM_PROVIDER=anthropic" in content
+
+    def test_openai_provider_saves_openai_key_and_provider(self, monkeypatch, tmp_path):
+        _patch_config_file(monkeypatch, tmp_path)
+        _patch_provider(monkeypatch, "2")
+        monkeypatch.setattr(
+            "scrum_agent.setup_wizard.prompt",
+            _mock_inputs("sk-openai-testkey", "n", "n", "n"),
+        )
+        console = _make_console()
+        run_setup_wizard(console)
+        content = (tmp_path / ".env").read_text()
+        assert "OPENAI_API_KEY=sk-openai-testkey" in content
+        assert "LLM_PROVIDER=openai" in content
+
+    def test_google_provider_saves_google_key_and_provider(self, monkeypatch, tmp_path):
+        _patch_config_file(monkeypatch, tmp_path)
+        _patch_provider(monkeypatch, "3")
+        monkeypatch.setattr(
+            "scrum_agent.setup_wizard.prompt",
+            _mock_inputs("AIzaGoogleKey123", "n", "n", "n"),
+        )
+        console = _make_console()
+        run_setup_wizard(console)
+        content = (tmp_path / ".env").read_text()
+        assert "GOOGLE_API_KEY=AIzaGoogleKey123" in content
+        assert "LLM_PROVIDER=google" in content
+
+    def test_cancelled_provider_returns_false(self, monkeypatch, tmp_path):
+        """When user cancels provider selection (q/Esc), wizard returns False."""
+        _patch_config_file(monkeypatch, tmp_path)
+        _patch_provider(monkeypatch, None)  # simulate cancel
+        console = _make_console()
+        result = run_setup_wizard(console)
+        assert result is False
+
+    def test_empty_key_returns_false(self, monkeypatch, tmp_path):
+        _patch_config_file(monkeypatch, tmp_path)
+        _patch_provider(monkeypatch, "1")
+        monkeypatch.setattr("scrum_agent.setup_wizard.prompt", lambda *a, **kw: "")
+        console = _make_console()
+        result = run_setup_wizard(console)
+        assert result is False
+        output = console.file.getvalue()
+        assert "required" in output
+
+    def test_invalid_key_format_warns_and_retries(self, monkeypatch, tmp_path):
+        """Bad format → warning + retry prompt → user re-enters a good key."""
+        _patch_config_file(monkeypatch, tmp_path)
+        _patch_provider(monkeypatch, "1")
+        monkeypatch.setattr(
+            "scrum_agent.setup_wizard.prompt",
+            # bad key, re-enter=Y (retry), good key, integrations
+            _mock_inputs("not-a-valid-key", "y", "sk-ant-real", "n", "n", "n"),
+        )
+        console = _make_console()
+        result = run_setup_wizard(console)
+        assert result is True
+        content = (tmp_path / ".env").read_text()
+        assert "ANTHROPIC_API_KEY=sk-ant-real" in content
+        output = console.file.getvalue()
+        assert "Warning" in output
+
+    def test_invalid_key_format_accepted_when_retry_declined(self, monkeypatch, tmp_path):
+        """Bad format → warning → user types 'n' to skip retry → key saved as-is."""
+        _patch_config_file(monkeypatch, tmp_path)
+        _patch_provider(monkeypatch, "1")
+        monkeypatch.setattr(
+            "scrum_agent.setup_wizard.prompt",
+            _mock_inputs("not-an-anthropic-key", "n", "n", "n", "n"),
+        )
+        console = _make_console()
+        result = run_setup_wizard(console)
+        assert result is True
+        content = (tmp_path / ".env").read_text()
+        assert "ANTHROPIC_API_KEY=not-an-anthropic-key" in content
+        output = console.file.getvalue()
+        assert "Warning" in output
+
+    def test_github_integration_saves_token(self, monkeypatch, tmp_path):
+        """GitHub token is collected via select_provider's VC phase."""
+        _patch_config_file(monkeypatch, tmp_path)
+        _patch_provider(monkeypatch, "1", api_key="sk-ant-key")
+        # Simulate select_provider returning a VC token
+        mock = _mock_select_provider("1", api_key="sk-ant-key")
+        result = mock()
+        result["vc_env_var"] = "GITHUB_TOKEN"
+        result["vc_token"] = "ghp_mytoken"
+        monkeypatch.setattr("scrum_agent.setup_wizard.select_provider", lambda *a, **kw: result)
+        console = _make_console()
+        run_setup_wizard(console)
+        content = (tmp_path / ".env").read_text()
+        assert "GITHUB_TOKEN=ghp_mytoken" in content
+
+    def test_jira_integration_saves_all_four_vars(self, monkeypatch, tmp_path):
+        """Jira vars are collected via select_provider's issue tracking phase."""
+        _patch_config_file(monkeypatch, tmp_path)
+        jira_vars = {
+            "JIRA_BASE_URL": "https://myorg.atlassian.net",
+            "JIRA_EMAIL": "me@example.com",
+            "JIRA_API_TOKEN": "jira-api-token",
+            "JIRA_PROJECT_KEY": "MYPROJ",
+        }
+        _patch_provider(monkeypatch, "1", api_key="sk-ant-key", issue_tracking=jira_vars)
+        console = _make_console()
+        run_setup_wizard(console)
+        content = (tmp_path / ".env").read_text()
+        assert "JIRA_BASE_URL=https://myorg.atlassian.net" in content
+        assert "JIRA_EMAIL=me@example.com" in content
+        assert "JIRA_API_TOKEN=jira-api-token" in content
+        assert "JIRA_PROJECT_KEY=MYPROJ" in content
+
+    def test_cancel_jira_saves_no_jira_vars(self, monkeypatch, tmp_path):
+        _patch_config_file(monkeypatch, tmp_path)
+        _patch_provider(monkeypatch, "1")
+        monkeypatch.setattr(
+            "scrum_agent.setup_wizard.prompt",
+            _mock_inputs("sk-ant-key", "n", "n", "n"),
+        )
+        console = _make_console()
+        run_setup_wizard(console)
+        content = (tmp_path / ".env").read_text()
+        assert "JIRA_BASE_URL" not in content
+        assert "JIRA_EMAIL" not in content
+
+    def test_confluence_prompt_only_shown_when_jira_configured(self, monkeypatch, tmp_path):
+        _patch_config_file(monkeypatch, tmp_path)
+        _patch_provider(monkeypatch, "1")
+        calls = []
+
+        def _mock_prompt(text, **kw):
+            calls.append(text)
+            if "ANTHROPIC_API_KEY" in text:
+                return "sk-ant-key"
+            return "n"
+
+        monkeypatch.setattr("scrum_agent.setup_wizard.prompt", _mock_prompt)
+        console = _make_console()
+        run_setup_wizard(console)
+        assert not any("Confluence" in c for c in calls)
+
+    def test_confluence_saves_space_key(self, monkeypatch, tmp_path):
+        """Confluence vars are collected via select_provider's issue tracking phase."""
+        _patch_config_file(monkeypatch, tmp_path)
+        issue_tracking = {
+            "JIRA_BASE_URL": "https://org.atlassian.net",
+            "JIRA_EMAIL": "user@example.com",
+            "JIRA_API_TOKEN": "tok",
+            "JIRA_PROJECT_KEY": "PROJ",
+            "CONFLUENCE_SPACE_KEY": "MYSPACE",
+        }
+        _patch_provider(monkeypatch, "1", api_key="sk-ant-key", issue_tracking=issue_tracking)
+        console = _make_console()
+        run_setup_wizard(console)
+        content = (tmp_path / ".env").read_text()
+        assert "CONFLUENCE_SPACE_KEY=MYSPACE" in content
+
+    def test_existing_config_preserved_on_rerun(self, monkeypatch, tmp_path):
+        """--setup re-run merges new values with existing config keys."""
+        config_file = _patch_config_file(monkeypatch, tmp_path)
+        config_file.write_text("ANTHROPIC_API_KEY=sk-ant-old\nGITHUB_TOKEN=ghp_existing\n")
+        _patch_provider(monkeypatch, "1")
+        monkeypatch.setattr(
+            "scrum_agent.setup_wizard.prompt",
+            _mock_inputs("sk-ant-new", "n", "n", "n"),
+        )
+        console = _make_console()
+        run_setup_wizard(console)
+
+        content = config_file.read_text()
+        assert "ANTHROPIC_API_KEY=sk-ant-new" in content
+        assert "GITHUB_TOKEN=ghp_existing" in content
+
+    def test_env_updated_in_current_process(self, monkeypatch, tmp_path):
+        _patch_config_file(monkeypatch, tmp_path)
+        _patch_provider(monkeypatch, "1")
+        monkeypatch.setattr(
+            "scrum_agent.setup_wizard.prompt",
+            _mock_inputs("sk-ant-process-test", "n", "n", "n"),
+        )
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        console = _make_console()
+        run_setup_wizard(console)
+        assert os.environ.get("ANTHROPIC_API_KEY") == "sk-ant-process-test"
+
+
+# ---------------------------------------------------------------------------
+# TestProviderSelect — unit tests for the full-screen selector logic
+# ---------------------------------------------------------------------------
+
+
+def _safe_key_fn(*keys):
+    """Return a read_key function that yields given keys, then "esc" forever.
+
+    After the explicit keys are exhausted, returns "esc" so any subsequent phase
+    (API key input, VC selection, etc.) cleanly exits instead of crashing.
+    """
+    it = iter(keys)
+
+    def _read(timeout=None):
+        try:
+            return next(it)
+        except StopIteration:
+            return "esc"
+
+    return _read
+
+
+class TestProviderSelect:
+    """Test the provider selection UI component in isolation.
+
+    After Phase 1 (provider selection), the flow enters Phase 2 (API key input).
+    Tests that only care about Phase 1 navigation use _safe_key_fn which returns
+    "esc" after the explicit keys — Phase 2's Esc triggers a recursive restart,
+    so we use q/Esc cancel tests for that path. For navigation tests, we verify
+    the function returns None (cancelled in Phase 2) and just check that Phase 1
+    navigation didn't crash.
+    """
+
+    def test_q_cancels(self):
+        from scrum_agent.ui.provider_select import select_provider
+
+        console = _make_console()
+        result = select_provider(console, _read_key_fn=_safe_key_fn("q"))
+        assert result is None
+
+    def test_esc_cancels(self):
+        from scrum_agent.ui.provider_select import select_provider
+
+        console = _make_console()
+        result = select_provider(console, _read_key_fn=_safe_key_fn("esc"))
+        assert result is None
+
+    def test_enter_does_not_crash(self):
+        """Pressing Enter on Phase 1 proceeds to Phase 2 (doesn't crash)."""
+        from scrum_agent.ui.provider_select import select_provider
+
+        # After Enter selects Claude, Phase 2 gets "esc" → recursive restart → "esc" again
+        console = _make_console()
+        result = select_provider(console, _read_key_fn=_safe_key_fn("enter"))
+        # Returns None because Esc cancels in Phase 2 → recursion → Esc again
+        assert result is None
+
+    def test_right_arrow_does_not_crash(self):
+        """Right arrow navigates to next provider without crashing."""
+        from scrum_agent.ui.provider_select import select_provider
+
+        console = _make_console()
+        result = select_provider(console, _read_key_fn=_safe_key_fn("right", "esc"))
+        assert result is None
+
+    def test_left_wraps_does_not_crash(self):
+        """Left from index 0 wraps to last provider without crashing."""
+        from scrum_agent.ui.provider_select import select_provider
+
+        console = _make_console()
+        result = select_provider(console, _read_key_fn=_safe_key_fn("left", "esc"))
+        assert result is None

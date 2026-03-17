@@ -1,0 +1,18 @@
+interactions:
+- request:
+    body: '{"name": "Sprint 1", "originBoardId": 42, "startDate": "2024-01-15", "endDate": "2024-01-29", "goal": "Ship authentication module"}'
+    headers:
+      Content-Type:
+      - application/json
+    method: POST
+    uri: https://test.atlassian.net/rest/agile/1.0/sprint
+  response:
+    body:
+      string: '{"id":15,"self":"https://test.atlassian.net/rest/agile/1.0/sprint/15","state":"future","name":"Sprint 1","startDate":"2024-01-15T00:00:00.000Z","endDate":"2024-01-29T00:00:00.000Z","originBoardId":42,"goal":"Ship authentication module"}'
+    headers:
+      Content-Type:
+      - application/json;charset=UTF-8
+    status:
+      code: 201
+      message: Created
+version: 1

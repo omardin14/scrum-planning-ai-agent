@@ -1,0 +1,607 @@
+"""CLI entry point for scrum-agent."""
+
+import argparse
+import logging
+import logging.handlers
+import os
+import re
+import sys
+from pathlib import Path
+
+from prompt_toolkit import PromptSession
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
+
+from scrum_agent import __version__
+from scrum_agent.config import (
+    detect_proxy,
+    disable_langsmith_tracing,
+    get_log_level,
+    is_langsmith_enabled,
+    load_user_config,
+)
+from scrum_agent.formatters import build_theme
+from scrum_agent.persistence import migrate_history_file
+from scrum_agent.questionnaire_io import (
+    build_questionnaire_from_answers,
+    export_questionnaire_md,
+    parse_questionnaire_md,
+)
+from scrum_agent.repl import run_repl
+from scrum_agent.sessions import SessionStore, make_display_name, make_unique_display_names
+from scrum_agent.setup_wizard import is_first_run, run_setup_wizard
+from scrum_agent.ui.mode_select import select_mode
+from scrum_agent.ui.splash import show_splash
+
+# Default filename for exported questionnaire templates
+DEFAULT_QUESTIONNAIRE_FILENAME = "scrum-questionnaire.md"
+
+# Default DB path — inside the user config directory alongside history/config.
+# Matches the path used by SessionStore in run_repl().
+_SESSIONS_DB_DIR = Path.home() / ".scrum-agent"
+
+
+def _summarise_scrum_md(console: Console, path: Path) -> None:
+    """Print a brief pre-flight summary of the SCRUM.md file.
+    Shows line count, URL count, and detected ## sections so users can
+    confirm the right file was picked up before the analysis runs.
+    """
+    try:
+        content = path.read_text()
+    except OSError:
+        console.print("[dim]  SCRUM.md detected — your project context will be included in the analysis.[/dim]")
+        return
+
+    lines = content.count("\n") + 1
+    url_count = len(re.findall(r"https?://", content))
+    sections = [ln.lstrip("#").strip() for ln in content.splitlines() if ln.startswith("## ")]
+
+    stats = f"{lines} lines" + (f", {url_count} URL{'s' if url_count != 1 else ''}" if url_count else "")
+    console.print(f"[dim]  SCRUM.md detected ({stats})[/dim]")
+    if sections:
+        console.print(f"[dim]    Sections: {' · '.join(sections)}[/dim]")
+
+
+def _build_welcome_panel() -> Panel:
+    """Build the branded welcome panel with version and quick-start hint.
+
+    # See README: "Architecture" — the CLI layer is the outermost layer,
+    # responsible for user-facing chrome like the welcome screen.
+    """
+    body = Text.from_markup(
+        f"[bold cyan]Scrum AI Agent[/bold cyan]  [dim]v{__version__}[/dim]\n"
+        "[white]Your AI-powered Scrum Master[/white]\n\n"
+        "[dim]Describe your project to get started, or type [cyan]help[/cyan] for commands.[/dim]"
+    )
+    return Panel(body, border_style="cyan", padding=(1, 2))
+
+
+# ---------------------------------------------------------------------------
+# Session listing / picker helpers
+# ---------------------------------------------------------------------------
+
+
+def _build_sessions_table(sessions: list[dict], display_names: dict[str, str] | None = None) -> Table:
+    """Build a Rich Table of saved sessions.
+
+    Used by both --list-sessions and the interactive --resume picker.
+
+    Args:
+        sessions: List of session metadata dicts.
+        display_names: Optional ``{session_id: unique_name}`` mapping from
+            ``make_unique_display_names()``. When provided, the Project column
+            shows the collision-free display name instead of the raw project_name.
+    """
+    table = Table(title="Saved sessions", show_lines=False, padding=(0, 1))
+    table.add_column("#", style="bold", width=3)
+    table.add_column("Project", style="cyan")
+    table.add_column("Date", style="dim")
+    table.add_column("Last Step", style="green")
+    table.add_column("Session ID", style="dim")
+    for i, meta in enumerate(sessions, 1):
+        sid = meta.get("session_id", "")
+        if display_names and sid in display_names:
+            project = display_names[sid]
+        else:
+            project = meta.get("project_name") or "(unnamed)"
+        date_str = meta.get("created_at", "")[:10]
+        last_node = meta.get("last_node_completed") or "-"
+        table.add_row(str(i), project, date_str, last_node, sid)
+    return table
+
+
+def _print_sessions_table(console: Console) -> None:
+    """Print a table of all saved sessions and exit.
+
+    Used by --list-sessions. Opens its own SessionStore so it works
+    independently from the REPL.
+    """
+    _SESSIONS_DB_DIR.mkdir(parents=True, exist_ok=True)
+    db_path = _SESSIONS_DB_DIR / "sessions.db"
+    with SessionStore(db_path) as store:
+        sessions = store.list_sessions()
+    if not sessions:
+        console.print("[hint]No saved sessions found.[/hint]")
+        return
+    unique_names = make_unique_display_names(sessions)
+    console.print(_build_sessions_table(sessions, display_names=unique_names))
+
+
+def _clear_sessions(console: Console) -> None:
+    """Interactively delete saved sessions.
+
+    Shows a numbered list plus an [A] All option. The user picks a session
+    number to delete one, or 'a'/'all' to wipe everything.
+    """
+    _SESSIONS_DB_DIR.mkdir(parents=True, exist_ok=True)
+    db_path = _SESSIONS_DB_DIR / "sessions.db"
+    with SessionStore(db_path) as store:
+        sessions = store.list_sessions()
+        if not sessions:
+            console.print("[hint]No saved sessions found.[/hint]")
+            return
+        unique_names = make_unique_display_names(sessions)
+        console.print(_build_sessions_table(sessions, display_names=unique_names))
+        console.print()
+        console.print(
+            "[hint]Enter a session number to delete, [command]all[/command] to clear everything, "
+            "or [command]q[/command] to cancel.[/hint]"
+        )
+        pick_session: PromptSession[str] = PromptSession()
+        while True:
+            try:
+                raw = pick_session.prompt("Clear> ")
+            except (KeyboardInterrupt, EOFError):
+                return
+            raw = raw.strip().lower()
+            if raw in ("q", "quit", "cancel"):
+                return
+            if raw in ("a", "all"):
+                count = store.delete_all_sessions()
+                console.print(f"[success]Deleted all {count} session{'s' if count != 1 else ''}.[/success]")
+                return
+            try:
+                idx = int(raw)
+            except ValueError:
+                console.print("[warning]Please enter a number, 'all', or 'q' to cancel.[/warning]")
+                continue
+            if 1 <= idx <= len(sessions):
+                picked = sessions[idx - 1]
+                sid = picked["session_id"]
+                name = unique_names.get(sid, sid)
+                store.delete_session(sid)
+                console.print(f"[success]Deleted session: {name}[/success]")
+                return
+            console.print(f"[warning]Please pick a number between 1 and {len(sessions)}.[/warning]")
+
+
+def _resolve_resume(console: Console, resume_arg: str) -> tuple[dict | None, str | None]:
+    """Resolve --resume into a (graph_state, session_id) tuple.
+
+    Args:
+        console: Rich Console for output.
+        resume_arg: The value of args.resume — "__pick__" for interactive,
+            "latest" for most recent, or a specific session ID.
+
+    Returns:
+        (graph_state, session_id) on success, (None, None) on failure/cancel.
+
+    # See README: "Memory & State" — session persistence, --resume
+    """
+    _SESSIONS_DB_DIR.mkdir(parents=True, exist_ok=True)
+    db_path = _SESSIONS_DB_DIR / "sessions.db"
+    with SessionStore(db_path) as store:
+        if resume_arg == "latest":
+            sid = store.get_latest_session_id()
+            if sid is None:
+                console.print("[warning]No saved sessions found.[/warning]")
+                return None, None
+            state = store.load_state(sid)
+            if state is None:
+                console.print(f"[warning]Session {sid} has no saved state or is corrupt.[/warning]")
+                return None, None
+            meta = store.get_session(sid)
+            name = make_display_name(meta) if meta else sid
+            console.print(f"[success]Loading session:[/success] {name}")
+            return state, sid
+
+        if resume_arg == "__pick__":
+            sessions = store.list_sessions()
+            if not sessions:
+                console.print("[hint]No saved sessions found.[/hint]")
+                return None, None
+            unique_names = make_unique_display_names(sessions)
+            console.print(_build_sessions_table(sessions, display_names=unique_names))
+            console.print()
+            pick_session: PromptSession[str] = PromptSession()
+            while True:
+                try:
+                    raw = pick_session.prompt("Pick a session number (or 'q' to cancel): ")
+                except (KeyboardInterrupt, EOFError):
+                    return None, None
+                raw = raw.strip().lower()
+                if raw in ("q", "quit", "cancel"):
+                    return None, None
+                # Try numeric index first, then match by display name.
+                try:
+                    idx = int(raw)
+                except ValueError:
+                    # Match against display names (case-insensitive, partial match)
+                    matches = [(i, s) for i, s in enumerate(sessions) if raw in unique_names[s["session_id"]].lower()]
+                    if len(matches) == 1:
+                        idx = matches[0][0] + 1  # convert to 1-based
+                    elif len(matches) > 1:
+                        console.print(f"[warning]'{raw}' matches multiple sessions. Be more specific.[/warning]")
+                        continue
+                    else:
+                        console.print("[warning]No match. Enter a number or session name (or 'q' to cancel).[/warning]")
+                        continue
+                if 1 <= idx <= len(sessions):
+                    picked = sessions[idx - 1]
+                    sid = picked["session_id"]
+                    state = store.load_state(sid)
+                    if state is None:
+                        console.print(f"[warning]Session {sid} has no saved state or is corrupt.[/warning]")
+                        return None, None
+                    name = make_display_name(picked)
+                    console.print(f"[success]Loading session:[/success] {name}")
+                    return state, sid
+                console.print(f"[warning]Please pick a number between 1 and {len(sessions)}.[/warning]")
+
+        # Specific session ID
+        state = store.load_state(resume_arg)
+        if state is None:
+            console.print(f"[warning]Session '{resume_arg}' not found or has no saved state.[/warning]")
+            return None, None
+        meta = store.get_session(resume_arg)
+        name = make_display_name(meta) if meta else resume_arg
+        console.print(f"[success]Loading session:[/success] {name}")
+        return state, resume_arg
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """Build the CLI argument parser."""
+    parser = argparse.ArgumentParser(
+        prog="scrum-agent",
+        description="AI-powered Scrum Master — decomposes projects into epics, stories, tasks, and sprint plans.",
+        epilog=(
+            "examples:\n"
+            "  scrum-agent                        interactive mode (recommended)\n"
+            "  scrum-agent --quick                quick intake (2 questions only)\n"
+            "  scrum-agent --full-intake          full 30-question intake\n"
+            "  scrum-agent --questionnaire q.md   import pre-filled questionnaire\n"
+            "  scrum-agent --export-only --quick  non-interactive, auto-accept all\n"
+            "  scrum-agent --resume               resume last session (interactive picker)\n"
+            "  scrum-agent --resume latest         resume most recent session\n"
+            "  scrum-agent --list-sessions         list all saved sessions\n"
+            "  scrum-agent --clear-sessions        delete saved sessions"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
+    )
+    parser.add_argument(
+        "--resume",
+        metavar="SESSION_ID",
+        nargs="?",
+        const="__pick__",
+        default=None,
+        help="Resume a previous session. Without an argument, shows an interactive session picker. "
+        "Pass 'latest' to resume the most recent session, or a session ID to resume a specific one.",
+    )
+    parser.add_argument(
+        "--list-sessions",
+        action="store_true",
+        default=False,
+        help="List all saved sessions and exit.",
+    )
+    parser.add_argument(
+        "--clear-sessions",
+        action="store_true",
+        default=False,
+        help="Interactively delete saved sessions (pick one or clear all) and exit.",
+    )
+    parser.add_argument(
+        "--export-questionnaire",
+        metavar="PATH",
+        nargs="?",
+        const=DEFAULT_QUESTIONNAIRE_FILENAME,
+        default=None,
+        help=f"Export a blank questionnaire template as Markdown (default: {DEFAULT_QUESTIONNAIRE_FILENAME}).",
+    )
+    parser.add_argument(
+        "--questionnaire",
+        metavar="PATH",
+        default=None,
+        help="Import a filled-in questionnaire Markdown file and jump to confirmation.",
+    )
+
+    # Intake mode flags — mutually exclusive.
+    # Smart mode is the default when neither flag is given.
+    # See README: "Project Intake Questionnaire" — smart intake
+    intake_group = parser.add_mutually_exclusive_group()
+    intake_group.add_argument(
+        "--quick",
+        action="store_true",
+        default=False,
+        help="Quick intake — only ask team size and tech stack, auto-fill everything else.",
+    )
+    intake_group.add_argument(
+        "--full-intake",
+        action="store_true",
+        default=False,
+        help="Full 30-question intake (standard mode).",
+    )
+
+    parser.add_argument(
+        "--export-only",
+        action="store_true",
+        default=False,
+        help="Auto-accept all review checkpoints and exit after the full plan is generated. "
+        "Combine with --quick or --questionnaire for fully non-interactive runs.",
+    )
+
+    parser.add_argument(
+        "--no-bell",
+        action="store_true",
+        default=False,
+        help="Disable terminal bell after pipeline steps.",
+    )
+
+    parser.add_argument(
+        "--theme",
+        choices=["dark", "light"],
+        default="dark",
+        help="Terminal colour theme (default: dark). Use 'light' for white/cream backgrounds.",
+    )
+
+    parser.add_argument(
+        "--mode",
+        choices=["project-planning"],  # extend this list as new modes ship
+        default=None,
+        help="Skip the startup menu and launch directly into a specific mode.",
+    )
+
+    parser.add_argument(
+        "--setup",
+        action="store_true",
+        default=False,
+        help="Re-run the first-time setup wizard to update credentials.",
+    )
+
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=False,
+        help="Run the TUI with mock data and fake delays — no LLM calls. For UI development.",
+    )
+
+    return parser
+
+
+def main(argv: list[str] | None = None) -> None:
+    """Entry point for the scrum-agent CLI."""
+    parser = build_parser()
+    args = parser.parse_args(argv)
+
+    # Load ~/.scrum-agent/.env before any credential reads.
+    # override=False means shell env vars and project .env always take precedence.
+    load_user_config()
+
+    # ── File-based logging ────────────────────────────────────────────────────
+    # Writes to ~/.scrum-agent/scrum-agent.log so developers can diagnose
+    # issues without interfering with the TUI display. Rotates at 2 MB.
+    # Log level is controlled by LOG_LEVEL in .env (default: WARNING).
+    # Set LOG_LEVEL=DEBUG for full diagnostics.
+    _log_dir = Path.home() / ".scrum-agent"
+    _log_dir.mkdir(parents=True, exist_ok=True)
+    _log_path = _log_dir / "scrum-agent.log"
+    _log_level = getattr(logging, get_log_level(), logging.WARNING)
+    _file_handler = logging.handlers.RotatingFileHandler(
+        _log_path,
+        maxBytes=2 * 1024 * 1024,
+        backupCount=3,
+        encoding="utf-8",
+    )
+    _file_handler.setFormatter(
+        logging.Formatter("%(asctime)s %(levelname)-7s %(name)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S"),
+    )
+    _file_handler.setLevel(_log_level)
+    logging.getLogger("scrum_agent").addHandler(_file_handler)
+    logging.getLogger("scrum_agent").setLevel(_log_level)
+
+    # Create the console with the requested theme so semantic style names
+    # ([command], [hint], [success], etc.) resolve correctly throughout the
+    # REPL. Must be created after arg parsing so args.theme is available.
+    console = Console(theme=build_theme(args.theme))
+
+    # Rename legacy history file (~/.scrum-agent/history → repl-history).
+    # See README: "Memory & State" — clearer naming for the REPL history file.
+    migrate_history_file()
+
+    # See README: "Architecture" — splash replaces the static welcome panel.
+    # The animated intro runs before any interactive UI (wizard / mode select).
+    show_splash(console)
+
+    # ── First-run setup wizard ────────────────────────────────────────────────
+    # Triggers when ~/.scrum-agent/.env is absent (first run) or --setup is passed.
+    # If the user cancels the wizard, exit early — the agent can't run without
+    # a valid ANTHROPIC_API_KEY.
+    # Runs immediately after splash — both use fullscreen Live, so no console
+    # prints happen in between (avoids visible flicker on alt-screen exit).
+    if args.setup or is_first_run():
+        completed = run_setup_wizard(console)
+        if not completed:
+            return
+
+    # Determine early whether we'll use the old REPL or the fullscreen TUI.
+    # The TUI path keeps alt-screen active from splash → select_mode seamlessly.
+    # The old REPL path needs to exit alt-screen and print info to the terminal.
+    use_old_repl = args.mode is not None or args.quick or args.full_intake or args.questionnaire is not None
+
+    if use_old_repl or args.resume is not None or args.list_sessions or args.clear_sessions:
+        # Leave alt-screen before printing to the normal terminal
+        if console.is_alt_screen:
+            console.set_alt_screen(False)
+
+        # Informational prints — only shown for non-TUI paths
+        scrum_md = Path(os.getcwd()) / "SCRUM.md"
+        if scrum_md.is_file():
+            _summarise_scrum_md(console, scrum_md)
+        else:
+            console.print(
+                "[dim]  Tip: create a [cyan]SCRUM.md[/cyan] in this directory to add project notes, "
+                "URLs, and design decisions that the agent will read automatically. "
+                "See [cyan]SCRUM.md.example[/cyan] for a template.[/dim]"
+            )
+
+        if is_langsmith_enabled():
+            proxy = detect_proxy()
+            if proxy:
+                disable_langsmith_tracing()
+                console.print(f"[yellow]Warning: proxy detected ({proxy}) — LangSmith tracing auto-disabled[/yellow]")
+            else:
+                console.print("[dim]LangSmith tracing enabled[/dim]")
+
+    # ── --list-sessions: print all sessions and exit ──────────────────────────
+    if args.list_sessions:
+        _print_sessions_table(console)
+        return
+
+    # ── --clear-sessions: interactive delete and exit ─────────────────────────
+    if args.clear_sessions:
+        _clear_sessions(console)
+        return
+
+    # --export-questionnaire: write a blank template and exit (no REPL)
+    if args.export_questionnaire is not None:
+        path = export_questionnaire_md(None, Path(args.export_questionnaire))
+        console.print(f"[green]Questionnaire template exported to {path}[/green]")
+        return
+
+    # ── --resume: load saved session and skip mode menu ───────────────────────
+    # Phase 8B: when --resume is passed, load the saved state and go directly
+    # to run_repl() with the resume_state — no mode selection needed since
+    # resumed sessions are always project-planning.
+    # See README: "Memory & State" — session persistence, --resume
+    if args.resume is not None:
+        resume_state, resume_session_id = _resolve_resume(console, args.resume)
+        if resume_state is None:
+            return  # user cancelled or no sessions
+        run_repl(
+            console=console,
+            bell=not args.no_bell,
+            theme=args.theme,
+            resume_state=resume_state,
+            resume_session_id=resume_session_id,
+        )
+        return  # skip mode menu — resume goes straight to REPL
+
+    # --questionnaire: import a filled file, build state, pass to REPL
+    questionnaire = None
+    if args.questionnaire is not None:
+        qpath = Path(args.questionnaire)
+        if not qpath.exists():
+            console.print(f"[red]Error: file not found: {qpath}[/red]")
+            sys.exit(1)
+        try:
+            parsed = parse_questionnaire_md(qpath)
+            questionnaire = build_questionnaire_from_answers(parsed)
+            console.print(f"[green]Loaded {len(parsed)} answers from {qpath}[/green]")
+        except ValueError as e:
+            console.print(f"[red]Error: {e}[/red]")
+            sys.exit(1)
+
+    # Determine intake mode from flags.
+    # Default is None — triggers the interactive mode selection menu in the REPL.
+    # CLI flags bypass the menu for power users who know what they want.
+    # See README: "Project Intake Questionnaire" — smart intake
+    if args.quick:
+        intake_mode = "quick"
+    elif args.full_intake:
+        intake_mode = "standard"
+    else:
+        intake_mode = None
+
+    # --export-only: validate that a non-interactive intake source is provided.
+    # Without --quick or --questionnaire the intake requires interactive input,
+    # which defeats the purpose of --export-only.
+    if args.export_only and not args.quick and questionnaire is None:
+        console.print("[red]Error: --export-only requires --quick or --questionnaire to supply intake answers.[/red]")
+        sys.exit(1)
+
+    # ── Top-level mode selection ──────────────────────────────────────────────
+    # Full-screen mode selector with ASCII art titles and typewriter descriptions.
+    #
+    # Three paths:
+    #   1. --mode flag → bypass UI, use old REPL (backwards compat for scripted runs)
+    #   2. --quick/--full-intake/--questionnaire → bypass UI, use old REPL
+    #   3. Interactive → full-screen TUI mode selector, which launches the TUI
+    #      session (run_session) for Smart/Full intake inside its Live context
+    #
+    # See README: "Architecture" — mode selection is a CLI-layer concern.
+    if use_old_repl:
+        startup_mode = args.mode or "project-planning"
+        if startup_mode == "project-planning":
+            run_repl(
+                console=console,
+                questionnaire=questionnaire,
+                intake_mode=intake_mode,
+                export_only=args.export_only,
+                bell=not args.no_bell,
+                theme=args.theme,
+            )
+        else:
+            # Stub — future modes (code-review, sprint-review, …) land here.
+            console.print(f"\n[warning]'{startup_mode}' is not yet available.[/warning]")
+            console.print("[hint]Check back in a future release.[/hint]")
+    else:
+        # Interactive TUI flow — select_mode() launches the full session when
+        # the user picks Smart or Full intake. It returns None when done.
+        # Alt-screen stays active from splash through select_mode to avoid
+        # flicker; clean it up when the TUI exits.
+        # Mouse tracking captures scroll-wheel events so they scroll within
+        # the app instead of the terminal's own scrollback buffer.
+        from scrum_agent.ui.shared._input import disable_mouse_tracking, enable_mouse_tracking
+
+        enable_mouse_tracking()
+        try:
+            mode_result = select_mode(console, dry_run=args.dry_run)
+        finally:
+            disable_mouse_tracking()
+            if console.is_alt_screen:
+                console.set_alt_screen(False)
+        if mode_result is None:
+            return
+        # mode_result is non-None only for offline import (questionnaire path)
+        startup_mode, ui_intake, questionnaire_path = mode_result
+        if ui_intake is not None and intake_mode is None:
+            intake_mode = ui_intake
+        if questionnaire_path and questionnaire is None:
+            qpath = Path(questionnaire_path)
+            try:
+                parsed = parse_questionnaire_md(qpath)
+                questionnaire = build_questionnaire_from_answers(parsed)
+                console.print(f"[green]Loaded {len(parsed)} answers from {qpath}[/green]")
+            except ValueError as e:
+                console.print(f"[red]Error: {e}[/red]")
+                sys.exit(1)
+        # Import flow falls through to REPL for review
+        if startup_mode == "project-planning":
+            run_repl(
+                console=console,
+                questionnaire=questionnaire,
+                intake_mode=intake_mode,
+                export_only=args.export_only,
+                bell=not args.no_bell,
+                theme=args.theme,
+            )
+
+
+if __name__ == "__main__":
+    main()

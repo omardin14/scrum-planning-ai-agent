@@ -1,0 +1,18 @@
+interactions:
+- request:
+    body: '{"type": "page", "title": "Sprint 1 Plan", "status": "current", "space": {"key": "DOCS"}, "body": {"storage": {"value": "<p>Sprint goal: Ship authentication module</p><p>Stories: 5 stories, 23 points total</p>", "representation": "storage"}}, "metadata": {"properties": {"content-appearance-draft": {"value": "fixed-width"}, "content-appearance-published": {"value": "fixed-width"}}}}'
+    headers:
+      Content-Type:
+      - application/json
+    method: POST
+    uri: https://test.atlassian.net/wiki/rest/api/content
+  response:
+    body:
+      string: '{"id":"99001","type":"page","status":"current","title":"Sprint 1 Plan","space":{"key":"DOCS","name":"Documentation"},"_links":{"webui":"/spaces/DOCS/pages/99001/Sprint+1+Plan","base":"https://test.atlassian.net/wiki"}}'
+    headers:
+      Content-Type:
+      - application/json;charset=UTF-8
+    status:
+      code: 200
+      message: OK
+version: 1

@@ -1,0 +1,652 @@
+"""Session store for scrum-agent: persists session metadata and state to SQLite.
+
+Each terminal session gets a unique internal ID (new-<8hex>-<YYYY-MM-DD>).
+Once the project name is known (after the analyzer node runs), the display
+name is derived as <project-slug>-<YYYY-MM-DD> for human readability.
+
+Phase 8A stores metadata (project name, timestamps, last node).
+Phase 8B adds full state serialisation for --resume: questionnaire answers,
+project analysis, epics, stories, tasks, sprints, and all scalar fields are
+persisted as JSON so interrupted sessions can be resumed from where they left off.
+
+# See README: "Memory & State" — MemorySaver, thread_id, session persistence
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import re
+import sqlite3
+from dataclasses import asdict
+from datetime import UTC, date, datetime
+from enum import Enum
+from pathlib import Path
+from uuid import uuid4
+
+from scrum_agent.agent.state import (
+    AcceptanceCriterion,
+    Discipline,
+    Epic,
+    OutputFormat,
+    Priority,
+    ProjectAnalysis,
+    QuestionnaireState,
+    ReviewDecision,
+    Sprint,
+    StoryPointValue,
+    Task,
+    UserStory,
+)
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Session ID helpers
+# ---------------------------------------------------------------------------
+
+
+def make_session_id() -> str:
+    """Generate a stable, collision-resistant internal session ID.
+
+    Format: new-<8 hex chars>-<YYYY-MM-DD>
+    The UUID prefix ensures uniqueness even when the same project is run
+    multiple times on the same day (see Phase 8B collision handling).
+    """
+    return f"new-{uuid4().hex[:8]}-{date.today().isoformat()}"
+
+
+def make_display_name(meta: dict) -> str:
+    """Derive a human-readable session name from a metadata row.
+
+    When a project name is known: <project-slug>-<YYYY-MM-DD>
+    Otherwise: the raw session_id (e.g. "new-a3f91b2c-2024-03-06").
+
+    Args:
+        meta: Dict with keys session_id, project_name, created_at.
+
+    Returns:
+        A short human-readable label for the session.
+    """
+    project_name = meta.get("project_name", "")
+    created_at = meta.get("created_at", "")
+    if project_name and created_at:
+        slug = re.sub(r"[^a-z0-9]+", "-", project_name.lower()).strip("-")[:40] or "project"
+        date_part = created_at[:10]  # ISO date: YYYY-MM-DD
+        return f"{slug}-{date_part}"
+    return meta.get("session_id", "unknown")
+
+
+def make_unique_display_names(sessions: list[dict]) -> dict[str, str]:
+    """Compute collision-free display names for a list of sessions.
+
+    Phase 8C: when the same project is run twice on the same day, both would
+    get the same ``make_display_name()`` result (e.g. ``lendflow-2026-03-06``).
+    This function appends ``-2``, ``-3``, etc. to duplicates. The first
+    occurrence keeps the bare name.
+
+    Args:
+        sessions: List of session metadata dicts (from ``list_sessions()``).
+
+    Returns:
+        ``{session_id: unique_display_name}`` mapping.
+    """
+    # First pass: compute base names and track how many times each appears.
+    base_names: list[tuple[str, str]] = []  # (session_id, base_name)
+    for meta in sessions:
+        sid = meta.get("session_id", "unknown")
+        base_names.append((sid, make_display_name(meta)))
+
+    # Second pass: append suffix for duplicates.
+    seen: dict[str, int] = {}  # base_name → count so far
+    result: dict[str, str] = {}
+    for sid, base in base_names:
+        count = seen.get(base, 0) + 1
+        seen[base] = count
+        result[sid] = base if count == 1 else f"{base}-{count}"
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Database schema
+# ---------------------------------------------------------------------------
+
+_SCHEMA = """\
+CREATE TABLE IF NOT EXISTS sessions_meta (
+    session_id          TEXT PRIMARY KEY,
+    project_name        TEXT NOT NULL DEFAULT '',
+    created_at          TEXT NOT NULL,
+    last_modified       TEXT NOT NULL,
+    last_node_completed TEXT NOT NULL DEFAULT '',
+    session_state       TEXT NOT NULL DEFAULT ''
+);"""
+
+# Phase 8C: schema version tracking — a single-row table that records which
+# schema version this database was created/migrated to. On open, the code
+# compares stored vs current version:
+#   stored > current → schema_mismatch=True (newer DB, older code)
+#   stored < current → run migrations, UPDATE to current
+#   stored == current → schema_mismatch=False
+# See README: "Memory & State" — session persistence
+CURRENT_SCHEMA_VERSION = 2  # v1=Phase 8A, v2=Phase 8B (session_state column)
+
+_SCHEMA_INFO = """\
+CREATE TABLE IF NOT EXISTS schema_info (
+    schema_version INT NOT NULL
+);"""
+
+
+# ---------------------------------------------------------------------------
+# State serialisation helpers
+# ---------------------------------------------------------------------------
+# Phase 8B: persist graph state as JSON so --resume can reconstruct it.
+# Messages are NOT serialised — pipeline nodes read from artifacts (project_analysis,
+# epics, etc.), not from chat history. On resume a synthetic message is injected.
+#
+# Custom handling needed for:
+# - Frozen dataclasses (Epic, UserStory, Task, Sprint, ProjectAnalysis, AcceptanceCriterion)
+# - Enums (Priority, StoryPointValue, Discipline, ReviewDecision, OutputFormat)
+# - Sets (skipped_questions, probed_questions, etc.) → lists in JSON
+# - Tuples (story_ids, goals, etc.) → lists in JSON, reconstructed as tuples
+# - QuestionnaireState (mutable dataclass with sets and dicts)
+#
+# See README: "Memory & State" — session persistence, state serialisation
+
+
+# Keys to skip during serialisation — messages are reconstructed on resume,
+# and transient UI state is not needed.
+_SKIP_KEYS = {"messages"}
+
+# ScrumState fields and the types they map to, used by the deserialiser to
+# reconstruct the correct Python objects from JSON primitives.
+_SCALAR_KEYS = {
+    "project_name",
+    "project_description",
+    "team_size",
+    "sprint_length_weeks",
+    "velocity_per_sprint",
+    "target_sprints",
+    "repo_context",
+    "confluence_context",
+    "user_context",
+    "pending_review",
+    "last_review_feedback",
+    "_intake_mode",
+    "output_format",
+    "context_sources",
+}
+
+
+class _StateEncoder(json.JSONEncoder):
+    """JSON encoder that handles dataclasses, enums, and sets.
+
+    # See README: "Memory & State" — session persistence
+    # Custom encoder so we don't need to manually convert every nested
+    # structure before calling json.dumps(). The decoder side uses explicit
+    # reconstruction helpers since JSON→Python needs type awareness.
+    """
+
+    def default(self, o: object) -> object:
+        if isinstance(o, Enum):
+            return o.value
+        if isinstance(o, set):
+            return list(o)
+        if isinstance(o, tuple):
+            return list(o)
+        return super().default(o)
+
+
+def _serialize_state(graph_state: dict) -> str:
+    """Serialize graph_state to JSON, handling dataclasses, enums, and sets.
+
+    Skips ``messages`` — not needed for resume. Pipeline nodes read from
+    artifacts (project_analysis, epics, etc.), not from chat history.
+
+    Returns:
+        JSON string of the serialisable subset of graph_state.
+    """
+    out: dict = {}
+    for key, value in graph_state.items():
+        if key in _SKIP_KEYS or value is None:
+            continue
+        if key == "questionnaire" and isinstance(value, QuestionnaireState):
+            out[key] = _questionnaire_to_dict(value)
+        elif key == "project_analysis" and isinstance(value, ProjectAnalysis):
+            out[key] = asdict(value)
+        elif key == "epics":
+            out[key] = [asdict(e) for e in value]
+        elif key == "stories":
+            out[key] = [asdict(s) for s in value]
+        elif key == "tasks":
+            out[key] = [asdict(t) for t in value]
+        elif key == "sprints":
+            out[key] = [asdict(sp) for sp in value]
+        elif key == "last_review_decision" and isinstance(value, ReviewDecision):
+            out[key] = value.value
+        elif key == "output_format" and isinstance(value, OutputFormat):
+            out[key] = value.value
+        else:
+            out[key] = value
+    return json.dumps(out, cls=_StateEncoder, ensure_ascii=False)
+
+
+def _questionnaire_to_dict(qs: QuestionnaireState) -> dict:
+    """Convert QuestionnaireState to a JSON-friendly dict.
+
+    Sets → lists, int dict keys → string keys (JSON requires string keys),
+    tuple values in _follow_up_choices → lists.
+    """
+    return {
+        "current_question": qs.current_question,
+        # JSON keys must be strings — convert int keys
+        "answers": {str(k): v for k, v in qs.answers.items()},
+        "skipped_questions": list(qs.skipped_questions),
+        "suggested_answers": {str(k): v for k, v in qs.suggested_answers.items()},
+        "probed_questions": list(qs.probed_questions),
+        "defaulted_questions": list(qs.defaulted_questions),
+        "completed": qs.completed,
+        "awaiting_confirmation": qs.awaiting_confirmation,
+        "editing_question": qs.editing_question,
+        "intake_mode": qs.intake_mode,
+        "extracted_questions": list(qs.extracted_questions),
+        "_pending_merged_questions": list(qs._pending_merged_questions),
+        "_follow_up_choices": {str(k): list(v) for k, v in qs._follow_up_choices.items()},
+    }
+
+
+def _dict_to_questionnaire(d: dict) -> QuestionnaireState:
+    """Reconstruct a QuestionnaireState from a JSON-parsed dict.
+
+    Reverses _questionnaire_to_dict: string keys → int, lists → sets/tuples.
+    """
+    return QuestionnaireState(
+        current_question=d.get("current_question", 1),
+        answers={int(k): v for k, v in d.get("answers", {}).items()},
+        skipped_questions=set(d.get("skipped_questions", [])),
+        suggested_answers={int(k): v for k, v in d.get("suggested_answers", {}).items()},
+        probed_questions=set(d.get("probed_questions", [])),
+        defaulted_questions=set(d.get("defaulted_questions", [])),
+        completed=d.get("completed", False),
+        awaiting_confirmation=d.get("awaiting_confirmation", False),
+        editing_question=d.get("editing_question"),
+        intake_mode=d.get("intake_mode", "standard"),
+        extracted_questions=set(d.get("extracted_questions", [])),
+        _pending_merged_questions=d.get("_pending_merged_questions", []),
+        _follow_up_choices={int(k): tuple(v) for k, v in d.get("_follow_up_choices", {}).items()},
+    )
+
+
+def _dict_to_analysis(d: dict) -> ProjectAnalysis:
+    """Reconstruct a ProjectAnalysis from a JSON-parsed dict.
+
+    Lists → tuples for frozen dataclass tuple[str, ...] fields.
+    """
+    return ProjectAnalysis(
+        project_name=d["project_name"],
+        project_description=d["project_description"],
+        project_type=d["project_type"],
+        goals=tuple(d.get("goals", ())),
+        end_users=tuple(d.get("end_users", ())),
+        target_state=d["target_state"],
+        tech_stack=tuple(d.get("tech_stack", ())),
+        integrations=tuple(d.get("integrations", ())),
+        constraints=tuple(d.get("constraints", ())),
+        sprint_length_weeks=d["sprint_length_weeks"],
+        target_sprints=d["target_sprints"],
+        risks=tuple(d.get("risks", ())),
+        out_of_scope=tuple(d.get("out_of_scope", ())),
+        assumptions=tuple(d.get("assumptions", ())),
+        scrum_md_contributions=tuple(d.get("scrum_md_contributions", ())),
+    )
+
+
+def _dict_to_epic(d: dict) -> Epic:
+    """Reconstruct an Epic from a JSON-parsed dict."""
+    return Epic(
+        id=d["id"],
+        title=d["title"],
+        description=d["description"],
+        priority=Priority(d["priority"]),
+    )
+
+
+def _dict_to_story(d: dict) -> UserStory:
+    """Reconstruct a UserStory from a JSON-parsed dict.
+
+    Handles nested AcceptanceCriterion, enum fields, and tuple conversions.
+    """
+    acs = tuple(AcceptanceCriterion(**ac) for ac in d.get("acceptance_criteria", ()))
+    return UserStory(
+        id=d["id"],
+        epic_id=d["epic_id"],
+        persona=d["persona"],
+        goal=d["goal"],
+        benefit=d["benefit"],
+        acceptance_criteria=acs,
+        story_points=StoryPointValue(d["story_points"]),
+        priority=Priority(d["priority"]),
+        discipline=Discipline(d.get("discipline", "fullstack")),
+        dod_applicable=tuple(d.get("dod_applicable", (True,) * 7)),
+    )
+
+
+def _dict_to_task(d: dict) -> Task:
+    """Reconstruct a Task from a JSON-parsed dict."""
+    return Task(
+        id=d["id"],
+        story_id=d["story_id"],
+        title=d["title"],
+        description=d["description"],
+    )
+
+
+def _dict_to_sprint(d: dict) -> Sprint:
+    """Reconstruct a Sprint from a JSON-parsed dict."""
+    return Sprint(
+        id=d["id"],
+        name=d["name"],
+        goal=d["goal"],
+        capacity_points=d["capacity_points"],
+        story_ids=tuple(d.get("story_ids", ())),
+    )
+
+
+def _deserialize_state(json_str: str) -> dict:
+    """Reconstruct graph_state from a JSON string.
+
+    Rebuilds all dataclasses, enums, sets, and tuples from their JSON
+    representations. Injects an empty ``messages`` list so the state is
+    ready for graph.invoke().
+
+    Raises:
+        json.JSONDecodeError: If json_str is not valid JSON.
+        KeyError/TypeError: If required dataclass fields are missing or wrong type.
+    """
+    raw = json.loads(json_str)
+    state: dict = {"messages": []}
+
+    for key, value in raw.items():
+        if key == "questionnaire":
+            state[key] = _dict_to_questionnaire(value)
+        elif key == "project_analysis":
+            state[key] = _dict_to_analysis(value)
+        elif key == "epics":
+            state[key] = [_dict_to_epic(e) for e in value]
+        elif key == "stories":
+            state[key] = [_dict_to_story(s) for s in value]
+        elif key == "tasks":
+            state[key] = [_dict_to_task(t) for t in value]
+        elif key == "sprints":
+            state[key] = [_dict_to_sprint(sp) for sp in value]
+        elif key == "last_review_decision":
+            state[key] = ReviewDecision(value)
+        elif key == "output_format":
+            state[key] = OutputFormat(value)
+        else:
+            # Scalar fields, context_sources (list[dict]), jira mappings (dict),
+            # _intake_mode (str), etc. — pass through as-is.
+            state[key] = value
+
+    return state
+
+
+# ---------------------------------------------------------------------------
+# SessionStore
+# ---------------------------------------------------------------------------
+
+
+class SessionStore:
+    """SQLite-backed metadata and state store for scrum-agent sessions.
+
+    Manages a ``sessions_meta`` table with both metadata columns (project name,
+    timestamps, last node) and a ``session_state`` TEXT column containing the
+    full serialised graph state as JSON. This avoids a separate table while
+    keeping the schema simple.
+
+    Usage (context manager — preferred):
+        with SessionStore(db_path) as store:
+            store.create_session(session_id)
+            ...
+
+    Usage (explicit close — for code paths where context manager is awkward):
+        store = SessionStore(db_path)
+        try:
+            ...
+        finally:
+            store.close()
+
+    # See README: "Memory & State" — MemorySaver, thread_id, session persistence
+    """
+
+    def __init__(self, db_path: Path) -> None:
+        # check_same_thread=False: the store is created on the main thread and
+        # only ever accessed from the same thread (the REPL loop). The flag is
+        # set to False to avoid spurious errors if the thread identity changes
+        # (e.g. pytest reuses threads across fixtures).
+        self._conn = sqlite3.connect(str(db_path), check_same_thread=False)
+        # isolation_level=None → autocommit: each execute() commits immediately.
+        # Avoids manual transaction management for simple single-row writes.
+        self._conn.isolation_level = None
+        self._conn.execute(_SCHEMA)
+        # Phase 8B: migrate existing Phase 8A databases that lack session_state.
+        # ALTER TABLE ADD COLUMN is idempotent-safe with the try/except pattern:
+        # if the column already exists (new schema or already migrated), SQLite
+        # raises OperationalError which we silently ignore.
+        try:
+            self._conn.execute("ALTER TABLE sessions_meta ADD COLUMN session_state TEXT NOT NULL DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass  # column already exists
+
+        # Phase 8C: schema version tracking.
+        # Create the schema_info table, read the stored version, and compare
+        # against CURRENT_SCHEMA_VERSION. Pre-8C databases will have no row —
+        # we stamp the current version. If stored > current, set schema_mismatch
+        # so callers can warn the user (newer DB opened by older code).
+        # See README: "Memory & State" — session persistence
+        self._conn.execute(_SCHEMA_INFO)
+        row = self._conn.execute("SELECT schema_version FROM schema_info").fetchone()
+        if row is None:
+            # Pre-8C DB or brand-new DB — stamp with current version
+            self._conn.execute("INSERT INTO schema_info (schema_version) VALUES (?)", (CURRENT_SCHEMA_VERSION,))
+            self.schema_mismatch = False
+        elif row[0] > CURRENT_SCHEMA_VERSION:
+            # DB was written by a newer version of the code — warn but don't crash
+            self.schema_mismatch = True
+        else:
+            # row[0] <= CURRENT_SCHEMA_VERSION — up to date (or migrated above)
+            if row[0] < CURRENT_SCHEMA_VERSION:
+                self._conn.execute("UPDATE schema_info SET schema_version = ?", (CURRENT_SCHEMA_VERSION,))
+            self.schema_mismatch = False
+
+    # ── Lifecycle ─────────────────────────────────────────────────────────
+
+    def close(self) -> None:
+        """Close the underlying SQLite connection."""
+        try:
+            self._conn.close()
+        except Exception:
+            pass
+
+    def __enter__(self) -> SessionStore:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.close()
+
+    def __del__(self) -> None:
+        # Fallback: close on GC for early-return paths that bypass __exit__.
+        self.close()
+
+    # ── Internal helpers ──────────────────────────────────────────────────
+
+    def _now(self) -> str:
+        return datetime.now(UTC).isoformat()
+
+    # ── Write operations ──────────────────────────────────────────────────
+
+    def create_session(self, session_id: str, project_name: str = "") -> None:
+        """Insert a new session row. Silently ignores duplicate session IDs."""
+        logger.info("Creating session: %s", session_id)
+        now = self._now()
+        self._conn.execute(
+            """INSERT OR IGNORE INTO sessions_meta
+               (session_id, project_name, created_at, last_modified, last_node_completed, session_state)
+               VALUES (?, ?, ?, ?, '', '')""",
+            (session_id, project_name, now, now),
+        )
+
+    def update_project_name(self, session_id: str, project_name: str) -> None:
+        """Set the display name once the project name becomes known.
+
+        Called once after the project_analyzer node returns a ProjectAnalysis
+        with a non-empty project_name.
+        """
+        self._conn.execute(
+            "UPDATE sessions_meta SET project_name = ?, last_modified = ? WHERE session_id = ?",
+            (project_name, self._now(), session_id),
+        )
+
+    def update_last_node(self, session_id: str, node_name: str) -> None:
+        """Record the most recently completed pipeline node.
+
+        Called after each successful graph.invoke() so the session picker
+        can show 'Last step: epic_generator' etc.
+        """
+        self._conn.execute(
+            "UPDATE sessions_meta SET last_node_completed = ?, last_modified = ? WHERE session_id = ?",
+            (node_name, self._now(), session_id),
+        )
+
+    def save_state(self, session_id: str, graph_state: dict) -> None:
+        """Persist the full graph state as JSON.
+
+        Called after each successful graph.invoke(). Replaces the previous
+        snapshot entirely — the latest state is always the full picture.
+
+        # See README: "Memory & State" — session persistence
+        """
+        json_str = _serialize_state(graph_state)
+        self._conn.execute(
+            "UPDATE sessions_meta SET session_state = ?, last_modified = ? WHERE session_id = ?",
+            (json_str, self._now(), session_id),
+        )
+
+    # ── Read operations ───────────────────────────────────────────────────
+
+    def get_session(self, session_id: str) -> dict | None:
+        """Return the metadata row as a dict, or None if not found.
+
+        Includes ``session_state_raw`` — the raw JSON string for the state.
+        Use ``load_state()`` to deserialise it into a graph-ready dict.
+        """
+        row = self._conn.execute(
+            "SELECT session_id, project_name, created_at, last_modified, "
+            "last_node_completed, session_state "
+            "FROM sessions_meta WHERE session_id = ?",
+            (session_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        keys = (
+            "session_id",
+            "project_name",
+            "created_at",
+            "last_modified",
+            "last_node_completed",
+            "session_state_raw",
+        )
+        return dict(zip(keys, row))
+
+    def list_sessions(self) -> list[dict]:
+        """Return all sessions ordered by last_modified descending.
+
+        Used by the interactive session picker (--resume) and --list-sessions.
+        """
+        logger.debug("Listing sessions")
+        rows = self._conn.execute(
+            "SELECT session_id, project_name, created_at, last_modified, "
+            "last_node_completed, session_state "
+            "FROM sessions_meta ORDER BY last_modified DESC"
+        ).fetchall()
+        keys = (
+            "session_id",
+            "project_name",
+            "created_at",
+            "last_modified",
+            "last_node_completed",
+            "session_state_raw",
+        )
+        result = [dict(zip(keys, row)) for row in rows]
+        logger.debug("Found %d session(s)", len(result))
+        return result
+
+    def load_state(self, session_id: str) -> dict | None:
+        """Load and reconstruct graph state from JSON.
+
+        Returns the deserialised graph state dict ready for graph.invoke(),
+        or None if the session doesn't exist, has no saved state, or the
+        state is corrupt (malformed JSON, missing fields, etc.).
+
+        # See README: "Memory & State" — session persistence, --resume
+        """
+        meta = self.get_session(session_id)
+        if not meta or not meta.get("session_state_raw"):
+            logger.debug("No saved state for session %s", session_id)
+            return None
+        try:
+            state = _deserialize_state(meta["session_state_raw"])
+            logger.debug("Loaded state for session %s (%d keys)", session_id, len(state))
+            return state
+        except Exception:
+            logger.error("Failed to deserialize state for session %s", session_id)
+            return None
+
+    def get_latest_session_id(self) -> str | None:
+        """Return the session_id of the most recently modified session, or None."""
+        row = self._conn.execute("SELECT session_id FROM sessions_meta ORDER BY last_modified DESC LIMIT 1").fetchone()
+        return row[0] if row else None
+
+    def delete_session(self, session_id: str) -> bool:
+        """Delete a single session by ID.
+
+        Returns True if a row was deleted, False if the session_id didn't exist.
+        """
+        cursor = self._conn.execute("DELETE FROM sessions_meta WHERE session_id = ?", (session_id,))
+        deleted = cursor.rowcount > 0
+        if deleted:
+            logger.info("Deleted session %s", session_id)
+        else:
+            logger.debug("Session not found for deletion: %s", session_id)
+        return deleted
+
+    def delete_all_sessions(self) -> int:
+        """Delete all sessions. Returns the number of rows deleted."""
+        cursor = self._conn.execute("DELETE FROM sessions_meta")
+        logger.info("Deleted all sessions (count=%d)", cursor.rowcount)
+        return cursor.rowcount
+
+    def prune_old_sessions(self, max_age_days: int) -> int:
+        """Delete sessions whose last_modified is older than *max_age_days*.
+
+        Phase 8C: prevents unbounded DB growth. Called at REPL startup.
+        Configurable via ``SESSION_PRUNE_DAYS`` env var (default 30, 0=disabled).
+
+        Args:
+            max_age_days: Sessions older than this are deleted. 0 means disabled.
+
+        Returns:
+            Number of sessions deleted.
+
+        # See README: "Memory & State" — session persistence
+        """
+        if max_age_days <= 0:
+            return 0
+        # SQLite datetime('now', '-N days') computes a UTC cutoff timestamp.
+        # last_modified is stored as ISO-8601 UTC so string comparison works.
+        cursor = self._conn.execute(
+            "DELETE FROM sessions_meta WHERE last_modified < datetime('now', ?)",
+            (f"-{max_age_days} days",),
+        )
+        if cursor.rowcount > 0:
+            logger.info("Pruned %d session(s) older than %d days", cursor.rowcount, max_age_days)
+        return cursor.rowcount

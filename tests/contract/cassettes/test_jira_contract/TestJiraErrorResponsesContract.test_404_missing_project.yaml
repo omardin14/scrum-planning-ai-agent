@@ -1,0 +1,18 @@
+interactions:
+- request:
+    body: '{"fields": {"project": {"key": "NOPE"}, "summary": "Test", "description": "", "issuetype": {"name": "Epic"}}}'
+    headers:
+      Content-Type:
+      - application/json
+    method: POST
+    uri: https://test.atlassian.net/rest/api/2/issue
+  response:
+    body:
+      string: '{"errorMessages":[],"errors":{"project":"project is required"}}'
+    headers:
+      Content-Type:
+      - application/json;charset=UTF-8
+    status:
+      code: 404
+      message: Not Found
+version: 1

@@ -1,0 +1,18 @@
+interactions:
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://test.atlassian.net/wiki/rest/api/content?spaceKey=DOCS&limit=25&type=page&start=0
+  response:
+    body:
+      string: '{"results":[{"id":"12345","type":"page","status":"current","title":"System Architecture","_links":{"webui":"/spaces/DOCS/pages/12345/System+Architecture"}},{"id":"12346","type":"page","status":"current","title":"Architecture Decision Records","_links":{"webui":"/spaces/DOCS/pages/12346/Architecture+Decision+Records"}},{"id":"12347","type":"page","status":"current","title":"API Reference","_links":{"webui":"/spaces/DOCS/pages/12347/API+Reference"}}],"start":0,"limit":25,"size":3,"_links":{"base":"https://test.atlassian.net/wiki","context":"/wiki"}}'
+    headers:
+      Content-Type:
+      - application/json;charset=UTF-8
+    status:
+      code: 200
+      message: OK
+version: 1

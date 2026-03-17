@@ -1,0 +1,43 @@
+name: Smoke Tests
+
+on:
+  schedule:
+    # Every Monday at 06:00 UTC
+    - cron: "0 6 * * 1"
+  workflow_dispatch: # Allow manual trigger from GitHub UI
+
+# Least-privilege token — this job only checks out code and runs tests.
+# Real API credentials are injected via repository secrets, not GITHUB_TOKEN.
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+      - run: uv python install 3.11
+      - run: uv sync --extra dev --extra all-providers
+
+      - name: Run smoke tests
+        env:
+          # Jira / Confluence
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          JIRA_PROJECT_KEY: ${{ secrets.JIRA_PROJECT_KEY }}
+          CONFLUENCE_SPACE_KEY: ${{ secrets.CONFLUENCE_SPACE_KEY }}
+          # SMOKE_GITHUB_TOKEN: a PAT for broader GitHub access (cross-org calls etc.)
+          # GITHUB_BUILTIN_TOKEN: always has contents:read for this repo; used as
+          # a runtime fallback in conftest.py when the PAT returns 404.
+          GITHUB_TOKEN: ${{ secrets.SMOKE_GITHUB_TOKEN }}
+          GITHUB_BUILTIN_TOKEN: ${{ github.token }}
+          # Azure DevOps
+          AZURE_DEVOPS_TOKEN: ${{ secrets.AZURE_DEVOPS_TOKEN }}
+          AZURE_DEVOPS_SMOKE_REPO_URL: ${{ secrets.AZURE_DEVOPS_SMOKE_REPO_URL }}
+          # LLM providers
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+        run: make smoke-test

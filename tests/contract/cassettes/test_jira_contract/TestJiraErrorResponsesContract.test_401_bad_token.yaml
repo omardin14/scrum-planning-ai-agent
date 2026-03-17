@@ -1,0 +1,18 @@
+interactions:
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://test.atlassian.net/rest/agile/1.0/board?maxResults=50&projectKeyOrId=PROJ
+  response:
+    body:
+      string: '{"errorMessages":["You do not have the permission to see the specified board."],"errors":{}}'
+    headers:
+      Content-Type:
+      - application/json;charset=UTF-8
+    status:
+      code: 401
+      message: Unauthorized
+version: 1

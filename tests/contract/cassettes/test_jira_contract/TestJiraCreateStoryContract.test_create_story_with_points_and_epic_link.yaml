@@ -1,0 +1,34 @@
+interactions:
+- request:
+    body: '{"fields": {"project": {"key": "PROJ"}, "summary": "User login flow", "description": "As a user I want to log in so I can access my account", "issuetype": {"name": "Story"}, "priority": {"name": "High"}, "customfield_10016": 5, "labels": ["Code", "Auth"], "customfield_10014": "PROJ-100"}}'
+    headers:
+      Content-Type:
+      - application/json
+    method: POST
+    uri: https://test.atlassian.net/rest/api/2/issue
+  response:
+    body:
+      string: '{"id":"10200","key":"PROJ-200","self":"https://test.atlassian.net/rest/api/2/issue/10200"}'
+    headers:
+      Content-Type:
+      - application/json;charset=UTF-8
+    status:
+      code: 201
+      message: Created
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://test.atlassian.net/rest/api/2/issue/PROJ-200
+  response:
+    body:
+      string: '{"id":"10200","key":"PROJ-200","self":"https://test.atlassian.net/rest/api/2/issue/10200","fields":{"summary":"User login flow","description":"As a user I want to log in so I can access my account","issuetype":{"name":"Story","id":"10001"},"project":{"key":"PROJ","name":"Project"},"priority":{"name":"High"},"customfield_10016":5.0,"customfield_10014":"PROJ-100","labels":["Code","Auth"],"status":{"name":"To Do"},"created":"2024-01-20T12:00:00.000+0000","updated":"2024-01-20T12:00:00.000+0000"}}'
+    headers:
+      Content-Type:
+      - application/json;charset=UTF-8
+    status:
+      code: 200
+      message: OK
+version: 1

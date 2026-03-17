@@ -1,0 +1,34 @@
+interactions:
+- request:
+    body: '{"fields": {"project": {"key": "PROJ"}, "summary": "Authentication Epic", "description": "Implement user authentication with OAuth", "issuetype": {"name": "Epic"}}}'
+    headers:
+      Content-Type:
+      - application/json
+    method: POST
+    uri: https://test.atlassian.net/rest/api/2/issue
+  response:
+    body:
+      string: '{"id":"10100","key":"PROJ-100","self":"https://test.atlassian.net/rest/api/2/issue/10100"}'
+    headers:
+      Content-Type:
+      - application/json;charset=UTF-8
+    status:
+      code: 201
+      message: Created
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://test.atlassian.net/rest/api/2/issue/PROJ-100
+  response:
+    body:
+      string: '{"id":"10100","key":"PROJ-100","self":"https://test.atlassian.net/rest/api/2/issue/10100","fields":{"summary":"Authentication Epic","description":"Implement user authentication with OAuth","issuetype":{"name":"Epic","id":"10000"},"project":{"key":"PROJ","name":"Project"},"status":{"name":"To Do"},"created":"2024-01-20T12:00:00.000+0000","updated":"2024-01-20T12:00:00.000+0000"}}'
+    headers:
+      Content-Type:
+      - application/json;charset=UTF-8
+    status:
+      code: 200
+      message: OK
+version: 1

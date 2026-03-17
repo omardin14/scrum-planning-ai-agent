@@ -1,0 +1,130 @@
+interactions:
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://test.atlassian.net/rest/agile/1.0/board?maxResults=50&projectKeyOrId=PROJ
+  response:
+    body:
+      string: '{"maxResults":50,"startAt":0,"isLast":true,"values":[{"id":42,"self":"https://test.atlassian.net/rest/agile/1.0/board/42","name":"PROJ board","type":"scrum","location":{"projectId":10001,"displayName":"Project","projectName":"Project","projectKey":"PROJ","projectTypeKey":"software","name":"PROJ board"}}]}'
+    headers:
+      Content-Type:
+      - application/json;charset=UTF-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://test.atlassian.net/rest/agile/1.0/board/42/sprint?state=active
+  response:
+    body:
+      string: '{"maxResults":50,"startAt":0,"isLast":true,"values":[{"id":10,"self":"https://test.atlassian.net/rest/agile/1.0/sprint/10","state":"active","name":"Sprint 1","startDate":"2024-01-15T00:00:00.000Z","endDate":"2024-01-29T00:00:00.000Z","originBoardId":42,"goal":"Ship auth module"}]}'
+    headers:
+      Content-Type:
+      - application/json;charset=UTF-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://test.atlassian.net/rest/api/2/field
+  response:
+    body:
+      string: '[{"id":"summary","name":"Summary","custom":false,"orderable":true,"navigable":true,"searchable":true,"clauseNames":["summary"],"schema":{"type":"string","system":"summary"}},{"id":"description","name":"Description","custom":false,"orderable":true,"navigable":true,"searchable":true,"clauseNames":["description"],"schema":{"type":"string","system":"description"}}]'
+    headers:
+      Content-Type:
+      - application/json;charset=UTF-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://test.atlassian.net/rest/api/2/search?jql=project+%3D+%22PROJ%22+AND+sprint+is+EMPTY+AND+status+%21%3D+Done&maxResults=1&fields=summary&startAt=0
+  response:
+    body:
+      string: '{"expand":"names,schema","startAt":0,"maxResults":1,"total":7,"issues":[{"id":"10001","self":"https://test.atlassian.net/rest/api/2/issue/10001","key":"PROJ-1","fields":{"summary":"Setup CI pipeline"}}]}'
+    headers:
+      Content-Type:
+      - application/json;charset=UTF-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://test.atlassian.net/rest/agile/1.0/board/42/sprint?state=closed
+  response:
+    body:
+      string: '{"maxResults":50,"startAt":0,"isLast":true,"values":[{"id":7,"self":"https://test.atlassian.net/rest/agile/1.0/sprint/7","state":"closed","name":"Sprint Alpha","originBoardId":42},{"id":8,"self":"https://test.atlassian.net/rest/agile/1.0/sprint/8","state":"closed","name":"Sprint Beta","originBoardId":42},{"id":9,"self":"https://test.atlassian.net/rest/agile/1.0/sprint/9","state":"closed","name":"Sprint Gamma","originBoardId":42}]}'
+    headers:
+      Content-Type:
+      - application/json;charset=UTF-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://test.atlassian.net/rest/agile/1.0/sprint/7
+  response:
+    body:
+      string: '{"id":7,"self":"https://test.atlassian.net/rest/agile/1.0/sprint/7","state":"closed","name":"Sprint Alpha","startDate":"2023-12-01T00:00:00.000Z","endDate":"2023-12-15T00:00:00.000Z","completeDate":"2023-12-15T00:00:00.000Z","originBoardId":42,"completedPoints":18}'
+    headers:
+      Content-Type:
+      - application/json;charset=UTF-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://test.atlassian.net/rest/agile/1.0/sprint/8
+  response:
+    body:
+      string: '{"id":8,"self":"https://test.atlassian.net/rest/agile/1.0/sprint/8","state":"closed","name":"Sprint Beta","startDate":"2023-12-15T00:00:00.000Z","endDate":"2023-12-29T00:00:00.000Z","completeDate":"2023-12-29T00:00:00.000Z","originBoardId":42,"completedPoints":22}'
+    headers:
+      Content-Type:
+      - application/json;charset=UTF-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://test.atlassian.net/rest/agile/1.0/sprint/9
+  response:
+    body:
+      string: '{"id":9,"self":"https://test.atlassian.net/rest/agile/1.0/sprint/9","state":"closed","name":"Sprint Gamma","startDate":"2024-01-01T00:00:00.000Z","endDate":"2024-01-15T00:00:00.000Z","completeDate":"2024-01-15T00:00:00.000Z","originBoardId":42,"completedPoints":20}'
+    headers:
+      Content-Type:
+      - application/json;charset=UTF-8
+    status:
+      code: 200
+      message: OK
+version: 1

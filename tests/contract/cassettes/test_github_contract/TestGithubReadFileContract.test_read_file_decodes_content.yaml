@@ -1,0 +1,34 @@
+interactions:
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://api.github.com/repos/test-org/test-repo
+  response:
+    body:
+      string: '{"id":123456,"name":"test-repo","full_name":"test-org/test-repo","default_branch":"main","stargazers_count":42,"forks_count":7,"open_issues_count":3,"description":"A test repository","url":"https://api.github.com/repos/test-org/test-repo"}'
+    headers:
+      Content-Type:
+      - application/json; charset=utf-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://api.github.com/repos/test-org/test-repo/contents/pyproject.toml
+  response:
+    body:
+      string: '{"name":"pyproject.toml","path":"pyproject.toml","sha":"ccc444","size":82,"type":"file","encoding":"base64","content":"W3Byb2plY3RdCm5hbWUgPSAidGVzdC1yZXBvIgp2ZXJzaW9uID0gIjEuMC4wIgoKW3Rvb2wucnVmZl0KbGluZS1sZW5ndGggPSAxMjAK","url":"https://api.github.com/repos/test-org/test-repo/contents/pyproject.toml"}'
+    headers:
+      Content-Type:
+      - application/json; charset=utf-8
+    status:
+      code: 200
+      message: OK
+version: 1

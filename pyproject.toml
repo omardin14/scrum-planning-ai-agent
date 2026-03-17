@@ -1,0 +1,73 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "scrum-agent"
+version = "0.1.0"
+description = "A terminal-based AI agent that decomposes projects into epics, user stories, tasks, and sprint plans."
+requires-python = ">=3.11"
+dependencies = [
+    "langchain",
+    "langgraph",
+    # LLM provider integrations — langchain-anthropic is the default.
+    # langchain-openai and langchain-google-genai are optional; they are
+    # lazy-imported in llm.py and only needed when LLM_PROVIDER is set to
+    # "openai" or "google". Install all with: uv sync --extra all-providers
+    "langchain-anthropic",
+    "rich",
+    "prompt-toolkit",
+    "python-dotenv",
+    "PyGithub",
+    "azure-devops",
+    "jira",
+    "atlassian-python-api",
+    # SQLite-backed checkpoint store for Phase 8 session persistence.
+    # SqliteSaver is used as a standalone store; the graph itself stays
+    # stateless for now (Phase 8B wires it as a full LangGraph checkpointer).
+    "langgraph-checkpoint-sqlite",
+    # Bank/public holiday detection by country — used by detect_bank_holidays tool
+    # to auto-populate capacity deductions during intake.
+    "holidays",
+]
+
+[project.optional-dependencies]
+openai = ["langchain-openai"]
+google = ["langchain-google-genai"]
+pdf = ["pymupdf"]
+all-providers = ["langchain-openai", "langchain-google-genai"]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "pytest-recording",
+    "ruff",
+    "pre-commit",
+]
+
+[project.scripts]
+scrum-agent = "scrum_agent.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/scrum_agent"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+    "slow: tests that compile the graph or run multi-node flows (skip with: -m 'not slow')",
+    "eval: golden dataset evaluators (run with: make eval)",
+    "vcr: contract tests using recorded API responses (run with: make record to re-record)",
+    "smoke: live API smoke tests requiring real credentials (run with: make smoke-test)",
+]
+
+[tool.ruff]
+src = ["src"]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+
+[dependency-groups]
+dev = [
+    "syrupy>=5.1.0",
+]

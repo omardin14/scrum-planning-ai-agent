@@ -1,0 +1,50 @@
+interactions:
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://api.github.com/repos/test-org/test-repo
+  response:
+    body:
+      string: '{"id":123456,"name":"test-repo","full_name":"test-org/test-repo","default_branch":"main","stargazers_count":42,"forks_count":7,"open_issues_count":3,"description":"A test repository","url":"https://api.github.com/repos/test-org/test-repo"}'
+    headers:
+      Content-Type:
+      - application/json; charset=utf-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://api.github.com/repos/test-org/test-repo/readme
+  response:
+    body:
+      string: '{"name":"README.md","path":"README.md","sha":"ddd555","size":105,"type":"file","encoding":"base64","content":"IyBUZXN0IFJlcG8KCkEgc2FtcGxlIHJlcG9zaXRvcnkgZm9yIGNvbnRyYWN0IHRlc3RpbmcuCgojIyBHZXR0aW5nIFN0YXJ0ZWQKClJ1biBgbWFrZSBydW5gIHRvIHN0YXJ0IHRoZSBhcHBsaWNhdGlvbi4K","url":"https://api.github.com/repos/test-org/test-repo/readme"}'
+    headers:
+      Content-Type:
+      - application/json; charset=utf-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://api.github.com/repos/test-org/test-repo/contents/CONTRIBUTING.md
+  response:
+    body:
+      string: '{"name":"CONTRIBUTING.md","path":"CONTRIBUTING.md","sha":"ggg888","size":95,"type":"file","encoding":"base64","content":"IyMgSG93IHRvIENvbnRyaWJ1dGUKCjEuIEZvcmsgdGhlIHJlcG9zaXRvcnkKMi4gQ3JlYXRlIGEgZmVhdHVyZSBicmFuY2gKMy4gT3BlbiBhIHB1bGwgcmVxdWVzdAo=","url":"https://api.github.com/repos/test-org/test-repo/contents/CONTRIBUTING.md"}'
+    headers:
+      Content-Type:
+      - application/json; charset=utf-8
+    status:
+      code: 200
+      message: OK
+version: 1
