@@ -384,9 +384,14 @@ def select_mode(
                                         height=h,
                                     )
                                 )
+                                # Show for at least 1.5s, then wait for a real keypress
+                                _export_t0 = time.monotonic()
                                 while True:
                                     k = read_key(timeout=_FRAME_TIME) if _supports_timeout else read_key()
-                                    if k:
+                                    elapsed = time.monotonic() - _export_t0
+                                    if elapsed < 1.5:
+                                        continue  # enforce minimum display time
+                                    if k and k not in ("scroll_up", "scroll_down", ""):
                                         break
 
                             # Close submenu after export
@@ -724,6 +729,13 @@ def select_mode(
                                 proj_selected = 0
                             _delete_pending = False
                             focus = 0
+                            # Reset button animations so focus returns to card
+                            del_fade = 0.0
+                            del_fade_target = 0.0
+                            exp_fade = 0.0
+                            exp_fade_target = 0.0
+                            action_btns_visible = 0.0
+                            action_btns_visible_target = 2.0 if _is_project_row() else 0.0
                         else:
                             # Esc dismiss — keep Delete button focused
                             focus = 1

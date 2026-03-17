@@ -120,7 +120,7 @@ def _build_description_screen(
     )
 
     submit_hint = Text(
-        _PAD + "Enter twice on empty line to submit \u00b7 Esc go back",
+        _PAD + "Enter submit \u00b7 \u2303N new line \u00b7 Esc go back \u00b7 \u2325+drag select text",
         style="dim",
         justify="left",
     )

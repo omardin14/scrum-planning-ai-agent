@@ -557,9 +557,7 @@ def main(argv: list[str] | None = None) -> None:
                 theme=args.theme,
             )
         else:
-            # Stub — future modes (code-review, sprint-review, …) land here.
-            console.print(f"\n[warning]'{startup_mode}' is not yet available.[/warning]")
-            console.print("[hint]Check back in a future release.[/hint]")
+            console.print(f"\n[warning]Unknown mode '{startup_mode}'.[/warning]")
     else:
         # Interactive TUI flow — select_mode() launches the full session when
         # the user picks Smart or Full intake. It returns None when done.
@@ -572,6 +570,8 @@ def main(argv: list[str] | None = None) -> None:
         enable_mouse_tracking()
         try:
             mode_result = select_mode(console, dry_run=args.dry_run)
+        except KeyboardInterrupt:
+            mode_result = None
         finally:
             disable_mouse_tracking()
             if console.is_alt_screen:

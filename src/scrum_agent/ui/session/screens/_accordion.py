@@ -148,6 +148,7 @@ def _render_active_item(
     choices: list[tuple[str, bool]] | None = None,
     suggestion: str | None = None,
     selected_choice: int = 0,
+    selected_choices: set[int] | None = None,
     border_override: str = "",
     box_w: int = 60,
     edit_hint: str = "",
@@ -179,17 +180,28 @@ def _render_active_item(
     lines.append(Text(""))
 
     if choices:
-        # Single-choice question: numbered options with arrow selection
+        _multi = selected_choices is not None
         for i, (option, is_default) in enumerate(choices):
             marker = " (default)" if is_default else ""
-            is_sel = i == selected_choice
-            if is_sel:
-                style = "bold white"
-                pfx = "\u25b6 "
+            is_cursor = i == selected_choice
+            if _multi:
+                # Multi-select: checkbox indicator
+                checked = i in selected_choices
+                box = "\u25a0" if checked else "\u25a1"  # ■ filled / □ empty
+                pfx = f"\u25b6 {box} " if is_cursor else f"  {box} "
+                style = "bold white" if is_cursor else ("white" if checked else "dim")
             else:
-                style = "dim"
-                pfx = "  "
+                # Single-select: arrow indicator
+                pfx = "\u25b6 " if is_cursor else "  "
+                style = "bold white" if is_cursor else "dim"
             lines.append(Text(f"{_BASE_INDENT}    {pfx}[{i + 1}] {option}{marker}", style=style, justify="left"))
+        # Show inline hint below choices for multi-select
+        if _multi:
+            lines.append(Text(""))
+            lines.append(Text(
+                f"{_BASE_INDENT}    Space to toggle \u00b7 Enter to submit",
+                style="dim", justify="left",
+            ))
     else:
         # Free-text input box with cursor position support.
         # cursor_pos=-1 means cursor at end (default / no explicit position).
@@ -265,6 +277,8 @@ def _compute_item_heights(
             h += 1  # blank line after description
             if choices:
                 h += len(choices)  # one line per choice
+                if "toggle" in edit_hint:
+                    h += 2  # blank + hint line for multi-select
             else:
                 h += 5  # input box (border-top + padding + content + padding + border-bottom)
             h += 1  # blank line after input/choices
@@ -356,6 +370,7 @@ def _build_accordion_question_screen(
     progress: str = "",
     phase_label: str = "",
     selected_choice: int = 0,
+    selected_choices: set[int] | None = None,
     scroll_offset: int = 0,
     width: int = 80,
     height: int = 24,
@@ -419,6 +434,7 @@ def _build_accordion_question_screen(
                 choices=choices,
                 suggestion=suggestion,
                 selected_choice=selected_choice,
+                selected_choices=selected_choices,
                 border_override=border_override,
                 box_w=box_w,
                 edit_hint=edit_hint,

@@ -30,20 +30,6 @@ _MODE_CARDS: list[dict[str, Any]] = [
         "available": True,
         "color": "rgb(70,100,180)",
     },
-    {
-        "key": "code-review",
-        "title": "Code Review",
-        "description": "Review pull requests and suggest improvements.",
-        "available": False,
-        "color": "rgb(70,100,180)",
-    },
-    {
-        "key": "sprint-review",
-        "title": "Sprint Review",
-        "description": "Retrospective analysis and next-sprint recommendations.",
-        "available": False,
-        "color": "rgb(70,100,180)",
-    },
 ]
 
 # ---------------------------------------------------------------------------
@@ -55,13 +41,6 @@ _INTAKE_CARDS: list[dict[str, Any]] = [
         "key": "smart",
         "title": "Smart",
         "description": "Recommended — I'll extract answers from your description and only ask 2-4 follow-ups.",
-        "available": True,
-        "color": "rgb(70,100,180)",
-    },
-    {
-        "key": "standard",
-        "title": "Full",
-        "description": "All 30 questions, one at a time. Best for complex multi-year, multi-team projects.",
         "available": True,
         "color": "rgb(70,100,180)",
     },
