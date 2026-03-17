@@ -380,8 +380,7 @@ def _question_input_loop(
                 height=h,
                 cursor_pos=cursor_pos,
                 edit_hint=(
-                    "Space toggle \u00b7 Enter submit" if multi_select
-                    else "Enter/Ctrl+S submit \u00b7 Esc cancel"
+                    "Space toggle \u00b7 Enter submit" if multi_select else "Enter/Ctrl+S submit \u00b7 Esc cancel"
                 ),
             )
         return _build_question_screen(

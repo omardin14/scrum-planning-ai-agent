@@ -198,10 +198,13 @@ def _render_active_item(
         # Show inline hint below choices for multi-select
         if _multi:
             lines.append(Text(""))
-            lines.append(Text(
-                f"{_BASE_INDENT}    Space to toggle \u00b7 Enter to submit",
-                style="dim", justify="left",
-            ))
+            lines.append(
+                Text(
+                    f"{_BASE_INDENT}    Space to toggle \u00b7 Enter to submit",
+                    style="dim",
+                    justify="left",
+                )
+            )
     else:
         # Free-text input box with cursor position support.
         # cursor_pos=-1 means cursor at end (default / no explicit position).
