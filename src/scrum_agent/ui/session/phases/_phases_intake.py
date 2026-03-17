@@ -64,24 +64,23 @@ def _phase_description_input(
 
         if key == "esc":
             return None
-        elif key == "enter":
-            # Submit if current line is empty and there's content above
-            if not input_lines[cursor_row].strip() and cursor_row > 0:
-                # Remove trailing empty lines and join
-                while input_lines and not input_lines[-1].strip():
-                    input_lines.pop()
-                if input_lines:
-                    desc = "\n".join(input_lines)
-                    logger.info("Description submitted: len=%d", len(desc))
-                    return desc, input_lines, cursor_row, cursor_col
-                continue
-            # Otherwise add a new line
-            # Split current line at cursor
-            current = input_lines[cursor_row]
-            input_lines[cursor_row] = current[:cursor_col]
-            input_lines.insert(cursor_row + 1, current[cursor_col:])
+        elif key == "alt+enter":
+            # Alt+Enter (Option+Enter on macOS) inserts a new line
+            line = input_lines[cursor_row]
+            input_lines[cursor_row] = line[:cursor_col]
+            input_lines.insert(cursor_row + 1, line[cursor_col:])
             cursor_row += 1
             cursor_col = 0
+        elif key == "enter":
+            # Submit if there's any content
+            text = "\n".join(input_lines).strip()
+            if text:
+                # Remove trailing empty lines
+                while input_lines and not input_lines[-1].strip():
+                    input_lines.pop()
+                desc = "\n".join(input_lines)
+                logger.info("Description submitted: len=%d", len(desc))
+                return desc, input_lines, cursor_row, cursor_col
         elif key == "backspace":
             if cursor_col > 0:
                 line = input_lines[cursor_row]
@@ -227,8 +226,10 @@ def _phase_intake_questions(
 
             # Dynamic choices — follow-up probes or node-generated options (e.g. Q27 sprint selection)
             follow_up_choices = qs._follow_up_choices.get(cur_q)
+            is_multi_select = False
             if follow_up_choices:
                 choices = [(opt, False) for opt in follow_up_choices]
+                is_multi_select = True
 
         # If no question text from AI, use a generic prompt
         if not question_text:
@@ -248,6 +249,7 @@ def _phase_intake_questions(
             export_only=export_only,
             graph_state=graph_state,
             questionnaire=qs if isinstance(qs, QuestionnaireState) else None,
+            multi_select=is_multi_select,
         )
 
         if answer is None:
@@ -330,6 +332,7 @@ def _question_input_loop(
     export_only: bool,
     graph_state: dict,
     questionnaire: QuestionnaireState | None = None,
+    multi_select: bool = False,
 ) -> str | None:
     """Show a question screen and collect user input.
 
@@ -355,6 +358,7 @@ def _question_input_loop(
             input_value = existing
     cursor_pos = len(input_value)  # cursor starts at end of pre-filled text
     selected_choice = 0
+    selected_choices: set[int] = set()  # for multi-select mode
     scroll_offset = 0
     use_accordion = questionnaire is not None
 
@@ -370,11 +374,14 @@ def _question_input_loop(
                 progress=progress,
                 phase_label=phase_label,
                 selected_choice=selected_choice,
+                selected_choices=selected_choices if multi_select else None,
                 scroll_offset=scroll_offset,
                 width=w,
                 height=h,
                 cursor_pos=cursor_pos,
-                edit_hint="Enter/Ctrl+S submit \u00b7 Esc cancel",
+                edit_hint=(
+                    "Space toggle \u00b7 Enter submit" if multi_select else "Enter/Ctrl+S submit \u00b7 Esc cancel"
+                ),
             )
         return _build_question_screen(
             question_text,
@@ -399,8 +406,20 @@ def _question_input_loop(
         elif key in ("enter", "ctrl+s"):
             # Enter or Ctrl+S submits the answer
             if choices:
+                if multi_select:
+                    # Submit all selected items, or current item if none toggled
+                    if selected_choices:
+                        selected_labels = [choices[i][0] for i in sorted(selected_choices)]
+                        return ", ".join(selected_labels)
+                    return choices[selected_choice][0]
                 return choices[selected_choice][0]
             return input_value
+        elif key == " " and choices and multi_select:
+            # Space toggles selection in multi-select mode
+            if selected_choice in selected_choices:
+                selected_choices.discard(selected_choice)
+            else:
+                selected_choices.add(selected_choice)
         elif key in ("up", "scroll_up") and choices:
             selected_choice = (selected_choice - 1) % len(choices)
         elif key in ("down", "scroll_down") and choices:

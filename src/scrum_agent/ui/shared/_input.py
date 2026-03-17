@@ -43,7 +43,10 @@ def read_key(stdin=None, timeout: float | None = None) -> str:
         new_settings[0] &= ~termios.IXON  # input flags
         termios.tcsetattr(fd, termios.TCSANOW, new_settings)
         if timeout is not None:
-            ready, _, _ = _select.select([fd], [], [], timeout)
+            try:
+                ready, _, _ = _select.select([fd], [], [], timeout)
+            except KeyboardInterrupt:
+                raise
             if not ready:
                 return ""
 
@@ -72,6 +75,9 @@ def read_key(stdin=None, timeout: float | None = None) -> str:
             if ch2 == "\x7f":
                 # Alt+Backspace → delete word backward
                 return "word_backspace"
+            # Alt+Enter (Option+Enter on macOS) → newline
+            if ch2 in ("\r", "\n"):
+                return "alt+enter"
             # Alt+b / Alt+f — word-level navigation (emacs-style)
             if ch2 == "b":
                 return "shift+left"
@@ -94,8 +100,11 @@ def read_key(stdin=None, timeout: float | None = None) -> str:
                 # consumed and discarded so they don't leak to the terminal.
                 # Modified keys: \x1b[1;{mod}{dir} where mod 2=Shift, 3=Alt, 5=Ctrl
                 # Shift+Left/Right are used for word-level navigation.
+                # CSI u (kitty keyboard protocol): \x1b[13;2u = Shift+Enter
                 if ch3 == "1":
                     rest = _read_available(0.05)
+                    if rest.startswith("3;2u"):
+                        return "alt+enter"
                     if rest.startswith(";2D"):
                         return "shift+left"
                     if rest.startswith(";2C"):
@@ -216,10 +225,13 @@ def read_key(stdin=None, timeout: float | None = None) -> str:
         if ch == "\x17":
             # Ctrl+W → delete word backward
             return "word_backspace"
+        if ch == "\x0e":
+            # Ctrl+N → new line (works in all terminals)
+            return "alt+enter"
         if ch == "\x13":
             return "ctrl+s"
         if ch == "\x03":
-            return "esc"
+            raise KeyboardInterrupt
         if ch.isprintable():
             return ch
         return ch
@@ -246,14 +258,20 @@ def enable_mouse_tracking() -> None:
     tracking (\x1b[?1000h). This causes the terminal to send mouse wheel
     events as escape sequences that read_key() parses into "scroll_up" /
     "scroll_down" instead of letting the terminal scroll its own buffer.
+
+    Also enables bracketed paste mode (\x1b[?2004h) so Cmd+V / Ctrl+V
+    sends paste content as an escape sequence that read_key() can parse,
+    rather than being swallowed by mouse tracking.
     """
     sys.stdout.write("\x1b[?1000h")  # enable basic mouse tracking
     sys.stdout.write("\x1b[?1006h")  # enable SGR extended mode
+    sys.stdout.write("\x1b[?2004h")  # enable bracketed paste mode
     sys.stdout.flush()
 
 
 def disable_mouse_tracking() -> None:
     """Disable mouse event reporting — restore normal terminal behaviour."""
+    sys.stdout.write("\x1b[?2004l")  # disable bracketed paste mode
     sys.stdout.write("\x1b[?1006l")
     sys.stdout.write("\x1b[?1000l")
     sys.stdout.flush()

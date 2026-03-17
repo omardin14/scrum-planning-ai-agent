@@ -56,3 +56,6 @@ scrum-questionnaire.md
 # References
 Capacity_Plan_Template.xlsx
 SCRUM.md
+
+# Allow test fixtures (overrides SCRUM.md ignore above)
+!tests/fixtures/SCRUM.md
