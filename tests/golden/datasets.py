@@ -5,7 +5,7 @@ Each dataset is a dict with:
 - ``answers``: Full Q1–Q26 answer set for the questionnaire
 - ``expected``: Structural expectations for artifact validation
 
-These datasets drive the full pipeline (analyzer → epics → stories → tasks →
+These datasets drive the full pipeline (analyzer → features → stories → tasks →
 sprints) and assert structural properties of the output — not exact text,
 since LLM outputs vary across runs.
 """
@@ -54,10 +54,10 @@ TODO_APP = {
         26: "Daily standups, retrospectives after each sprint",
     },
     "expected": {
-        "min_epics": 3,
-        "max_epics": 6,
-        "min_stories_per_epic": 2,
-        "max_stories_per_epic": 5,
+        "min_features": 3,
+        "max_features": 6,
+        "min_stories_per_feature": 1,
+        "max_stories_per_feature": 5,
         "min_tasks_per_story": 2,
         "max_tasks_per_story": 5,
         "min_sprints": 1,
@@ -107,10 +107,10 @@ SAAS_PLATFORM = {
         26: "Sprint reviews with stakeholders, automated regression testing gate",
     },
     "expected": {
-        "min_epics": 3,
-        "max_epics": 6,
-        "min_stories_per_epic": 2,
-        "max_stories_per_epic": 5,
+        "min_features": 3,
+        "max_features": 6,
+        "min_stories_per_feature": 1,
+        "max_stories_per_feature": 5,
         "min_tasks_per_story": 2,
         "max_tasks_per_story": 5,
         "min_sprints": 1,  # fallback may pack all into 1 sprint when velocity is high
@@ -160,10 +160,10 @@ MOBILE_APP = {
         26: "Bi-weekly demos to restaurant partners, design reviews before implementation",
     },
     "expected": {
-        "min_epics": 3,
-        "max_epics": 6,
-        "min_stories_per_epic": 2,
-        "max_stories_per_epic": 5,
+        "min_features": 3,
+        "max_features": 6,
+        "min_stories_per_feature": 1,
+        "max_stories_per_feature": 5,
         "min_tasks_per_story": 2,
         "max_tasks_per_story": 5,
         "min_sprints": 2,
@@ -212,10 +212,10 @@ API_GATEWAY = {
         26: "Performance benchmarks after every sprint, architecture reviews",
     },
     "expected": {
-        "min_epics": 3,
-        "max_epics": 6,
-        "min_stories_per_epic": 2,
-        "max_stories_per_epic": 5,
+        "min_features": 3,
+        "max_features": 6,
+        "min_stories_per_feature": 1,
+        "max_stories_per_feature": 5,
         "min_tasks_per_story": 2,
         "max_tasks_per_story": 5,
         "min_sprints": 1,
@@ -265,10 +265,10 @@ ML_PIPELINE = {
         26: "Weekly model performance reviews, experiment log in MLflow",
     },
     "expected": {
-        "min_epics": 3,
-        "max_epics": 6,
-        "min_stories_per_epic": 2,
-        "max_stories_per_epic": 5,
+        "min_features": 3,
+        "max_features": 6,
+        "min_stories_per_feature": 1,
+        "max_stories_per_feature": 5,
         "min_tasks_per_story": 2,
         "max_tasks_per_story": 5,
         "min_sprints": 2,

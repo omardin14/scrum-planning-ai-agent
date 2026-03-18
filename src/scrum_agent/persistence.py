@@ -40,7 +40,7 @@ _PIPELINE_STAGES = (
     "description_input",
     "intake_complete",
     "project_analyzer",
-    "epic_generator",
+    "feature_generator",
     "story_writer",
     "task_decomposer",
     "sprint_planner",
@@ -161,7 +161,7 @@ def save_graph_state(project_id: str, graph_state: dict[str, Any]) -> None:
         serialized["questionnaire"] = qs_dict
 
     # Serialize frozen dataclass artifacts
-    for key in ("project_analysis", "epics", "stories", "tasks", "sprints"):
+    for key in ("project_analysis", "features", "stories", "tasks", "sprints"):
         val = graph_state.get(key)
         if val is not None:
             if isinstance(val, list):
@@ -195,6 +195,7 @@ def save_graph_state(project_id: str, graph_state: dict[str, Any]) -> None:
         "pending_review",
         "last_review_decision",
         "last_review_feedback",
+        "jira_epic_key",
     ):
         if key in graph_state:
             val = graph_state[key]
@@ -203,6 +204,11 @@ def save_graph_state(project_id: str, graph_state: dict[str, Any]) -> None:
                 serialized[key] = val.value
             else:
                 serialized[key] = val
+
+    # Serialize Jira key mapping dicts (plain dict[str, str] → JSON objects)
+    for key in ("jira_feature_keys", "jira_story_keys", "jira_task_keys", "jira_sprint_keys"):
+        if key in graph_state and graph_state[key]:
+            serialized[key] = dict(graph_state[key])
 
     state_file = _STATES_DIR / f"{project_id}.json"
     state_file.write_text(json.dumps(serialized, indent=2, default=str), encoding="utf-8")
@@ -222,7 +228,7 @@ def load_graph_state(project_id: str) -> dict[str, Any] | None:
     from scrum_agent.agent.state import (
         AcceptanceCriterion,
         Discipline,
-        Epic,
+        Feature,
         Priority,
         ProjectAnalysis,
         QuestionnaireState,
@@ -288,7 +294,7 @@ def load_graph_state(project_id: str) -> dict[str, Any] | None:
     # Deserialize frozen dataclass artifacts
     _artifact_classes = {
         "project_analysis": ProjectAnalysis,
-        "epics": Epic,
+        "features": Feature,
         "stories": UserStory,
         "tasks": Task,
         "sprints": Sprint,
@@ -296,7 +302,7 @@ def load_graph_state(project_id: str) -> dict[str, Any] | None:
 
     def _restore_enums(cls, item_dict: dict) -> dict:
         """Restore enum and tuple fields from their JSON representations."""
-        if cls in (Epic, UserStory):
+        if cls in (Feature, UserStory):
             if "priority" in item_dict and isinstance(item_dict["priority"], str):
                 item_dict["priority"] = Priority(item_dict["priority"])
         if cls is UserStory:
@@ -312,6 +318,29 @@ def load_graph_state(project_id: str) -> dict[str, Any] | None:
                 item_dict["dod_applicable"] = tuple(item_dict["dod_applicable"])
         return item_dict
 
+    def _filter_known_fields(cls, item_dict: dict) -> dict:
+        """Strip keys not recognized by the dataclass constructor.
+
+        Backward compatibility: saved states may contain renamed or removed
+        fields (e.g. 'skip_epics' → 'skip_features'). Passing unknown kwargs
+        raises TypeError, so we filter to only the fields the class declares.
+        """
+        from dataclasses import fields as dc_fields
+
+        known = {f.name for f in dc_fields(cls)}
+        return {k: v for k, v in item_dict.items() if k in known}
+
+    # Backward compatibility: migrate epic_id → feature_id in story dicts.
+    # Must run BEFORE artifact deserialization so _filter_known_fields sees feature_id.
+    if "stories" in raw:
+        for story_dict in raw["stories"]:
+            if isinstance(story_dict, dict) and "epic_id" in story_dict and "feature_id" not in story_dict:
+                story_dict["feature_id"] = story_dict.pop("epic_id")
+
+    # Backward compatibility: migrate old "epics" key to "features"
+    if "epics" in raw and "features" not in raw:
+        raw["features"] = raw.pop("epics")
+
     for key, cls in _artifact_classes.items():
         if key not in raw:
             continue
@@ -320,11 +349,11 @@ def load_graph_state(project_id: str) -> dict[str, Any] | None:
             items = []
             for item_dict in val:
                 _restore_enums(cls, item_dict)
-                items.append(cls(**item_dict))
+                items.append(cls(**_filter_known_fields(cls, item_dict)))
             graph_state[key] = items
         elif isinstance(val, dict):
             _restore_enums(cls, val)
-            graph_state[key] = cls(**val)
+            graph_state[key] = cls(**_filter_known_fields(cls, val))
 
     # Deserialize scalar fields
     for key in (
@@ -351,6 +380,7 @@ def load_graph_state(project_id: str) -> dict[str, Any] | None:
         "confluence_context",
         "pending_review",
         "last_review_feedback",
+        "jira_epic_key",
     ):
         if key in raw:
             graph_state[key] = raw[key]
@@ -361,6 +391,11 @@ def load_graph_state(project_id: str) -> dict[str, Any] | None:
             graph_state["last_review_decision"] = ReviewDecision(raw["last_review_decision"])
         except (ValueError, KeyError):
             pass
+
+    # Restore Jira key mapping dicts (plain dict[str, str])
+    for key in ("jira_feature_keys", "jira_story_keys", "jira_task_keys", "jira_sprint_keys"):
+        if key in raw and isinstance(raw[key], dict):
+            graph_state[key] = raw[key]
 
     logger.debug("Graph state loaded for project_id=%s (%d keys)", project_id, len(graph_state))
     return graph_state
@@ -386,7 +421,7 @@ def load_projects() -> list[ProjectSummary]:
                 id=proj.get("id", ""),
                 created=_relative_time(proj.get("updated_at", "")),
                 status=_compute_status(pipeline),
-                epic_count=artifacts.get("epics", 0),
+                feature_count=artifacts.get("features", 0),
                 story_count=artifacts.get("stories", 0),
                 task_count=artifacts.get("tasks", 0),
                 sprint_count=artifacts.get("sprints", 0),
@@ -580,6 +615,140 @@ def export_project_plan(project_id: str, output_dir: Path | None = None) -> list
     return paths
 
 
+def generate_scrum_md(project_id: str) -> Path | None:
+    """Generate a SCRUM.md from a completed project's graph state.
+
+    Reverse-engineers a SCRUM.md file from the project analysis, features,
+    stories, and planning data so the user can review, edit, and re-use it
+    as input for future runs.
+
+    Saved to ~/.scrum-agent/states/{project_id}-SCRUM.md.
+    Returns the output Path, or None if the project has no saved state.
+    """
+    graph_state = load_graph_state(project_id)
+    if graph_state is None:
+        return None
+
+    analysis = graph_state.get("project_analysis")
+    if analysis is None:
+        return None
+
+    lines: list[str] = []
+    lines.append("# Project Context\n")
+    lines.append("<!--")
+    lines.append("Auto-generated SCRUM.md from your completed project plan.")
+    lines.append("Edit this file and place it in your project root as SCRUM.md")
+    lines.append("to pre-populate the agent with your project context on the next run.")
+    lines.append("-->\n")
+
+    # Description
+    lines.append("## Description\n")
+    desc = getattr(analysis, "project_description", "") or ""
+    lines.append(desc + "\n")
+
+    # Background / Goals
+    goals = getattr(analysis, "goals", ())
+    if goals:
+        lines.append("## Background\n")
+        for g in goals:
+            lines.append(f"- {g}")
+        lines.append("")
+
+    # End Users
+    users = getattr(analysis, "end_users", ())
+    if users:
+        lines.append("## End Users\n")
+        for u in users:
+            lines.append(f"- {u}")
+        lines.append("")
+
+    # Key Links (from user_context if available)
+    user_context = graph_state.get("user_context", "")
+    if user_context:
+        # Extract URLs from user context
+        import re
+
+        urls = re.findall(r"https?://[^\s)>]+", user_context)
+        if urls:
+            lines.append("## Key Links\n")
+            for url in urls[:10]:  # cap at 10
+                lines.append(f"- {url}")
+            lines.append("")
+
+    # Tech Decisions
+    tech = getattr(analysis, "tech_stack", ())
+    integrations = getattr(analysis, "integrations", ())
+    if tech or integrations:
+        lines.append("## Tech Decisions Already Made\n")
+        for t in tech:
+            lines.append(f"- {t}")
+        for i in integrations:
+            lines.append(f"- Integration: {i}")
+        lines.append("")
+
+    # Team Conventions
+    lines.append("## Team Conventions\n")
+    sprint_weeks = getattr(analysis, "sprint_length_weeks", 0) or graph_state.get("sprint_length_weeks", 2)
+    target_sprints = getattr(analysis, "target_sprints", 0) or graph_state.get("target_sprints", 0)
+    team_size = graph_state.get("team_size", 0)
+    lines.append(f"- Sprint length: {sprint_weeks} weeks")
+    lines.append("- Story point scale: Fibonacci (1, 2, 3, 5, 8)")
+    if target_sprints:
+        lines.append(f"- Target: {target_sprints} sprints")
+    if team_size:
+        lines.append(f"- Team size: {team_size}")
+    velocity = graph_state.get("velocity_per_sprint", 0)
+    if velocity:
+        lines.append(f"- Velocity: {velocity} points/sprint")
+    lines.append("")
+
+    # Constraints
+    constraints = getattr(analysis, "constraints", ())
+    if constraints:
+        lines.append("## Constraints\n")
+        for c in constraints:
+            lines.append(f"- {c}")
+        lines.append("")
+
+    # Out of Scope
+    oos = getattr(analysis, "out_of_scope", ())
+    if oos:
+        lines.append("## Out of Scope\n")
+        for o in oos:
+            lines.append(f"- {o}")
+        lines.append("")
+
+    # Risks
+    risks = getattr(analysis, "risks", ())
+    if risks:
+        lines.append("## Risks\n")
+        for r in risks:
+            lines.append(f"- {r}")
+        lines.append("")
+
+    # Assumptions (from analysis)
+    assumptions = getattr(analysis, "assumptions", ())
+    if assumptions:
+        lines.append("## Assumptions\n")
+        for a in assumptions:
+            lines.append(f"- {a}")
+        lines.append("")
+
+    content = "\n".join(lines)
+
+    # Save with project-name-based filename for easy identification.
+    # Stored in ~/.scrum-agent/scrum-docs/ to avoid conflicts with user's own SCRUM.md.
+    scrum_docs_dir = _CONFIG_DIR / "scrum-docs"
+    scrum_docs_dir.mkdir(parents=True, exist_ok=True)
+    project_name = getattr(analysis, "project_name", "") or "project"
+    safe_name = "".join(c if c.isalnum() or c in "-_ " else "" for c in project_name).strip()
+    safe_name = safe_name.replace(" ", "-").lower()[:60] or "project"
+    out_path = scrum_docs_dir / f"SCRUM-{safe_name}.md"
+    out_path.write_text(content, encoding="utf-8")
+    logger.info("Generated SCRUM.md for project %s: %s", project_id, out_path)
+    return out_path
+
+
 def migrate_history_file() -> None:
     """Rename ~/.scrum-agent/history to repl-history if the old file exists.
 
@@ -639,7 +808,7 @@ def _extract_pipeline_progress(graph_state: dict[str, Any]) -> dict[str, bool]:
         "description_input": has_messages,
         "intake_complete": qs is not None and hasattr(qs, "completed") and qs.completed,
         "project_analyzer": graph_state.get("project_analysis") is not None,
-        "epic_generator": bool(graph_state.get("epics")),
+        "feature_generator": bool(graph_state.get("features")),
         "story_writer": bool(graph_state.get("stories")),
         "task_decomposer": bool(graph_state.get("tasks")),
         "sprint_planner": bool(graph_state.get("sprints")) and not graph_state.get("pending_review"),
@@ -649,26 +818,38 @@ def _extract_pipeline_progress(graph_state: dict[str, Any]) -> dict[str, bool]:
 def _extract_artifact_counts(graph_state: dict[str, Any]) -> dict[str, int]:
     """Count each type of artifact in the graph state."""
     return {
-        "epics": len(graph_state.get("epics", [])),
+        "features": len(graph_state.get("features", [])),
         "stories": len(graph_state.get("stories", [])),
         "tasks": len(graph_state.get("tasks", [])),
         "sprints": len(graph_state.get("sprints", [])),
     }
 
 
-def _extract_jira_sync(graph_state: dict[str, Any]) -> dict[str, int]:
+def _extract_jira_sync(graph_state: dict[str, Any]) -> dict[str, int | str]:
     """Count Jira-synced vs total artifacts."""
-    epics_total = len(graph_state.get("epics", []))
+    features_total = len(graph_state.get("features", []))
     stories_total = len(graph_state.get("stories", []))
-    epics_synced = len(graph_state.get("jira_epic_keys", {}))
+    tasks_total = len(graph_state.get("tasks", []))
+    sprints_total = len(graph_state.get("sprints", []))
+    features_synced = len(graph_state.get("jira_feature_keys", {}))
     stories_synced = len(graph_state.get("jira_story_keys", {}))
+    tasks_synced = len(graph_state.get("jira_task_keys", {}))
+    sprints_synced = len(graph_state.get("jira_sprint_keys", {}))
 
-    return {
-        "epics_synced": epics_synced,
-        "epics_total": epics_total,
+    result: dict[str, int | str] = {
+        "features_synced": features_synced,
+        "features_total": features_total,
         "stories_synced": stories_synced,
         "stories_total": stories_total,
+        "tasks_synced": tasks_synced,
+        "tasks_total": tasks_total,
+        "sprints_synced": sprints_synced,
+        "sprints_total": sprints_total,
     }
+    epic_key = graph_state.get("jira_epic_key", "")
+    if epic_key:
+        result["epic_key"] = epic_key
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -734,19 +915,24 @@ def _compute_status(pipeline_progress: dict[str, bool]) -> str:
     return "New"
 
 
-def _compute_jira_summary(jira_sync: dict[str, int]) -> str:
-    """Build a Jira sync summary string like '3/4 epics, 12/15 stories synced'."""
+def _compute_jira_summary(jira_sync: dict[str, int | str]) -> str:
+    """Build a Jira sync summary string like '12/15 stories, 30/45 tasks synced'."""
     parts: list[str] = []
-    epics_synced = jira_sync.get("epics_synced", 0)
-    epics_total = jira_sync.get("epics_total", 0)
     stories_synced = jira_sync.get("stories_synced", 0)
     stories_total = jira_sync.get("stories_total", 0)
+    tasks_synced = jira_sync.get("tasks_synced", 0)
+    tasks_total = jira_sync.get("tasks_total", 0)
+    sprints_synced = jira_sync.get("sprints_synced", 0)
+    sprints_total = jira_sync.get("sprints_total", 0)
 
-    if epics_synced > 0 or stories_synced > 0:
-        if epics_total > 0:
-            parts.append(f"{epics_synced}/{epics_total} epics")
+    has_sync = stories_synced > 0 or tasks_synced > 0 or sprints_synced > 0
+    if has_sync:
         if stories_total > 0:
             parts.append(f"{stories_synced}/{stories_total} stories")
+        if tasks_total > 0:
+            parts.append(f"{tasks_synced}/{tasks_total} tasks")
+        if sprints_total > 0:
+            parts.append(f"{sprints_synced}/{sprints_total} sprints")
         return ", ".join(parts) + " synced"
 
     return ""

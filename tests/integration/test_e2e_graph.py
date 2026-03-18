@@ -25,13 +25,13 @@ from langchain_core.messages import HumanMessage
 
 from scrum_agent.agent.graph import create_graph
 from scrum_agent.agent.nodes import (
-    epic_generator,
+    feature_generator,
     route_entry,
     story_writer,
 )
 from scrum_agent.agent.state import (
     TOTAL_QUESTIONS,
-    Epic,
+    Feature,
     Priority,
     ProjectAnalysis,
     QuestionnaireState,
@@ -65,17 +65,17 @@ _ANALYSIS_JSON = """\
   "assumptions": ["Default velocity assumed"]
 }"""
 
-_EPICS_JSON = """\
+_FEATURES_JSON = """\
 [
-  {"id": "E1", "title": "User Authentication", "description": "Registration, login, JWT", "priority": "high"},
-  {"id": "E2", "title": "Task Management", "description": "CRUD operations for tasks", "priority": "high"},
-  {"id": "E3", "title": "Dashboard", "description": "Responsive dashboard", "priority": "medium"}
+  {"id": "F1", "title": "User Authentication", "description": "Registration, login, JWT", "priority": "high"},
+  {"id": "F2", "title": "Task Management", "description": "CRUD operations for tasks", "priority": "high"},
+  {"id": "F3", "title": "Dashboard", "description": "Responsive dashboard", "priority": "medium"}
 ]"""
 
 _STORIES_JSON = """\
 [
   {
-    "id": "US-E1-001", "epic_id": "E1", "persona": "end user",
+    "id": "US-F1-001", "feature_id": "F1", "persona": "end user",
     "goal": "register an account", "benefit": "I can access the application",
     "acceptance_criteria": [
       {"given": "on registration page", "when": "submit valid credentials", "then": "account is created"},
@@ -85,7 +85,7 @@ _STORIES_JSON = """\
     "story_points": 5, "priority": "high"
   },
   {
-    "id": "US-E1-002", "epic_id": "E1", "persona": "end user",
+    "id": "US-F1-002", "feature_id": "F1", "persona": "end user",
     "goal": "log in to my account", "benefit": "I can access my data",
     "acceptance_criteria": [
       {"given": "have an account", "when": "enter correct credentials", "then": "I am logged in"}
@@ -93,7 +93,7 @@ _STORIES_JSON = """\
     "story_points": 3, "priority": "high"
   },
   {
-    "id": "US-E2-001", "epic_id": "E2", "persona": "end user",
+    "id": "US-F2-001", "feature_id": "F2", "persona": "end user",
     "goal": "create a new task", "benefit": "I can track my work",
     "acceptance_criteria": [
       {"given": "I am logged in", "when": "fill out the task form", "then": "the task is created"}
@@ -105,19 +105,19 @@ _STORIES_JSON = """\
 _TASKS_JSON = """\
 [
   {
-    "id": "T-US-E1-001-01", "story_id": "US-E1-001",
+    "id": "T-US-F1-001-01", "story_id": "US-F1-001",
     "title": "Registration endpoint", "description": "Build POST /register"
   },
   {
-    "id": "T-US-E1-001-02", "story_id": "US-E1-001",
+    "id": "T-US-F1-001-02", "story_id": "US-F1-001",
     "title": "Registration tests", "description": "Unit tests for registration"
   },
   {
-    "id": "T-US-E1-002-01", "story_id": "US-E1-002",
+    "id": "T-US-F1-002-01", "story_id": "US-F1-002",
     "title": "Login endpoint", "description": "Build POST /login with JWT"
   },
   {
-    "id": "T-US-E2-001-01", "story_id": "US-E2-001",
+    "id": "T-US-F2-001-01", "story_id": "US-F2-001",
     "title": "Task CRUD endpoints", "description": "Build CRUD for tasks"
   }
 ]"""
@@ -126,27 +126,27 @@ _SPRINTS_JSON = """\
 [
   {
     "id": "SP-1", "name": "Sprint 1", "goal": "Auth foundation",
-    "capacity_points": 8, "story_ids": ["US-E1-001", "US-E1-002"]
+    "capacity_points": 8, "story_ids": ["US-F1-001", "US-F1-002"]
   },
   {
     "id": "SP-2", "name": "Sprint 2", "goal": "Task management",
-    "capacity_points": 3, "story_ids": ["US-E2-001"]
+    "capacity_points": 3, "story_ids": ["US-F2-001"]
   }
 ]"""
 
-# Alternative epics JSON for review re-generation (different titles)
-_EPICS_V2_JSON = """\
+# Alternative features JSON for review re-generation (different titles)
+_FEATURES_V2_JSON = """\
 [
-  {"id": "E1", "title": "Auth System", "description": "Full authentication with OAuth", "priority": "high"},
-  {"id": "E2", "title": "Core Tasks", "description": "Task CRUD and filtering", "priority": "high"},
-  {"id": "E3", "title": "Reporting", "description": "Analytics dashboard", "priority": "medium"}
+  {"id": "F1", "title": "Auth System", "description": "Full authentication with OAuth", "priority": "high"},
+  {"id": "F2", "title": "Core Tasks", "description": "Task CRUD and filtering", "priority": "high"},
+  {"id": "F3", "title": "Reporting", "description": "Analytics dashboard", "priority": "medium"}
 ]"""
 
 # Alternative stories JSON for review re-generation
 _STORIES_V2_JSON = """\
 [
   {
-    "id": "US-E1-001", "epic_id": "E1", "persona": "developer",
+    "id": "US-F1-001", "feature_id": "F1", "persona": "developer",
     "goal": "set up OAuth integration", "benefit": "secure authentication",
     "acceptance_criteria": [
       {"given": "on login page", "when": "click OAuth provider", "then": "redirected to provider"},
@@ -156,7 +156,7 @@ _STORIES_V2_JSON = """\
     "story_points": 8, "priority": "high"
   },
   {
-    "id": "US-E2-001", "epic_id": "E2", "persona": "end user",
+    "id": "US-F2-001", "feature_id": "F2", "persona": "end user",
     "goal": "filter tasks by status", "benefit": "find relevant tasks quickly",
     "acceptance_criteria": [
       {"given": "on task list", "when": "select status filter", "then": "list updates"}
@@ -253,11 +253,11 @@ class TestFullQuestionnaireToSprintPipeline:
     """Drive all 26 questions through intake, then run the full pipeline.
 
     Simulates the REPL loop: invoke → get question → answer → invoke again.
-    After Q26, confirm, then run analyzer → epics → stories → tasks → sprints.
+    After Q26, confirm, then run analyzer → features → stories → tasks → sprints.
     """
 
     def test_full_flow_produces_all_artifacts(self, monkeypatch):
-        """Q1–Q26 → confirm → analyzer → epics → stories → tasks → sprints."""
+        """Q1–Q26 → confirm → analyzer → features → stories → tasks → sprints."""
         _patch_external_lookups(monkeypatch)
 
         # Phase 1 uses a no-op LLM (intake extraction / vague checks get empty JSON).
@@ -298,7 +298,7 @@ class TestFullQuestionnaireToSprintPipeline:
         pipeline_llm = _make_stage_llm(
             [
                 _ANALYSIS_JSON,
-                _EPICS_JSON,
+                _FEATURES_JSON,
                 _STORIES_JSON,
                 _TASKS_JSON,
                 _SPRINTS_JSON,
@@ -312,10 +312,10 @@ class TestFullQuestionnaireToSprintPipeline:
         assert state.get("project_analysis") is not None
         assert isinstance(state["project_analysis"], ProjectAnalysis)
 
-        # Epics
-        assert route_entry(state) == "epic_generator"
+        # Features
+        assert route_entry(state) == "feature_generator"
         state = graph.invoke({**state, "messages": [HumanMessage(content="continue")]})
-        assert len(state.get("epics", [])) == 3
+        assert len(state.get("features", [])) == 3
 
         # Stories
         assert route_entry(state) == "story_writer"
@@ -449,19 +449,19 @@ class TestSmartIntakeMode:
 
 
 # ---------------------------------------------------------------------------
-# Test 4: Review loop — reject epics → re-generate with feedback
+# Test 4: Review loop — reject features → re-generate with feedback
 # ---------------------------------------------------------------------------
 
 
-class TestReviewRejectEpics:
-    """Simulate the REPL reject flow: clear epics, set feedback, re-invoke."""
+class TestReviewRejectFeatures:
+    """Simulate the REPL reject flow: clear features, set feedback, re-invoke."""
 
-    def test_reject_epics_triggers_regeneration(self, monkeypatch):
-        """Rejecting epics with feedback should re-generate different epics."""
+    def test_reject_features_triggers_regeneration(self, monkeypatch):
+        """Rejecting features with feedback should re-generate different features."""
         _patch_external_lookups(monkeypatch)
 
-        # First call returns original epics, second returns v2
-        stage_llm = _make_stage_llm([_EPICS_JSON, _EPICS_V2_JSON])
+        # First call returns original features, second returns v2
+        stage_llm = _make_stage_llm([_FEATURES_JSON, _FEATURES_V2_JSON])
         monkeypatch.setattr("scrum_agent.agent.nodes.get_llm", lambda **kw: stage_llm)
 
         # Build state with completed questionnaire + analysis (skip intake)
@@ -472,28 +472,28 @@ class TestReviewRejectEpics:
         }
 
         # --- First generation ---
-        result = epic_generator(state)
-        epics_v1 = result["epics"]
-        assert result["pending_review"] == "epic_generator"
-        assert epics_v1[0].title == "User Authentication"
+        result = feature_generator(state)
+        features_v1 = result["features"]
+        assert result["pending_review"] == "feature_generator"
+        assert features_v1[0].title == "User Authentication"
 
         # --- REPL reject flow simulation ---
-        # The REPL: (1) clears old epics, (2) sets review decision + feedback
+        # The REPL: (1) clears old features, (2) sets review decision + feedback
         state.update(result)
-        state["epics"] = []  # Clear for re-routing
+        state["features"] = []  # Clear for re-routing
         state["last_review_decision"] = ReviewDecision.REJECT
         state["last_review_feedback"] = "Focus more on OAuth and security"
         state["messages"] = [HumanMessage(content="continue")]
 
-        # route_entry should now route back to epic_generator (epics cleared)
-        assert route_entry(state) == "epic_generator"
+        # route_entry should now route back to feature_generator (features cleared)
+        assert route_entry(state) == "feature_generator"
 
         # --- Re-generation ---
-        result_v2 = epic_generator(state)
-        epics_v2 = result_v2["epics"]
-        assert len(epics_v2) >= 1
-        # V2 epics should be different (our mock returns different JSON)
-        assert epics_v2[0].title == "Auth System"
+        result_v2 = feature_generator(state)
+        features_v2 = result_v2["features"]
+        assert len(features_v2) >= 1
+        # V2 features should be different (our mock returns different JSON)
+        assert features_v2[0].title == "Auth System"
 
 
 # ---------------------------------------------------------------------------
@@ -511,14 +511,14 @@ class TestReviewEditStories:
         stage_llm = _make_stage_llm([_STORIES_JSON, _STORIES_V2_JSON])
         monkeypatch.setattr("scrum_agent.agent.nodes.get_llm", lambda **kw: stage_llm)
 
-        # Build state with epics already generated
+        # Build state with features already generated
         state = {
             "messages": [HumanMessage(content="continue")],
             "questionnaire": _completed_questionnaire(),
             "project_analysis": _dummy_analysis(),
-            "epics": [
-                Epic(id="E1", title="Auth", description="Auth system", priority=Priority.HIGH),
-                Epic(id="E2", title="Tasks", description="Task management", priority=Priority.HIGH),
+            "features": [
+                Feature(id="F1", title="Auth", description="Auth system", priority=Priority.HIGH),
+                Feature(id="F2", title="Tasks", description="Task management", priority=Priority.HIGH),
             ],
         }
 
@@ -530,7 +530,7 @@ class TestReviewEditStories:
 
         # --- REPL edit flow simulation ---
         # The REPL packs feedback + previous output into last_review_feedback
-        previous_output = "US-E1-001: register an account\nUS-E1-002: log in"
+        previous_output = "US-F1-001: register an account\nUS-F1-002: log in"
         state.update(result)
         state["stories"] = []  # Clear for re-routing
         state["last_review_decision"] = ReviewDecision.EDIT
@@ -580,10 +580,10 @@ class TestFallbackPathViaGraph:
         assert state.get("project_analysis") is not None
         assert isinstance(state["project_analysis"], ProjectAnalysis)
 
-        # Epic fallback
+        # Feature fallback
         state = graph.invoke({**state, "messages": [HumanMessage(content="continue")]})
-        assert len(state.get("epics", [])) >= 1
-        assert all(isinstance(e, Epic) for e in state["epics"])
+        assert len(state.get("features", [])) >= 1
+        assert all(isinstance(e, Feature) for e in state["features"])
 
         # Story fallback
         state = graph.invoke({**state, "messages": [HumanMessage(content="continue")]})
@@ -627,19 +627,19 @@ class TestSessionResume:
     """Save state mid-pipeline, deserialize, and verify continuation works."""
 
     def test_save_and_restore_mid_pipeline(self, tmp_path, monkeypatch):
-        """State saved after epics should resume at story_writer."""
+        """State saved after features should resume at story_writer."""
         _patch_external_lookups(monkeypatch)
 
-        # Build state as if epic_generator just completed
+        # Build state as if feature_generator just completed
         state = {
             "messages": [HumanMessage(content="continue")],
             "questionnaire": _completed_questionnaire(),
             "project_analysis": _dummy_analysis(),
-            "epics": [
-                Epic(id="E1", title="Auth", description="Authentication", priority=Priority.HIGH),
-                Epic(id="E2", title="Tasks", description="Task management", priority=Priority.HIGH),
+            "features": [
+                Feature(id="F1", title="Auth", description="Authentication", priority=Priority.HIGH),
+                Feature(id="F2", title="Tasks", description="Task management", priority=Priority.HIGH),
             ],
-            "pending_review": "epic_generator",
+            "pending_review": "feature_generator",
         }
 
         # Save to SessionStore
@@ -654,10 +654,10 @@ class TestSessionResume:
         assert restored is not None
         assert restored["questionnaire"].completed is True
         assert isinstance(restored["project_analysis"], ProjectAnalysis)
-        assert len(restored["epics"]) == 2
-        assert all(isinstance(e, Epic) for e in restored["epics"])
+        assert len(restored["features"]) == 2
+        assert all(isinstance(e, Feature) for e in restored["features"])
 
-        # Route entry should point to story_writer (epics present, no stories)
+        # Route entry should point to story_writer (features present, no stories)
         assert route_entry(restored) == "story_writer"
 
         # Verify we can continue the pipeline from here
@@ -691,13 +691,13 @@ class TestSessionResume:
             "messages": [HumanMessage(content="test")],  # skipped in serialization
             "questionnaire": _completed_questionnaire(),
             "project_analysis": _dummy_analysis(),
-            "epics": [
-                Epic(id="E1", title="Auth", description="Auth system", priority=Priority.HIGH),
+            "features": [
+                Feature(id="F1", title="Auth", description="Auth system", priority=Priority.HIGH),
             ],
             "stories": [
                 UserStory(
-                    id="US-E1-001",
-                    epic_id="E1",
+                    id="US-F1-001",
+                    feature_id="F1",
                     persona="user",
                     goal="register",
                     benefit="access",
@@ -707,10 +707,10 @@ class TestSessionResume:
                 ),
             ],
             "tasks": [
-                Task(id="T-1", story_id="US-E1-001", title="Build endpoint", description="POST /register"),
+                Task(id="T-1", story_id="US-F1-001", title="Build endpoint", description="POST /register"),
             ],
             "sprints": [
-                Sprint(id="SP-1", name="Sprint 1", goal="Auth", capacity_points=5, story_ids=("US-E1-001",)),
+                Sprint(id="SP-1", name="Sprint 1", goal="Auth", capacity_points=5, story_ids=("US-F1-001",)),
             ],
             "team_size": 3,
             "pending_review": "sprint_planner",
@@ -731,10 +731,10 @@ class TestSessionResume:
         assert restored["project_analysis"].project_name == "Todo App"
         assert restored["project_analysis"].tech_stack == ("React", "FastAPI", "PostgreSQL")
 
-        # Epics
-        assert len(restored["epics"]) == 1
-        assert isinstance(restored["epics"][0], Epic)
-        assert restored["epics"][0].priority == Priority.HIGH
+        # Features
+        assert len(restored["features"]) == 1
+        assert isinstance(restored["features"][0], Feature)
+        assert restored["features"][0].priority == Priority.HIGH
 
         # Stories
         assert len(restored["stories"]) == 1
@@ -748,7 +748,7 @@ class TestSessionResume:
         # Sprints
         assert len(restored["sprints"]) == 1
         assert isinstance(restored["sprints"][0], Sprint)
-        assert restored["sprints"][0].story_ids == ("US-E1-001",)
+        assert restored["sprints"][0].story_ids == ("US-F1-001",)
 
         # Scalars
         assert restored["team_size"] == 3

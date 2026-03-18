@@ -84,11 +84,11 @@ def _render_resume_summary(console: Console, graph_state: dict) -> None:
     what has been generated so far before the next step runs.
     """
     parts: list[str] = []
-    for key, label in (("epics", "epic"), ("stories", "story"), ("tasks", "task"), ("sprints", "sprint")):
+    for key, label in (("features", "feature"), ("stories", "story"), ("tasks", "task"), ("sprints", "sprint")):
         items = graph_state.get(key, [])
         if items:
             n = len(items)
-            # Pluralise: epic→epics, story→stories, task→tasks, sprint→sprints
+            # Pluralise: feature→features, story→stories, task→tasks, sprint→sprints
             plural = f"{label[:-1]}ies" if label.endswith("y") else f"{label}s"
             parts.append(f"{n} {label if n == 1 else plural}")
     if graph_state.get("project_analysis"):
@@ -119,7 +119,7 @@ def _render_artifacts(console: Console, result: dict, *, compact: bool = False) 
     # Lazy imports to avoid circular dependencies
     from scrum_agent.formatters import (
         render_analysis_panel,
-        render_epics_table,
+        render_features_table,
         render_sprint_plan,
         render_stories_table,
         render_tasks_table,
@@ -158,19 +158,21 @@ def _render_artifacts(console: Console, result: dict, *, compact: bool = False) 
                         console.print(f"  [red]✗[/red] [dim]{src['name']}: {src['detail']}[/dim]")
                     else:
                         console.print(f"  [dim]— {src['name']}: {src['detail']}[/dim]")
-        elif pending == "epic_generator" and result.get("epics"):
-            console.print(render_epics_table(result["epics"], compact=compact))
+        elif pending == "feature_generator" and result.get("features"):
+            console.print(render_features_table(result["features"], compact=compact))
         elif pending == "story_writer" and result.get("stories"):
-            console.print(render_stories_table(result["stories"], result.get("epics", []), compact=compact))
+            console.print(render_stories_table(result["stories"], result.get("features", []), compact=compact))
         elif pending == "task_decomposer" and result.get("tasks"):
             console.print(
-                render_tasks_table(result["tasks"], result.get("stories", []), result.get("epics", []), compact=compact)
+                render_tasks_table(
+                    result["tasks"], result.get("stories", []), result.get("features", []), compact=compact
+                )
             )
         elif pending == "sprint_planner" and result.get("sprints"):
             velocity = result.get("velocity_per_sprint", 10)
             console.print(
                 render_sprint_plan(
-                    result["sprints"], result.get("stories", []), result.get("epics", []), velocity, compact=compact
+                    result["sprints"], result.get("stories", []), result.get("features", []), velocity, compact=compact
                 )
             )
         else:
@@ -370,15 +372,17 @@ def _export_plan_markdown(graph_state: dict, path: Path | None = None) -> Path:
     # same deduction math that drove sprint planning.
     _append_capacity_section(lines, graph_state)
 
-    # Epics
-    epics = graph_state.get("epics", [])
-    if epics:
-        lines.append("# Epics")
+    # Features
+    features = graph_state.get("features", [])
+    if features:
+        lines.append("# Features")
         lines.append("")
-        for epic in epics:
-            lines.append(f"## {epic.id}: {epic.title}")
-            lines.append(f"**Priority:** {epic.priority.value if hasattr(epic.priority, 'value') else epic.priority}")
-            lines.append(f"{epic.description}")
+        for feature in features:
+            lines.append(f"## {feature.id}: {feature.title}")
+            lines.append(
+                f"**Priority:** {feature.priority.value if hasattr(feature.priority, 'value') else feature.priority}"
+            )
+            lines.append(f"{feature.description}")
             lines.append("")
 
     # Stories
@@ -388,11 +392,14 @@ def _export_plan_markdown(graph_state: dict, path: Path | None = None) -> Path:
         lines.append("")
         for story in stories:
             lines.append(f"## {story.id}: {story.title or story.text}")
+            lines.append(f"\n*{story.text}*\n")
             lines.append(
-                f"**Epic:** {story.epic_id} | **Points:** {story.story_points} | "
+                f"**Feature:** {story.feature_id} | **Points:** {story.story_points} | "
                 f"**Priority:** {story.priority.value if hasattr(story.priority, 'value') else story.priority} | "
                 f"**Discipline:** {story.discipline.value if hasattr(story.discipline, 'value') else story.discipline}"
             )
+            if story.points_rationale:
+                lines.append(f"\n> **Points rationale:** {story.points_rationale}")
             if story.acceptance_criteria:
                 lines.append("")
                 lines.append("**Acceptance Criteria:**")
@@ -400,6 +407,15 @@ def _export_plan_markdown(graph_state: dict, path: Path | None = None) -> Path:
                     lines.append(f"- **Given** {ac.given}")
                     lines.append(f"  **When** {ac.when}")
                     lines.append(f"  **Then** {ac.then}")
+            from scrum_agent.agent.state import DOD_ITEMS
+
+            dod_flags = story.dod_applicable
+            if len(dod_flags) == len(DOD_ITEMS):
+                lines.append("")
+                lines.append("**Definition of Done:**")
+                for item, applicable in zip(DOD_ITEMS, dod_flags):
+                    mark = "x" if applicable else " "
+                    lines.append(f"- [{mark}] {item}")
             lines.append("")
 
     # Tasks
@@ -434,7 +450,7 @@ def _export_plan_markdown(graph_state: dict, path: Path | None = None) -> Path:
 
     output_path.write_text("\n".join(lines))
     section_counts = {
-        "epics": len(graph_state.get("epics", [])),
+        "features": len(graph_state.get("features", [])),
         "stories": len(graph_state.get("stories", [])),
         "tasks": len(graph_state.get("tasks", [])),
         "sprints": len(graph_state.get("sprints", [])),
@@ -462,7 +478,7 @@ def _export_checkpoint(console: Console, graph_state: dict, stage: str = "comple
     section_labels = [
         ("questionnaire", "Questionnaire"),
         ("project_analysis", "Analysis"),
-        ("epics", "Epics"),
+        ("features", "Features"),
         ("stories", "Stories"),
         ("tasks", "Tasks"),
         ("sprints", "Sprint plan"),

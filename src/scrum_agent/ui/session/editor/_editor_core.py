@@ -154,7 +154,7 @@ def _append_styled_line(text_content: Text, line_str: str, *, continuation_style
 
 
 # ---------------------------------------------------------------------------
-# Shared editor renderer (used by task, sprint, analysis, epic editors)
+# Shared editor renderer (used by task, sprint, analysis, feature editors)
 # ---------------------------------------------------------------------------
 
 
@@ -171,7 +171,7 @@ def render_editor_panel(
     """Render a generic editor screen as a Rich Panel.
 
     Shows buffer lines with field-label highlighting, cursor, and scroll.
-    Used by all non-story editors (task, sprint, analysis, epic).
+    Used by all non-story editors (task, sprint, analysis, feature).
     """
     title = planning_title()
 

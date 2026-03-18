@@ -268,35 +268,35 @@ def _render_tui_analysis(
 # ---------------------------------------------------------------------------
 
 
-def _render_tui_stories(stories, epics, *, selected_index: int | None = None) -> Group:
-    """Render user stories as text blocks grouped by epic — TUI-specific.
+def _render_tui_stories(stories, features, *, selected_index: int | None = None) -> Group:
+    """Render user stories as text blocks grouped by feature — TUI-specific.
 
     Each story is a compact block: metadata header line, story text,
     acceptance criteria, and DoD — no tables or borders.
 
     selected_index: when not None, the story at this global index gets a white
     border to indicate it is currently selected; all other stories keep the
-    default grey border.  The index is global across all epic groups (i.e.
-    the first story in the second epic continues counting from the last story
-    in the first epic).
+    default grey border.  The index is global across all feature groups (i.e.
+    the first story in the second feature continues counting from the last story
+    in the first feature).
     """
 
     from scrum_agent.agent.state import DOD_ITEMS
 
-    epic_titles = {e.id: e.title for e in epics}
+    feature_titles = {e.id: e.title for e in features}
 
-    # Group stories by epic_id
+    # Group stories by feature_id
     grouped: dict[str, list] = {}
     for story in stories:
-        grouped.setdefault(story.epic_id, []).append(story)
+        grouped.setdefault(story.feature_id, []).append(story)
 
     parts: list = []
-    global_idx = 0  # tracks position across all epic groups for selected_index
-    for epic_id, epic_stories in grouped.items():
-        epic_label = epic_titles.get(epic_id, epic_id)
-        parts.append(Text(epic_label, style="bold rgb(70,100,180)"))
+    global_idx = 0  # tracks position across all feature groups for selected_index
+    for feature_id, feature_stories in grouped.items():
+        feature_label = feature_titles.get(feature_id, feature_id)
+        parts.append(Text(feature_label, style="bold rgb(70,100,180)"))
 
-        for story in epic_stories:
+        for story in feature_stories:
             # Build story content inside a rounded box
             card_parts: list = []
 
@@ -372,32 +372,32 @@ def _render_tui_stories(stories, epics, *, selected_index: int | None = None) ->
 
 
 # ---------------------------------------------------------------------------
-# Epics renderer
+# Features renderer
 # ---------------------------------------------------------------------------
 
 
-def _render_tui_epics(epics, *, render_w: int = 80) -> Group:
-    """Render epics as styled text blocks — TUI-specific.
+def _render_tui_features(features, *, render_w: int = 80) -> Group:
+    """Render features as styled text blocks — TUI-specific.
 
-    Each epic has a header line (E1 · Title · priority) and description.
+    Each feature has a header line (E1 · Title · priority) and description.
     All headers are padded to 75% of the render width so they line up.
-    Separators between epics.
+    Separators between features.
 
     render_w: the available content width (passed from _render_pipeline_artifacts).
     """
     box_w = max(30, int(render_w * 0.75))
 
     parts: list = []
-    for idx, epic in enumerate(epics):
+    for idx, feat in enumerate(features):
         card_parts: list = []
 
-        # Header line: E1  ·  Title  ·  priority — fixed width
+        # Header line: F1  ·  Title  ·  priority — fixed width
         header = Text(justify="left")
-        header.append(epic.id, style="cyan")
+        header.append(feat.id, style="cyan")
         header.append("  ·  ", style="dim")
-        header.append(epic.title, style="bold white")
+        header.append(feat.title, style="bold white")
         header.append("  ·  ", style="dim")
-        header.append(str(epic.priority.value), style=_priority_color(epic.priority))
+        header.append(str(feat.priority.value), style=_priority_color(feat.priority))
         # Pad to fixed width so all headers have consistent alignment
         plain_len = len(header.plain)
         if plain_len < box_w:
@@ -406,12 +406,12 @@ def _render_tui_epics(epics, *, render_w: int = 80) -> Group:
         card_parts.append(Text(""))
 
         # Description — flush with the header line above (no extra indent)
-        card_parts.append(Text(epic.description, style="rgb(160,160,160)"))
+        card_parts.append(Text(feat.description, style="rgb(160,160,160)"))
 
         parts.append(Group(*card_parts, Text("")))
 
-        # Separator between epics (not after the last)
-        if idx < len(epics) - 1:
+        # Separator between features (not after the last)
+        if idx < len(features) - 1:
             sep = Text("\u2500" * 36, style="rgb(40,40,50)", justify="center")
             parts.append(sep)
             parts.append(Text(""))
@@ -424,17 +424,17 @@ def _render_tui_epics(epics, *, render_w: int = 80) -> Group:
 # ---------------------------------------------------------------------------
 
 
-def _render_tui_tasks(tasks, stories, epics) -> Group:
-    """Render tasks grouped by epic/story — TUI-specific.
+def _render_tui_tasks(tasks, stories, features) -> Group:
+    """Render tasks grouped by feature/story — TUI-specific.
 
     Each story group has a white-bordered header box (matching the user story
     card style: ID · pts · priority · discipline), with all tasks for that
     story listed underneath with indented descriptions.
     Separators appear between story groups.
-    Epic titles are rendered as group headers (used for sticky pinning).
+    Feature titles are rendered as group headers (used for sticky pinning).
     """
 
-    epic_titles = {e.id: e.title for e in epics}
+    feature_titles = {e.id: e.title for e in features}
     story_map = {s.id: s for s in stories}
 
     # Group tasks by story_id
@@ -442,20 +442,20 @@ def _render_tui_tasks(tasks, stories, epics) -> Group:
     for task in tasks:
         tasks_by_story.setdefault(task.story_id, []).append(task)
 
-    # Group stories by epic_id
-    stories_by_epic: dict[str, list[str]] = {}
+    # Group stories by feature_id
+    stories_by_feature: dict[str, list[str]] = {}
     for story in stories:
         if story.id in tasks_by_story:
-            stories_by_epic.setdefault(story.epic_id, []).append(story.id)
+            stories_by_feature.setdefault(story.feature_id, []).append(story.id)
 
     parts: list = []
     # Count total story groups for separator logic
-    total_groups = sum(len(sids) for sids in stories_by_epic.values())
+    total_groups = sum(len(sids) for sids in stories_by_feature.values())
     group_idx = 0
 
-    for epic_id, story_ids in stories_by_epic.items():
-        epic_label = epic_titles.get(epic_id, epic_id)
-        parts.append(Text(epic_label, style="bold rgb(70,100,180)"))
+    for feature_id, story_ids in stories_by_feature.items():
+        feature_label = feature_titles.get(feature_id, feature_id)
+        parts.append(Text(feature_label, style="bold rgb(70,100,180)"))
 
         for story_id in story_ids:
             story = story_map.get(story_id)
@@ -536,7 +536,7 @@ def _render_tui_tasks(tasks, stories, epics) -> Group:
 def _render_tui_sprint_plan(
     sprints,
     stories,
-    epics,
+    features,
     velocity,
     *,
     sprint_capacities=None,
@@ -737,15 +737,15 @@ def _render_pipeline_artifacts(
                 velocity_source=graph_state.get("velocity_source"),
                 context_sources=graph_state.get("context_sources"),
             )
-        elif pending == "epic_generator" and graph_state.get("epics"):
-            renderable = _render_tui_epics(graph_state["epics"], render_w=render_w)
+        elif pending == "feature_generator" and graph_state.get("features"):
+            renderable = _render_tui_features(graph_state["features"], render_w=render_w)
         elif pending == "story_writer" and graph_state.get("stories"):
             renderable = _render_tui_stories(
-                graph_state["stories"], graph_state.get("epics", []), selected_index=selected_story
+                graph_state["stories"], graph_state.get("features", []), selected_index=selected_story
             )
         elif pending == "task_decomposer" and graph_state.get("tasks"):
             renderable = _render_tui_tasks(
-                graph_state["tasks"], graph_state.get("stories", []), graph_state.get("epics", [])
+                graph_state["tasks"], graph_state.get("stories", []), graph_state.get("features", [])
             )
         elif pending == "sprint_planner" and graph_state.get("sprints"):
             velocity = graph_state.get("velocity_per_sprint", 10)
@@ -754,7 +754,7 @@ def _render_pipeline_artifacts(
             renderable = _render_tui_sprint_plan(
                 graph_state["sprints"],
                 graph_state.get("stories", []),
-                graph_state.get("epics", []),
+                graph_state.get("features", []),
                 velocity,
                 sprint_capacities=graph_state.get("sprint_capacities"),
                 team_override_from=_orig_team if _team_override > 0 else None,
@@ -775,14 +775,14 @@ def _render_pipeline_artifacts(
     lines = _render_to_lines(console, renderable, render_w)
 
     # Build sticky header index for sections with group headers.
-    # Stories/tasks: epic title lines are pinned.
+    # Stories/tasks: feature title lines are pinned.
     # Sprint plan: the summary line ("N sprint(s) · Velocity: ...") is pinned.
     if pending in ("story_writer", "task_decomposer"):
-        epics = graph_state.get("epics", [])
-        epic_titles = {e.title for e in epics}
+        features = graph_state.get("features", [])
+        feature_titles = {e.title for e in features}
         for i, line in enumerate(lines):
             plain = re.sub(r"\x1b\[[0-9;]*m", "", line).strip()
-            if plain in epic_titles:
+            if plain in feature_titles:
                 sticky_headers.append((i, line))
     elif pending == "sprint_planner" and lines:
         # First non-empty line is the sprint summary — pin it

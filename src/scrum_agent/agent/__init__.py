@@ -4,8 +4,8 @@ from scrum_agent.agent.graph import create_graph
 from scrum_agent.agent.llm import get_llm
 from scrum_agent.agent.nodes import (
     call_model,
-    epic_generator,
-    epic_skip,
+    feature_generator,
+    feature_skip,
     human_review,
     make_call_model,
     project_analyzer,
@@ -26,8 +26,8 @@ __all__ = [
     "ScrumState",
     "call_model",
     "create_graph",
-    "epic_generator",
-    "epic_skip",
+    "feature_generator",
+    "feature_skip",
     "get_llm",
     "human_review",
     "make_call_model",

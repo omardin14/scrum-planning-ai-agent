@@ -21,7 +21,7 @@ _PROJECTS_FILE = Path.home() / ".scrum-agent" / "projects.json"
 # Pipeline stages in order — artifacts added at each stage.
 _STAGE_ARTIFACTS: dict[str, list[str]] = {
     "project_analyzer": ["project_analysis"],
-    "epic_generator": ["epics"],
+    "feature_generator": ["features"],
     "story_writer": ["stories"],
     "task_decomposer": ["tasks"],
     "sprint_planner": ["sprints"],
@@ -75,7 +75,7 @@ def build_stage_snapshot(full_state: dict[str, Any], up_to_stage: str) -> dict[s
 
     Used by the dry-run pipeline to progressively reveal artifacts:
     after "project_analyzer" → only project_analysis,
-    after "epic_generator"   → project_analysis + epics, etc.
+    after "feature_generator" → project_analysis + features, etc.
     """
     logger.debug("build_stage_snapshot: stage=%s", up_to_stage)
     snapshot = deepcopy(full_state)

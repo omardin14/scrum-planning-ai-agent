@@ -27,8 +27,8 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import ToolNode
 
 from scrum_agent.agent.nodes import (
-    epic_generator,
-    epic_skip,
+    feature_generator,
+    feature_skip,
     human_review,
     make_call_model,
     project_analyzer,
@@ -58,7 +58,7 @@ def create_graph(
     #              │
     #              ├──→ project_analyzer → END
     #              │
-    #              ├──→ epic_generator → END
+    #              ├──→ feature_generator → END
     #              │
     #              ├──→ story_writer → END
     #              │
@@ -123,27 +123,27 @@ def create_graph(
     # "project_analyzer" node — synthesizes confirmed intake answers into
     # a structured ProjectAnalysis. Single LLM call with JSON-schema prompt.
     # After this runs, route_entry sees project_analysis populated and
-    # routes future invocations to the "epic_generator" node.
+    # routes future invocations to the "feature_generator" node.
     # See README: "Architecture" — project_analyzer sits between intake and agent
     graph.add_node("project_analyzer", project_analyzer)
 
-    # "epic_skip" node — creates a single epic for small projects.
-    # When the analyzer determines skip_epics=True, this node creates one epic
-    # named after the project instead of running the full epic generator.
-    # See README: "Scrum Standards" — epic generation
-    graph.add_node("epic_skip", epic_skip)
+    # "feature_skip" node — creates a single feature for small projects.
+    # When the analyzer determines skip_features=True, this node creates one feature
+    # named after the project instead of running the full feature generator.
+    # See README: "Scrum Standards" — feature generation
+    graph.add_node("feature_skip", feature_skip)
 
-    # "epic_generator" node — decomposes ProjectAnalysis into 3-6 epics.
+    # "feature_generator" node — decomposes ProjectAnalysis into 3-6 features.
     # Single LLM call with JSON-schema prompt. After this runs, route_entry
-    # sees epics populated and routes future invocations to the "story_writer" node.
-    # See README: "Architecture" — epic_generator sits between analyzer and story_writer
-    graph.add_node("epic_generator", epic_generator)
+    # sees features populated and routes future invocations to the "story_writer" node.
+    # See README: "Architecture" — feature_generator sits between analyzer and story_writer
+    graph.add_node("feature_generator", feature_generator)
 
-    # "story_writer" node — decomposes epics into 2-5 user stories each.
+    # "story_writer" node — decomposes features into 2-5 user stories each.
     # Single LLM call with JSON-schema prompt including nested acceptance criteria.
     # After this runs, route_entry sees stories populated and routes future
     # invocations to the "task_decomposer" node.
-    # See README: "Architecture" — story_writer sits between epic_generator and task_decomposer
+    # See README: "Architecture" — story_writer sits between feature_generator and task_decomposer
     graph.add_node("story_writer", story_writer)
 
     # "task_decomposer" node — breaks user stories into 2-5 implementation tasks.
@@ -194,15 +194,15 @@ def create_graph(
     graph.add_node("human_review", human_review)
 
     # ── Wire edges ──────────────────────────────────────────────────
-    # START → route_entry → [intake | analyzer | epic_gen | story_writer | task_decomposer | sprint_planner | agent]
+    # START → route_entry → [intake | analyzer | feature_gen | story_writer | task_decomposer | sprint_planner | agent]
     #
     # route_entry is a conditional edge from START. On each invocation it
-    # checks questionnaire, analysis, epic, story, task, and sprint state
+    # checks questionnaire, analysis, feature, story, task, and sprint state
     # for seven-way routing:
     #   - Questionnaire not completed → "project_intake"
     #   - Questionnaire completed, no analysis → "project_analyzer"
-    #   - Analysis done, no epics → "epic_generator"
-    #   - Epics done, no stories → "story_writer"
+    #   - Analysis done, no features → "feature_generator"
+    #   - Features done, no stories → "story_writer"
     #   - Stories done, no tasks → "task_decomposer"
     #   - Tasks done, no sprints → "sprint_planner"
     #   - Sprints populated → "agent" (ReAct loop takes over)
@@ -214,8 +214,8 @@ def create_graph(
         [
             "project_intake",
             "project_analyzer",
-            "epic_skip",
-            "epic_generator",
+            "feature_skip",
+            "feature_generator",
             "story_writer",
             "task_decomposer",
             "sprint_planner",
@@ -230,19 +230,19 @@ def create_graph(
 
     # project_analyzer ends after synthesizing the analysis. The REPL
     # displays the formatted analysis and the user types anything to
-    # continue. On the next invocation, route_entry routes to epic_generator.
+    # continue. On the next invocation, route_entry routes to feature_generator.
     graph.add_edge("project_analyzer", END)
 
-    # epic_skip ends after creating the single epic. The REPL loop re-invokes
-    # the graph; route_entry sees epics populated and routes to story_writer.
-    graph.add_edge("epic_skip", END)
+    # feature_skip ends after creating the single feature. The REPL loop re-invokes
+    # the graph; route_entry sees features populated and routes to story_writer.
+    graph.add_edge("feature_skip", END)
 
-    # epic_generator ends after decomposing the project into epics. The REPL
-    # displays the epic list and the user types anything to continue. On the
+    # feature_generator ends after decomposing the project into features. The REPL
+    # displays the feature list and the user types anything to continue. On the
     # next invocation, route_entry routes to the story_writer node.
-    graph.add_edge("epic_generator", END)
+    graph.add_edge("feature_generator", END)
 
-    # story_writer ends after decomposing epics into user stories. The REPL
+    # story_writer ends after decomposing features into user stories. The REPL
     # displays the story list and the user types anything to continue. On the
     # next invocation, route_entry routes to the task_decomposer node.
     graph.add_edge("story_writer", END)

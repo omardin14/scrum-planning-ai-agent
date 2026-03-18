@@ -11,7 +11,7 @@ from scrum_agent.agent.state import (
     TOTAL_QUESTIONS,
     AcceptanceCriterion,
     Discipline,
-    Epic,
+    Feature,
     OutputFormat,
     Priority,
     ProjectAnalysis,
@@ -92,7 +92,7 @@ class TestDiscipline:
         ac = AcceptanceCriterion(given="a", when="b", then="c")
         story = UserStory(
             id="US-1",
-            epic_id="E1",
+            feature_id="F1",
             persona="dev",
             goal="do something",
             benefit="value",
@@ -107,7 +107,7 @@ class TestDiscipline:
         ac = AcceptanceCriterion(given="a", when="b", then="c")
         story = UserStory(
             id="US-1",
-            epic_id="E1",
+            feature_id="F1",
             persona="dev",
             goal="build a UI component",
             benefit="better UX",
@@ -138,14 +138,14 @@ class TestAcceptanceCriterion:
         assert d == {"given": "a", "when": "b", "then": "c"}
 
 
-class TestEpic:
+class TestFeature:
     def test_creation(self):
-        e = Epic(id="E-1", title="Auth", description="Authentication system", priority=Priority.HIGH)
-        assert e.id == "E-1"
+        e = Feature(id="F-1", title="Auth", description="Authentication system", priority=Priority.HIGH)
+        assert e.id == "F-1"
         assert e.priority == Priority.HIGH
 
     def test_frozen(self):
-        e = Epic(id="E-1", title="Auth", description="desc", priority=Priority.HIGH)
+        e = Feature(id="F-1", title="Auth", description="desc", priority=Priority.HIGH)
         with pytest.raises(FrozenInstanceError):
             e.title = "mutated"  # type: ignore[misc]
 
@@ -156,7 +156,7 @@ class TestUserStory:
         ac = AcceptanceCriterion(given="a user", when="they log in", then="they see the dashboard")
         return UserStory(
             id="US-1",
-            epic_id="E-1",
+            feature_id="F-1",
             persona="developer",
             goal="log in with SSO",
             benefit="I save time",
@@ -276,8 +276,8 @@ class TestProjectAnalysis:
         assert isinstance(analysis.goals, tuple)
         assert isinstance(analysis.tech_stack, tuple)
 
-    def test_skip_epics_defaults_false(self):
-        """skip_epics should default to False when not specified."""
+    def test_skip_features_defaults_false(self):
+        """skip_features should default to False when not specified."""
         analysis = ProjectAnalysis(
             project_name="Test",
             project_description="desc",
@@ -294,10 +294,10 @@ class TestProjectAnalysis:
             out_of_scope=(),
             assumptions=(),
         )
-        assert analysis.skip_epics is False
+        assert analysis.skip_features is False
 
-    def test_skip_epics_true(self):
-        """skip_epics=True should be stored correctly."""
+    def test_skip_features_true(self):
+        """skip_features=True should be stored correctly."""
         analysis = ProjectAnalysis(
             project_name="Tiny API",
             project_description="A small REST API",
@@ -313,9 +313,9 @@ class TestProjectAnalysis:
             risks=(),
             out_of_scope=(),
             assumptions=(),
-            skip_epics=True,
+            skip_features=True,
         )
-        assert analysis.skip_epics is True
+        assert analysis.skip_features is True
 
     def test_prompt_quality_defaults_none(self, analysis: ProjectAnalysis):
         """prompt_quality should default to None when not specified."""
@@ -548,7 +548,7 @@ class TestScrumState:
         optional = ScrumState.__optional_keys__
         for key in (
             "project_name",
-            "epics",
+            "features",
             "stories",
             "tasks",
             "sprints",
@@ -584,7 +584,7 @@ class TestScrumState:
         state: ScrumState = {
             "messages": [HumanMessage(content="hi")],
             "project_name": "My Project",
-            "epics": [],
+            "features": [],
             "stories": [],
             "tasks": [],
             "sprints": [],
@@ -602,9 +602,9 @@ class TestPendingReview:
         """pending_review should accept a node name string."""
         state: ScrumState = {
             "messages": [HumanMessage(content="hi")],
-            "pending_review": "epic_generator",
+            "pending_review": "feature_generator",
         }
-        assert state["pending_review"] == "epic_generator"
+        assert state["pending_review"] == "feature_generator"
 
     def test_pending_review_with_review_decision(self):
         """pending_review should work alongside review decision fields."""
@@ -681,18 +681,47 @@ class TestMergeDicts:
 
 
 class TestJiraKeyMappingFields:
-    def test_jira_epic_keys_field_present_in_scrumstate(self):
+    def test_jira_feature_keys_field_present_in_scrumstate(self):
         # ScrumState is a TypedDict — check the field is declared (via __annotations__).
         all_annotations = {}
         for cls in ScrumState.__mro__:
             all_annotations.update(getattr(cls, "__annotations__", {}))
-        assert "jira_epic_keys" in all_annotations
+        assert "jira_feature_keys" in all_annotations
 
     def test_jira_story_keys_field_present_in_scrumstate(self):
         all_annotations = {}
         for cls in ScrumState.__mro__:
             all_annotations.update(getattr(cls, "__annotations__", {}))
         assert "jira_story_keys" in all_annotations
+
+    def test_jira_task_keys_field_present_in_scrumstate(self):
+        all_annotations = {}
+        for cls in ScrumState.__mro__:
+            all_annotations.update(getattr(cls, "__annotations__", {}))
+        assert "jira_task_keys" in all_annotations
+
+    def test_jira_sprint_keys_field_present_in_scrumstate(self):
+        all_annotations = {}
+        for cls in ScrumState.__mro__:
+            all_annotations.update(getattr(cls, "__annotations__", {}))
+        assert "jira_sprint_keys" in all_annotations
+
+    def test_jira_epic_key_field_present_in_scrumstate(self):
+        all_annotations = {}
+        for cls in ScrumState.__mro__:
+            all_annotations.update(getattr(cls, "__annotations__", {}))
+        assert "jira_epic_key" in all_annotations
+
+    def test_jira_task_keys_uses_merge_dicts_reducer(self):
+        """jira_task_keys should merge via _merge_dicts like the other Jira dict fields."""
+        a = {"t1": "PROJ-10"}
+        b = {"t2": "PROJ-11"}
+        assert _merge_dicts(a, b) == {"t1": "PROJ-10", "t2": "PROJ-11"}
+
+    def test_jira_sprint_keys_uses_merge_dicts_reducer(self):
+        a = {"s1": "42"}
+        b = {"s2": "43"}
+        assert _merge_dicts(a, b) == {"s1": "42", "s2": "43"}
 
     def test_stategraph_accepts_jira_key_fields(self):
         """StateGraph must compile without errors when ScrumState has Jira dict fields."""

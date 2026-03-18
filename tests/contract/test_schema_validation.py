@@ -402,7 +402,7 @@ _LLM_ANALYSIS_SCHEMA = {
     "assumptions": [],
 }
 
-_LLM_EPIC_SCHEMA = {
+_LLM_FEATURE_SCHEMA = {
     "id": str,
     "title": str,
     "description": str,
@@ -411,7 +411,7 @@ _LLM_EPIC_SCHEMA = {
 
 _LLM_STORY_SCHEMA = {
     "id": str,
-    "epic_id": str,
+    "feature_id": str,
     "persona": str,
     "goal": str,
     "benefit": str,
@@ -461,11 +461,11 @@ _CANONICAL_ANALYSIS = {
     "assumptions": [],
 }
 
-_CANONICAL_EPIC = {"id": "E1", "title": "User Auth", "description": "OAuth2, JWT", "priority": "high"}
+_CANONICAL_FEATURE = {"id": "F1", "title": "User Auth", "description": "OAuth2, JWT", "priority": "high"}
 
 _CANONICAL_STORY = {
     "id": "US-1",
-    "epic_id": "E1",
+    "feature_id": "F1",
     "persona": "developer",
     "goal": "log in with my email",
     "benefit": "I can access my tasks",
@@ -507,9 +507,9 @@ class TestLlmOutputSchemas:
         """Canonical ProjectAnalysis JSON dict matches the analyzer prompt schema."""
         _check_schema(_CANONICAL_ANALYSIS, _LLM_ANALYSIS_SCHEMA, "analysis")
 
-    def test_epic_schema(self):
-        """Canonical Epic JSON dict matches the epic_generator prompt schema."""
-        _check_schema(_CANONICAL_EPIC, _LLM_EPIC_SCHEMA, "epic")
+    def test_feature_schema(self):
+        """Canonical Feature JSON dict matches the feature_generator prompt schema."""
+        _check_schema(_CANONICAL_FEATURE, _LLM_FEATURE_SCHEMA, "feature")
 
     def test_story_schema(self):
         """Canonical UserStory JSON dict matches the story_writer prompt schema."""
@@ -523,10 +523,12 @@ class TestLlmOutputSchemas:
         """Canonical Sprint JSON dict matches the sprint_planner prompt schema."""
         _check_schema(_CANONICAL_SPRINT, _LLM_SPRINT_SCHEMA, "sprint")
 
-    def test_epic_priority_is_valid_value(self):
-        """Epic priority must be one of the four allowed values."""
+    def test_feature_priority_is_valid_value(self):
+        """Feature priority must be one of the four allowed values."""
         allowed = {"critical", "high", "medium", "low"}
-        assert _CANONICAL_EPIC["priority"] in allowed, f"priority {_CANONICAL_EPIC['priority']!r} not in {allowed}"
+        assert _CANONICAL_FEATURE["priority"] in allowed, (
+            f"priority {_CANONICAL_FEATURE['priority']!r} not in {allowed}"
+        )
 
     def test_story_points_is_fibonacci_value(self):
         """Story points must be on the Fibonacci scale (1, 2, 3, 5, 8)."""
@@ -539,14 +541,14 @@ class TestLlmOutputSchemas:
         """_check_schema() raises AssertionError when a required field is absent."""
         import pytest
 
-        incomplete = {"id": "E1", "title": "Test"}  # missing description and priority
+        incomplete = {"id": "F1", "title": "Test"}  # missing description and priority
         with pytest.raises(AssertionError, match="description"):
-            _check_schema(incomplete, _LLM_EPIC_SCHEMA, "incomplete_epic")
+            _check_schema(incomplete, _LLM_FEATURE_SCHEMA, "incomplete_feature")
 
     def test_schema_checker_catches_wrong_type(self):
         """_check_schema() raises AssertionError when a field has the wrong type."""
         import pytest
 
-        wrong_type = {**_CANONICAL_EPIC, "id": 999}  # id should be str
+        wrong_type = {**_CANONICAL_FEATURE, "id": 999}  # id should be str
         with pytest.raises(AssertionError, match="str"):
-            _check_schema(wrong_type, _LLM_EPIC_SCHEMA, "wrong_type_epic")
+            _check_schema(wrong_type, _LLM_FEATURE_SCHEMA, "wrong_type_feature")

@@ -334,5 +334,12 @@ def _run_session_body(
 
         _export_plan_markdown(graph_state)
 
+    # Auto-generate SCRUM.md from the completed project so the user can
+    # review, tweak, and re-use it as input for future runs.
+    if project_id and graph_state is not None and graph_state.get("sprints"):
+        from scrum_agent.persistence import generate_scrum_md
+
+        generate_scrum_md(project_id)
+
     logger.info("Session complete")
     # Pipeline complete — return to project dashboard

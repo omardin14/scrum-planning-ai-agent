@@ -23,7 +23,7 @@ import pytest
 from scrum_agent.agent.nodes import (
     _extract_answers_from_description,
     _parse_analysis_response,
-    _parse_epics_response,
+    _parse_features_response,
     _parse_sprints_response,
     _parse_stories_response,
     _parse_tasks_response,
@@ -31,7 +31,7 @@ from scrum_agent.agent.nodes import (
 from scrum_agent.agent.state import (
     AcceptanceCriterion,
     Discipline,
-    Epic,
+    Feature,
     Priority,
     ProjectAnalysis,
     QuestionnaireState,
@@ -62,19 +62,19 @@ _ANALYSIS_DICT = {
     "scrum_md_contributions": [],
 }
 
-# Epics use: id, title, description, priority
-_EPICS_LIST = [
-    {"id": "E1", "title": "User Auth & Authorization", "description": "OAuth2, RBAC, SSO", "priority": "critical"},
-    {"id": "E2", "title": "Task Management Core", "description": "CRUD, Kanban, drag-drop", "priority": "high"},
-    {"id": "E3", "title": "Real-time Collaboration", "description": "WebSocket sync", "priority": "medium"},
+# Features use: id, title, description, priority
+_FEATURES_LIST = [
+    {"id": "F1", "title": "User Auth & Authorization", "description": "OAuth2, RBAC, SSO", "priority": "critical"},
+    {"id": "F2", "title": "Task Management Core", "description": "CRUD, Kanban, drag-drop", "priority": "high"},
+    {"id": "F3", "title": "Real-time Collaboration", "description": "WebSocket sync", "priority": "medium"},
 ]
 
-# Stories use: id, epic_id, persona, goal, benefit, story_points, priority,
+# Stories use: id, feature_id, persona, goal, benefit, story_points, priority,
 # acceptance_criteria (list of {given, when, then})
 _STORIES_LIST = [
     {
         "id": "US-1",
-        "epic_id": "E1",
+        "feature_id": "F1",
         "persona": "new user",
         "goal": "register with my email",
         "benefit": "I can access the platform",
@@ -87,7 +87,7 @@ _STORIES_LIST = [
     },
     {
         "id": "US-2",
-        "epic_id": "E2",
+        "feature_id": "F2",
         "persona": "team member",
         "goal": "create and edit tasks",
         "benefit": "I can track my work",
@@ -172,10 +172,10 @@ def _make_questionnaire() -> QuestionnaireState:
     )
 
 
-def _make_epics() -> list[Epic]:
+def _make_features() -> list[Feature]:
     return [
-        Epic(id="E1", title="Auth", description="Authentication", priority=Priority.CRITICAL),
-        Epic(id="E2", title="Tasks", description="Task management", priority=Priority.HIGH),
+        Feature(id="F1", title="Auth", description="Authentication", priority=Priority.CRITICAL),
+        Feature(id="F2", title="Tasks", description="Task management", priority=Priority.HIGH),
     ]
 
 
@@ -183,7 +183,7 @@ def _make_stories() -> list[UserStory]:
     return [
         UserStory(
             id="US-1",
-            epic_id="E1",
+            feature_id="F1",
             persona="new user",
             goal="register with email",
             benefit="access the platform",
@@ -194,7 +194,7 @@ def _make_stories() -> list[UserStory]:
         ),
         UserStory(
             id="US-2",
-            epic_id="E2",
+            feature_id="F2",
             persona="team member",
             goal="create tasks",
             benefit="track work",
@@ -244,17 +244,17 @@ class TestClaudeResponseParsing:
         assert result.target_sprints == 4
         assert len(result.goals) == 3
 
-    def test_epics_json_with_fences(self):
-        raw = _claude_json(_EPICS_LIST)
-        result = _parse_epics_response(raw, _make_analysis())
+    def test_features_json_with_fences(self):
+        raw = _claude_json(_FEATURES_LIST)
+        result = _parse_features_response(raw, _make_analysis())
 
         assert len(result) == 3
-        assert result[0].id == "E1"
+        assert result[0].id == "F1"
         assert result[0].priority == Priority.CRITICAL
 
     def test_stories_json_with_fences(self):
         raw = _claude_json(_STORIES_LIST)
-        result = _parse_stories_response(raw, _make_epics(), _make_analysis())
+        result = _parse_stories_response(raw, _make_features(), _make_analysis())
 
         assert len(result) == 2
         assert result[0].id == "US-1"
@@ -292,19 +292,19 @@ class TestOpenAIResponseParsing:
         assert result.project_name == "TaskFlow"
         assert "Python" in result.tech_stack
 
-    def test_epics_bare_json(self):
-        raw = _gpt4o_json(_EPICS_LIST)
-        result = _parse_epics_response(raw, _make_analysis())
+    def test_features_bare_json(self):
+        raw = _gpt4o_json(_FEATURES_LIST)
+        result = _parse_features_response(raw, _make_analysis())
 
         assert len(result) == 3
         assert result[1].title == "Task Management Core"
 
     def test_stories_bare_json(self):
         raw = _gpt4o_json(_STORIES_LIST)
-        result = _parse_stories_response(raw, _make_epics(), _make_analysis())
+        result = _parse_stories_response(raw, _make_features(), _make_analysis())
 
         assert len(result) == 2
-        assert result[1].epic_id == "E2"
+        assert result[1].feature_id == "F2"
 
     def test_tasks_bare_json(self):
         raw = _gpt4o_json(_TASKS_LIST)
@@ -334,16 +334,16 @@ class TestGeminiResponseParsing:
         assert result.project_name == "TaskFlow"
         assert len(result.integrations) == 3
 
-    def test_epics_bare_json(self):
-        raw = _gemini_bare_json(_EPICS_LIST)
-        result = _parse_epics_response(raw, _make_analysis())
+    def test_features_bare_json(self):
+        raw = _gemini_bare_json(_FEATURES_LIST)
+        result = _parse_features_response(raw, _make_analysis())
 
         assert len(result) == 3
         assert result[2].priority == Priority.MEDIUM
 
     def test_stories_bare_json(self):
         raw = _gemini_bare_json(_STORIES_LIST)
-        result = _parse_stories_response(raw, _make_epics(), _make_analysis())
+        result = _parse_stories_response(raw, _make_features(), _make_analysis())
 
         assert len(result) == 2
 
@@ -552,9 +552,9 @@ class TestAllProvidersParseableJSON:
         [_claude_json, _gpt4o_json, _gemini_bare_json],
         ids=["claude", "gpt4o", "gemini"],
     )
-    def test_epics_parse_for_all_providers(self, wrapper):
-        raw = wrapper(_EPICS_LIST)
-        result = _parse_epics_response(raw, _make_analysis())
+    def test_features_parse_for_all_providers(self, wrapper):
+        raw = wrapper(_FEATURES_LIST)
+        result = _parse_features_response(raw, _make_analysis())
         assert len(result) == 3
 
     @pytest.mark.parametrize(
@@ -564,7 +564,7 @@ class TestAllProvidersParseableJSON:
     )
     def test_stories_parse_for_all_providers(self, wrapper):
         raw = wrapper(_STORIES_LIST)
-        result = _parse_stories_response(raw, _make_epics(), _make_analysis())
+        result = _parse_stories_response(raw, _make_features(), _make_analysis())
         assert len(result) == 2
 
     @pytest.mark.parametrize(

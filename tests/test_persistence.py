@@ -8,7 +8,7 @@ import pytest
 from scrum_agent.agent.state import (
     AcceptanceCriterion,
     Discipline,
-    Epic,
+    Feature,
     Priority,
     QuestionnaireState,
     StoryPointValue,
@@ -70,7 +70,7 @@ class TestSaveAndLoad:
         state = {
             "messages": ["msg"],
             "questionnaire": qs,
-            "epics": [Epic(id="e1", title="Epic 1", description="desc", priority=Priority.HIGH)],
+            "features": [Feature(id="f1", title="Feature 1", description="desc", priority=Priority.HIGH)],
         }
 
         save_project_snapshot("proj-1", state)
@@ -81,8 +81,8 @@ class TestSaveAndLoad:
         assert p.name == "My Cool App"
         assert p.id == "proj-1"
         assert p.status == "In Progress"
-        assert p.epic_count == 1
-        assert p.progress == "3/7 stages complete"  # description_input + intake_complete + epic_generator
+        assert p.feature_count == 1
+        assert p.progress == "3/7 stages complete"  # description_input + intake_complete + feature_generator
 
     def test_upsert_existing_project(self, _isolate_config_dir):
         state1 = {"messages": ["msg"]}
@@ -90,13 +90,13 @@ class TestSaveAndLoad:
 
         state2 = {
             "messages": ["msg"],
-            "epics": [Epic(id="e1", title="E1", description="d", priority=Priority.HIGH)],
+            "features": [Feature(id="f1", title="E1", description="d", priority=Priority.HIGH)],
         }
         save_project_snapshot("proj-1", state2)
 
         projects = load_projects()
         assert len(projects) == 1
-        assert projects[0].epic_count == 1
+        assert projects[0].feature_count == 1
 
     def test_multiple_projects(self, _isolate_config_dir):
         save_project_snapshot("proj-1", {"messages": ["a"]})
@@ -126,10 +126,10 @@ class TestSaveAndLoad:
     def test_graph_state_roundtrip_restores_enums(self, _isolate_config_dir):
         """Enum fields in frozen dataclasses must be restored as actual enums, not raw strings."""
         qs = QuestionnaireState(completed=True)
-        epic = Epic(id="E1", title="Epic 1", description="desc", priority=Priority.HIGH)
+        feature = Feature(id="F1", title="Feature 1", description="desc", priority=Priority.HIGH)
         story = UserStory(
             id="US-E1-001",
-            epic_id="E1",
+            feature_id="F1",
             persona="developer",
             goal="set up the environment",
             benefit="the team can start building",
@@ -142,7 +142,7 @@ class TestSaveAndLoad:
         state = {
             "messages": ["msg"],
             "questionnaire": qs,
-            "epics": [epic],
+            "features": [feature],
             "stories": [story],
         }
         save_project_snapshot("proj-enum", state)
@@ -150,11 +150,11 @@ class TestSaveAndLoad:
         loaded = load_graph_state("proj-enum")
         assert loaded is not None
 
-        # Epics: priority must be an actual Priority enum
-        loaded_epic = loaded["epics"][0]
-        assert isinstance(loaded_epic.priority, Priority)
-        assert loaded_epic.priority is Priority.HIGH
-        assert loaded_epic.priority.value == "high"
+        # Features: priority must be an actual Priority enum
+        loaded_feature = loaded["features"][0]
+        assert isinstance(loaded_feature.priority, Priority)
+        assert loaded_feature.priority is Priority.HIGH
+        assert loaded_feature.priority.value == "high"
 
         # Stories: priority, story_points, discipline must be enums; tuples must be tuples
         loaded_story = loaded["stories"][0]
@@ -380,14 +380,29 @@ class TestComputeJiraSummary:
         assert _compute_jira_summary({}) == ""
 
     def test_partial_sync(self):
-        sync = {"epics_synced": 3, "epics_total": 4, "stories_synced": 0, "stories_total": 0}
-        assert _compute_jira_summary(sync) == "3/4 epics synced"
+        sync = {
+            "stories_synced": 3,
+            "stories_total": 4,
+            "tasks_synced": 0,
+            "tasks_total": 0,
+            "sprints_synced": 0,
+            "sprints_total": 0,
+        }
+        assert _compute_jira_summary(sync) == "3/4 stories synced"
 
     def test_full_sync(self):
-        sync = {"epics_synced": 4, "epics_total": 4, "stories_synced": 15, "stories_total": 15}
+        sync = {
+            "stories_synced": 15,
+            "stories_total": 15,
+            "tasks_synced": 30,
+            "tasks_total": 30,
+            "sprints_synced": 3,
+            "sprints_total": 3,
+        }
         result = _compute_jira_summary(sync)
-        assert "4/4 epics" in result
         assert "15/15 stories" in result
+        assert "30/30 tasks" in result
+        assert "3/3 sprints" in result
 
 
 class TestExtractPipelineProgress:
@@ -396,14 +411,14 @@ class TestExtractPipelineProgress:
         assert progress["description_input"] is False
         assert progress["sprint_planner"] is False
 
-    def test_with_messages_and_epics(self):
+    def test_with_messages_and_features(self):
         state = {
             "messages": ["msg"],
-            "epics": [Epic(id="e1", title="E", description="d", priority=Priority.HIGH)],
+            "features": [Feature(id="f1", title="E", description="d", priority=Priority.HIGH)],
         }
         progress = _extract_pipeline_progress(state)
         assert progress["description_input"] is True
-        assert progress["epic_generator"] is True
+        assert progress["feature_generator"] is True
         assert progress["story_writer"] is False
 
 
@@ -420,15 +435,15 @@ class TestExtractProjectName:
 class TestExtractArtifactCounts:
     def test_empty(self):
         counts = _extract_artifact_counts({})
-        assert counts == {"epics": 0, "stories": 0, "tasks": 0, "sprints": 0}
+        assert counts == {"features": 0, "stories": 0, "tasks": 0, "sprints": 0}
 
     def test_with_artifacts(self):
         state = {
-            "epics": [1, 2, 3],
+            "features": [1, 2, 3],
             "stories": [1, 2],
         }
         counts = _extract_artifact_counts(state)
-        assert counts["epics"] == 3
+        assert counts["features"] == 3
         assert counts["stories"] == 2
 
 
@@ -447,7 +462,7 @@ class TestComputeProgress:
                 "description_input",
                 "intake_complete",
                 "project_analyzer",
-                "epic_generator",
+                "feature_generator",
                 "story_writer",
                 "task_decomposer",
                 "sprint_planner",

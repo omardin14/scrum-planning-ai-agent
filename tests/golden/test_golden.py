@@ -1,11 +1,11 @@
 """Golden dataset regression tests — structural evaluators for pipeline output.
 
-Runs each curated project through the full pipeline (analyzer → epics → stories
+Runs each curated project through the full pipeline (analyzer → features → stories
 → tasks → sprints) with mocked LLM responses that return structurally valid but
 deterministic JSON. Validates structural properties of the output:
 
-- Epic count within bounds
-- Story-to-epic relationships valid
+- Feature count within bounds
+- Story-to-feature relationships valid
 - Story points are Fibonacci values
 - Acceptance criteria in Given/When/Then format
 - Task-to-story references valid
@@ -26,7 +26,7 @@ import pytest
 from langchain_core.messages import HumanMessage
 
 from scrum_agent.agent.nodes import (
-    epic_generator,
+    feature_generator,
     project_analyzer,
     sprint_planner,
     story_writer,
@@ -34,7 +34,7 @@ from scrum_agent.agent.nodes import (
 )
 from scrum_agent.agent.state import (
     AcceptanceCriterion,
-    Epic,
+    Feature,
     Priority,
     ProjectAnalysis,
     Sprint,
@@ -85,7 +85,7 @@ def pipeline_state(dataset, monkeypatch):
     result = project_analyzer(state)
     state.update(result)
 
-    result = epic_generator(state)
+    result = feature_generator(state)
     state.update(result)
 
     result = story_writer(state)
@@ -156,39 +156,41 @@ class TestAnalysisEvaluator:
         assert state["project_analysis"].target_sprints > 0
 
 
-class TestEpicEvaluator:
-    """Validate epic generation — count, structure, uniqueness."""
+class TestFeatureEvaluator:
+    """Validate feature generation — count, structure, uniqueness."""
 
-    def test_epic_count_in_range(self, pipeline_state):
+    def test_feature_count_in_range(self, pipeline_state):
         state, expected = pipeline_state
-        epics = state["epics"]
-        assert expected["min_epics"] <= len(epics) <= expected["max_epics"], (
-            f"Expected {expected['min_epics']}–{expected['max_epics']} epics, got {len(epics)}"
+        features = state["features"]
+        assert expected["min_features"] <= len(features) <= expected["max_features"], (
+            f"Expected {expected['min_features']}–{expected['max_features']} features, got {len(features)}"
         )
 
-    def test_all_epics_are_epic_type(self, pipeline_state):
+    def test_all_features_are_feature_type(self, pipeline_state):
         state, _expected = pipeline_state
-        assert all(isinstance(e, Epic) for e in state["epics"])
+        assert all(isinstance(e, Feature) for e in state["features"])
 
-    def test_epics_have_titles(self, pipeline_state):
+    def test_features_have_titles(self, pipeline_state):
         state, _expected = pipeline_state
-        for epic in state["epics"]:
-            assert epic.title.strip(), f"Epic {epic.id} has empty title"
+        for feature in state["features"]:
+            assert feature.title.strip(), f"Feature {feature.id} has empty title"
 
-    def test_epics_have_descriptions(self, pipeline_state):
+    def test_features_have_descriptions(self, pipeline_state):
         state, _expected = pipeline_state
-        for epic in state["epics"]:
-            assert epic.description.strip(), f"Epic {epic.id} has empty description"
+        for feature in state["features"]:
+            assert feature.description.strip(), f"Feature {feature.id} has empty description"
 
-    def test_epics_have_valid_priorities(self, pipeline_state):
+    def test_features_have_valid_priorities(self, pipeline_state):
         state, _expected = pipeline_state
-        for epic in state["epics"]:
-            assert epic.priority.value in VALID_PRIORITIES, f"Epic {epic.id} has invalid priority: {epic.priority}"
+        for feature in state["features"]:
+            assert feature.priority.value in VALID_PRIORITIES, (
+                f"Feature {feature.id} has invalid priority: {feature.priority}"
+            )
 
-    def test_epic_ids_unique(self, pipeline_state):
+    def test_feature_ids_unique(self, pipeline_state):
         state, _expected = pipeline_state
-        ids = [e.id for e in state["epics"]]
-        assert len(ids) == len(set(ids)), f"Duplicate epic IDs: {ids}"
+        ids = [e.id for e in state["features"]]
+        assert len(ids) == len(set(ids)), f"Duplicate feature IDs: {ids}"
 
 
 class TestStoryEvaluator:
@@ -198,11 +200,13 @@ class TestStoryEvaluator:
         state, _expected = pipeline_state
         assert all(isinstance(s, UserStory) for s in state["stories"])
 
-    def test_story_epic_ids_reference_real_epics(self, pipeline_state):
+    def test_story_feature_ids_reference_real_features(self, pipeline_state):
         state, _expected = pipeline_state
-        epic_ids = {e.id for e in state["epics"]}
+        feature_ids = {e.id for e in state["features"]}
         for story in state["stories"]:
-            assert story.epic_id in epic_ids, f"Story {story.id} references non-existent epic {story.epic_id}"
+            assert story.feature_id in feature_ids, (
+                f"Story {story.id} references non-existent feature {story.feature_id}"
+            )
 
     def test_story_points_are_fibonacci(self, pipeline_state):
         state, _expected = pipeline_state
@@ -368,7 +372,7 @@ class TestCrossArtifactIntegrity:
         """Every pipeline stage should produce output."""
         state, _expected = pipeline_state
         assert state.get("project_analysis") is not None
-        assert len(state.get("epics", [])) >= 1
+        assert len(state.get("features", [])) >= 1
         assert len(state.get("stories", [])) >= 1
         assert len(state.get("tasks", [])) >= 1
         assert len(state.get("sprints", [])) >= 1

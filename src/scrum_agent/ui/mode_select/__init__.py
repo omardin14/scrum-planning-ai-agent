@@ -263,6 +263,11 @@ def select_mode(
             else:
                 proj_n = 2
 
+            # Check if Jira is configured once — used to dim the Jira submenu button.
+            from scrum_agent.jira_sync import is_jira_configured as _jira_check
+
+            _jira_ok = _jira_check()
+
             # Staggered vertical reveal — cards pop in one by one, fast.
             _reveal_target = float(proj_n)
             _cards_visible = 0.0
@@ -280,6 +285,7 @@ def select_mode(
                         height=h,
                         cards_visible=_cards_visible,
                         card_fade=1.0,
+                        jira_enabled=_jira_ok,
                     )
                 )
                 time.sleep(_FRAME_TIME)
@@ -372,8 +378,107 @@ def select_mode(
 
                                 path = export_project_md(project.id)
                             else:
-                                # Jira export — placeholder, will be wired later
-                                pass
+                                # Jira export — full sync: Epic + Stories + Tasks + Sprints
+                                import threading
+
+                                from scrum_agent.jira_sync import is_jira_configured, sync_all_to_jira
+                                from scrum_agent.persistence import (
+                                    load_graph_state,
+                                    save_graph_state,
+                                    save_project_snapshot,
+                                )
+
+                                if not is_jira_configured():
+                                    path = "Jira not configured — set JIRA_API_TOKEN in .env"
+                                else:
+                                    gs = load_graph_state(project.id)
+                                    if not gs:
+                                        path = "No saved state for this project"
+                                    else:
+                                        # Run sync in background thread with live progress
+                                        _sync_result_box: list = [None, None]  # [result, error]
+                                        _sync_state_box: list = [None]
+                                        _sync_done = threading.Event()
+                                        # Shared progress state: log of completed items + current active item
+                                        _sync_log: list[str] = []
+                                        _sync_current: list[str] = ["Starting..."]
+                                        _sync_counter: list[int] = [0, 0]  # [current, total]
+
+                                        def _on_sync_progress(current, total, desc):
+                                            _sync_counter[0] = current
+                                            _sync_counter[1] = total
+                                            if _sync_current[0] and _sync_current[0] != "Starting...":
+                                                _sync_log.append(f"  ✓ {_sync_current[0]}")
+                                            _sync_current[0] = desc
+
+                                        def _run_jira_sync():
+                                            try:
+                                                r, s = sync_all_to_jira(gs, on_progress=_on_sync_progress)
+                                                _sync_result_box[0] = r
+                                                _sync_state_box[0] = s
+                                            except Exception as exc:
+                                                _sync_result_box[1] = exc
+                                            finally:
+                                                _sync_done.set()
+
+                                        _sync_thread = threading.Thread(target=_run_jira_sync, daemon=True)
+                                        _sync_thread.start()
+
+                                        # Show live scrolling log while the thread runs
+                                        while not _sync_done.is_set():
+                                            w, h = console.size
+                                            viewport_h = max(3, h - 12)
+                                            visible_log = _sync_log[-viewport_h:] if _sync_log else []
+                                            cur = _sync_counter[0]
+                                            tot = _sync_counter[1]
+                                            counter = f"[{cur}/{tot}]" if tot else ""
+                                            active = f"  ▸ {counter} {_sync_current[0]}"
+                                            display_lines = "\n".join([*visible_log, active])
+                                            live.update(
+                                                _build_project_export_success_screen(
+                                                    display_lines,
+                                                    width=w,
+                                                    height=h,
+                                                    subtitle="Jira sync",
+                                                    hint="",
+                                                )
+                                            )
+                                            time.sleep(_FRAME_TIME)
+                                        _sync_thread.join()
+
+                                        if _sync_result_box[1] is not None:
+                                            path = f"Jira sync failed: {_sync_result_box[1]}"
+                                        elif _sync_result_box[0] is not None:
+                                            sr = _sync_result_box[0]
+                                            new_gs = _sync_state_box[0]
+                                            if new_gs:
+                                                save_graph_state(project.id, new_gs)
+                                                save_project_snapshot(project.id, new_gs)
+                                            created = (
+                                                len(sr.stories_created)
+                                                + len(sr.tasks_created)
+                                                + len(sr.sprints_created)
+                                            )
+                                            skipped = sr.skipped
+                                            errors = len(sr.errors)
+                                            parts = []
+                                            if created:
+                                                parts.append(f"{created} created")
+                                            if skipped:
+                                                parts.append(f"{skipped} skipped")
+                                            if errors:
+                                                parts.append(f"{errors} errors")
+                                            epic = sr.epic_key or ""
+                                            prefix = f"Epic: {epic} — " if epic else ""
+                                            summary = ", ".join(parts) or "Nothing to sync"
+                                            # Show first error for diagnosis
+                                            if sr.errors:
+                                                first_err = sr.errors[0][:80]
+                                                summary += f"\n{first_err}"
+                                                # Write all errors to log file for debugging
+                                                _err_path = Path.home() / ".scrum-agent" / "jira-sync-errors.log"
+                                                _err_path.write_text("\n".join(sr.errors), encoding="utf-8")
+                                            path = prefix + summary
 
                             if path:
                                 w, h = console.size
@@ -514,6 +619,7 @@ def select_mode(
                                         exp_fade=exp_fade,
                                         card_fade=card_fade,
                                         pulse=pulse,
+                                        jira_enabled=_jira_ok,
                                     )
                                 )
                                 time.sleep(_FRAME_TIME)
@@ -575,6 +681,7 @@ def select_mode(
                                     width=w,
                                     height=h,
                                     cards_visible=_dismiss_visible,
+                                    jira_enabled=_jira_ok,
                                 )
                             )
                             time.sleep(_FRAME_TIME)
@@ -772,6 +879,7 @@ def select_mode(
                             delete_popup_t=delete_popup_t,
                             delete_popup_pulse=delete_popup_pulse,
                             delete_popup_flash=delete_popup_flash,
+                            jira_enabled=_jira_ok,
                         )
                     )
 

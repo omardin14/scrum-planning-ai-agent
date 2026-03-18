@@ -169,9 +169,9 @@ class TestBuildPipelineScreen:
         assert isinstance(result, Panel)
 
     def test_complete_state(self):
-        lines = ["Epic 1: Authentication", "Epic 2: Dashboard"]
+        lines = ["Feature 1: Authentication", "Feature 2: Dashboard"]
         result = _build_pipeline_screen(
-            "Generating epics",
+            "Generating features",
             "[2/5]",
             lines,
             0,
@@ -489,24 +489,24 @@ class TestRunSession:
 
 
 def _make_test_stories():
-    """Create sample stories and epics for rendering tests."""
+    """Create sample stories and features for rendering tests."""
     from scrum_agent.agent.state import (
         AcceptanceCriterion,
         Discipline,
-        Epic,
+        Feature,
         Priority,
         StoryPointValue,
         UserStory,
     )
 
-    epics = [
-        Epic(id="epic-1", title="Authentication", description="User auth", priority=Priority.HIGH),
-        Epic(id="epic-2", title="Dashboard", description="Main dashboard", priority=Priority.MEDIUM),
+    features = [
+        Feature(id="feature-1", title="Authentication", description="User auth", priority=Priority.HIGH),
+        Feature(id="feature-2", title="Dashboard", description="Main dashboard", priority=Priority.MEDIUM),
     ]
     stories = [
         UserStory(
             id="story-1",
-            epic_id="epic-1",
+            feature_id="feature-1",
             persona="user",
             goal="log in",
             benefit="access the app",
@@ -517,7 +517,7 @@ def _make_test_stories():
         ),
         UserStory(
             id="story-2",
-            epic_id="epic-1",
+            feature_id="feature-1",
             persona="admin",
             goal="manage users",
             benefit="control access",
@@ -528,7 +528,7 @@ def _make_test_stories():
         ),
         UserStory(
             id="story-3",
-            epic_id="epic-2",
+            feature_id="feature-2",
             persona="user",
             goal="view dashboard",
             benefit="see overview",
@@ -538,7 +538,7 @@ def _make_test_stories():
             discipline=Discipline.FRONTEND,
         ),
     ]
-    return stories, epics
+    return stories, features
 
 
 class TestRenderTuiStoriesSelectedIndex:
@@ -546,9 +546,9 @@ class TestRenderTuiStoriesSelectedIndex:
 
     def test_no_selection_all_grey(self):
         """Without selected_index, all panels should use grey borders."""
-        stories, epics = _make_test_stories()
+        stories, features = _make_test_stories()
         console = _make_console()
-        group = _render_tui_stories(stories, epics)
+        group = _render_tui_stories(stories, features)
         lines = _render_to_lines(console, group, 80)
         rendered = "\n".join(lines)
         # All panels should render without error
@@ -557,17 +557,17 @@ class TestRenderTuiStoriesSelectedIndex:
 
     def test_selected_index_renders(self):
         """With selected_index=1, the rendering should succeed."""
-        stories, epics = _make_test_stories()
+        stories, features = _make_test_stories()
         console = _make_console()
-        group = _render_tui_stories(stories, epics, selected_index=1)
+        group = _render_tui_stories(stories, features, selected_index=1)
         lines = _render_to_lines(console, group, 80)
         assert len(lines) > 0
 
     def test_selected_index_out_of_range(self):
         """selected_index beyond story count should not crash."""
-        stories, epics = _make_test_stories()
+        stories, features = _make_test_stories()
         console = _make_console()
-        group = _render_tui_stories(stories, epics, selected_index=99)
+        group = _render_tui_stories(stories, features, selected_index=99)
         lines = _render_to_lines(console, group, 80)
         assert len(lines) > 0
 
@@ -587,7 +587,7 @@ class TestStoryToTextRoundTrip:
         parsed = _parse_edited_story(text, story)
 
         assert parsed.id == story.id
-        assert parsed.epic_id == story.epic_id
+        assert parsed.feature_id == story.feature_id
         assert parsed.persona == story.persona
         assert parsed.goal == story.goal
         assert parsed.benefit == story.benefit
@@ -623,7 +623,7 @@ class TestStoryToTextRoundTrip:
         parsed = _parse_edited_story(text, story)
         assert parsed.dod_applicable == story.dod_applicable
         assert parsed.id == story.id
-        assert parsed.epic_id == story.epic_id
+        assert parsed.feature_id == story.feature_id
 
 
 # ---------------------------------------------------------------------------

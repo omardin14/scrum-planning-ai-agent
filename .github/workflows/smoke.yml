@@ -13,6 +13,7 @@ permissions:
 
 jobs:
   smoke:
+    if: false  # Disabled — re-enable when secrets are configured
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

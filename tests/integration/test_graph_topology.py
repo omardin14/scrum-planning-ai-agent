@@ -28,8 +28,8 @@ _EXPECTED_NODES = frozenset(
     {
         "project_intake",
         "project_analyzer",
-        "epic_skip",
-        "epic_generator",
+        "feature_skip",
+        "feature_generator",
         "story_writer",
         "task_decomposer",
         "sprint_planner",
@@ -132,7 +132,7 @@ class TestNodeOutgoingEdges:
         pipeline_nodes = {
             "project_intake",
             "project_analyzer",
-            "epic_generator",
+            "feature_generator",
             "story_writer",
             "task_decomposer",
             "sprint_planner",
@@ -185,7 +185,7 @@ class TestConditionalEdges:
         expected_destinations = {
             "project_intake",
             "project_analyzer",
-            "epic_generator",
+            "feature_generator",
             "story_writer",
             "task_decomposer",
             "sprint_planner",

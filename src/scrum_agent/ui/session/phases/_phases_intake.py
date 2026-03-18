@@ -258,11 +258,34 @@ def _phase_intake_questions(
         # Resolve choice/suggestion input
         if isinstance(qs, QuestionnaireState) and not qs.completed:
             cur_q = qs.current_question
-            # Handle suggestion confirmation
+            # Handle suggestion confirmation — two-step flow:
+            # 1st Enter: accept the suggestion (pre-fill it as the answer)
+            # 2nd Enter: submit the accepted answer
+            # This gives the user a chance to review/edit before submitting.
             if not answer or answer.lower() in _SUGGEST_CONFIRM:
                 sugg = _get_active_suggestion(graph_state)
                 if sugg:
-                    answer = sugg
+                    # Re-show the question with the suggestion pre-filled as
+                    # editable input text (no longer dimmed). The user presses
+                    # Enter again to confirm, or edits before submitting.
+                    answer = _question_input_loop(
+                        live,
+                        console,
+                        _key,
+                        question_text=question_text,
+                        choices=choices,
+                        suggestion=None,  # hide suggestion — it's now in input_value
+                        progress=progress,
+                        phase_label=phase_label,
+                        preamble_lines=preamble_lines,
+                        export_only=export_only,
+                        graph_state=graph_state,
+                        questionnaire=qs,
+                        multi_select=is_multi_select,
+                        prefill=sugg,
+                    )
+                    if answer is None:
+                        return None  # Esc
 
             # Resolve numeric choice
             if qs.editing_question is not None:
@@ -333,6 +356,7 @@ def _question_input_loop(
     graph_state: dict,
     questionnaire: QuestionnaireState | None = None,
     multi_select: bool = False,
+    prefill: str = "",
 ) -> str | None:
     """Show a question screen and collect user input.
 
@@ -341,6 +365,9 @@ def _question_input_loop(
 
     When questionnaire is provided, uses the accordion-style screen showing
     all 26 questions at once. Otherwise falls back to the single-question screen.
+
+    prefill: Pre-populate the input box with this text (e.g. an accepted
+        suggestion the user can review/edit before submitting).
     """
     if export_only:
         # Auto-answer: use suggestion or "continue"
@@ -350,13 +377,15 @@ def _question_input_loop(
         sugg = _session_mod._get_active_suggestion(graph_state)
         return sugg or "continue"
 
-    # Pre-fill input with existing answer when editing a previously answered question
-    input_value = ""
-    if questionnaire is not None and questionnaire.editing_question is not None:
+    # Pre-fill input: explicit prefill takes priority, then editing an existing answer.
+    input_value = prefill
+    if not input_value and questionnaire is not None and questionnaire.editing_question is not None:
         existing = questionnaire.answers.get(questionnaire.editing_question, "")
         if existing:
             input_value = existing
-    cursor_pos = len(input_value)  # cursor starts at end of pre-filled text
+    # Cursor at start for prefilled suggestions (so user sees beginning of long text),
+    # at end for editing existing answers (user typically appends).
+    cursor_pos = 0 if prefill else len(input_value)
     selected_choice = 0
     selected_choices: set[int] = set()  # for multi-select mode
     scroll_offset = 0

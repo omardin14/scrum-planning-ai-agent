@@ -3,11 +3,11 @@
 # See README: "Prompt Construction" — ARC framework
 # See README: "Scrum Standards" — story format, acceptance criteria, story points
 #
-# The story writer prompt takes the ProjectAnalysis fields + formatted epic list
-# and asks the LLM to decompose each epic into 2-5 user stories with acceptance
+# The story writer prompt takes the ProjectAnalysis fields + formatted feature list
+# and asks the LLM to decompose each feature into 2-5 user stories with acceptance
 # criteria, story points, and priorities.
 #
-# Same pattern as epic_generator.py:
+# Same pattern as feature_generator.py:
 # - Pre-formatted strings (not dataclass imports) to avoid circular imports
 # - ARC framework: Actor, Rules, Context
 # - Chain-of-thought reasoning steps
@@ -15,15 +15,17 @@
 # - Constants for validation bounds
 """
 
-# Bounds for the number of stories per epic.
-MIN_STORIES_PER_EPIC = 2
-MAX_STORIES_PER_EPIC = 5
+# Bounds for the number of stories per feature.
+# Minimum is 1 — small or focused features should stay as a single story rather
+# than being artificially split. The 8-point cap handles the other direction.
+MIN_STORIES_PER_FEATURE = 1
+MAX_STORIES_PER_FEATURE = 5
 
 # Maximum story points before a story should be split.
 MAX_STORY_POINTS = 8
 
 # Allowed Fibonacci story-point values — must match StoryPointValue IntEnum in agent/state.py.
-# Hardcoded here (not imported) to avoid the same circular import issue as epic_generator.py.
+# Hardcoded here (not imported) to avoid the same circular import issue as feature_generator.py.
 _ALLOWED_STORY_POINTS = (1, 2, 3, 5, 8)
 
 # Allowed priority values — must match Priority StrEnum in agent/state.py.
@@ -42,8 +44,8 @@ _ALLOWED_DISCIPLINES = ("frontend", "backend", "fullstack", "infrastructure", "d
 _JSON_SCHEMA = """\
 [
   {
-    "id": "string — sequential ID per epic: US-E1-001, US-E1-002, ...",
-    "epic_id": "string — parent epic ID: E1, E2, ...",
+    "id": "string — sequential ID per feature: US-F1-001, US-F1-002, ...",
+    "feature_id": "string — parent feature ID: F1, F2, ...",
     "title": "string — short summary of the story (3-7 words, e.g. 'Create Bookmark Endpoint')",
     "persona": "string — the user role (e.g. 'developer', 'admin', 'end user')",
     "goal": "string — what the user wants to do (verb phrase, no 'to' prefix)",
@@ -56,6 +58,7 @@ _JSON_SCHEMA = """\
       }
     ],
     "story_points": "integer — Fibonacci value: 1, 2, 3, 5, or 8",
+    "points_rationale": "string — 1-2 sentences explaining the point value. Describe complexity, unknowns, or effort.",
     "priority": "string — one of: critical, high, medium, low",
     "discipline": "string — one of: frontend, backend, fullstack, infrastructure, design, testing",
     "dod_applicable": [true, true, true, true, true, true, true]
@@ -81,24 +84,24 @@ def get_story_writer_prompt(
     end_users: str,
     tech_stack: str,
     constraints: str,
-    epics_block: str,
+    features_block: str,
     *,
     out_of_scope: str = "",
     review_feedback: str | None = None,
     review_mode: str | None = None,
     previous_output: str | None = None,
 ) -> str:
-    """Build the story writer prompt with injected project analysis and epic fields.
+    """Build the story writer prompt with injected project analysis and feature fields.
 
     # See README: "Prompt Construction" — ARC framework
     #
     # The prompt uses the ARC pattern:
     # - Actor: "Senior Scrum Master" with user story decomposition expertise
-    # - Rules: 2-5 stories/epic, nested ACs, Fibonacci points, 8-point cap
-    # - Context: Pre-formatted project analysis + epic list
+    # - Rules: 2-5 stories/feature, nested ACs, Fibonacci points, 8-point cap
+    # - Context: Pre-formatted project analysis + feature list
     #
     # Why a function (not a string constant)?
-    # All parameters are dynamic — they come from the ProjectAnalysis and Epic list
+    # All parameters are dynamic — they come from the ProjectAnalysis and Feature list
     # produced by earlier nodes. A function cleanly injects these into the template.
 
     Args:
@@ -109,7 +112,7 @@ def get_story_writer_prompt(
         end_users: Pre-formatted bullet list of target users.
         tech_stack: Pre-formatted bullet list of technologies.
         constraints: Pre-formatted bullet list of constraints.
-        epics_block: Pre-formatted text block of epics (from _format_epics_for_prompt).
+        features_block: Pre-formatted text block of features (from _format_features_for_prompt).
         out_of_scope: Pre-formatted bullet list of out-of-scope items.
         review_feedback: User feedback from a previous review (reject/edit).
         review_mode: "reject" or "edit" — controls how feedback is framed.
@@ -118,15 +121,17 @@ def get_story_writer_prompt(
     Returns:
         The complete prompt string ready to send to the LLM.
     """
-    from scrum_agent.prompts.epic_generator import _build_review_section
+    from scrum_agent.prompts.feature_generator import _build_review_section
 
     task_instruction = (
-        f"Decompose each epic into {MIN_STORIES_PER_EPIC}-{MAX_STORIES_PER_EPIC} user stories. "
+        f"Decompose each feature into {MIN_STORIES_PER_FEATURE}-{MAX_STORIES_PER_FEATURE} user stories. "
         f"Return a JSON array matching this exact schema:\n\n"
         f"```json\n{_JSON_SCHEMA}\n```\n\n"
     )
-    count_rule = f"1. Produce {MIN_STORIES_PER_EPIC}-{MAX_STORIES_PER_EPIC} stories per epic — no fewer, no more.\n"
-    id_rule = "2. Use sequential IDs per epic: US-E1-001, US-E1-002, US-E2-001, etc.\n"
+    count_rule = (
+        f"1. Produce {MIN_STORIES_PER_FEATURE}-{MAX_STORIES_PER_FEATURE} stories per feature — no fewer, no more.\n"
+    )
+    id_rule = "2. Use sequential IDs per feature: US-F1-001, US-F1-002, US-F2-001, etc.\n"
 
     base = (
         "You are a Senior Scrum Master with expertise in user story decomposition.\n\n"
@@ -139,8 +144,8 @@ def get_story_writer_prompt(
         f"### Tech Stack\n{tech_stack}\n\n"
         f"### Constraints\n{constraints}\n\n"
         f"### Out of Scope\n{out_of_scope}\n\n"
-        "## Epics to Decompose\n\n"
-        f"{epics_block}\n\n"
+        "## Features to Decompose\n\n"
+        f"{features_block}\n\n"
         "## Task\n\n"
         f"{task_instruction}"
         "## Rules\n\n"
@@ -155,9 +160,9 @@ def get_story_writer_prompt(
         "   - At least 1 negative/error-path scenario\n"
         "   - At least 1 edge case\n"
         "8. Acceptance criteria must use Given/When/Then format.\n"
-        "9. Stories within an epic should not overlap — each covers a distinct slice.\n"
+        "9. Stories within a feature should not overlap — each covers a distinct slice.\n"
         "10. Give each story a short title (3-7 words) summarising the core deliverable.\n"
-        "11. Inherit priority from the parent epic unless there's a reason to differ.\n"
+        "11. Inherit priority from the parent feature unless there's a reason to differ.\n"
         f"12. Tag each story with a discipline: {', '.join(_ALLOWED_DISCIPLINES)}. "
         "Use 'fullstack' if the story spans multiple disciplines or is unclear.\n"
         "13. Set dod_applicable as a 7-element boolean array. Mark false when an item clearly "
@@ -167,21 +172,30 @@ def get_story_writer_prompt(
         "    - Internal/automated stories: Stakeholder Sign-off = false\n"
         "    Default to true when in doubt.\n"
         "14. Do NOT create stories for items listed under Out of Scope — "
-        "assume these already exist or are handled elsewhere.\n\n"
+        "assume these already exist or are handled elsewhere.\n"
+        "15. **Prefer fewer, meatier stories over many thin ones.** Consolidate related work "
+        "into a single story when the combined effort is ≤ 8 points. Examples:\n"
+        "    - Multiple API connection setups (e.g. Jenkins + Slack) → one 'Configure External API Connections' story\n"
+        "    - Triggering a job and monitoring its result → one story (they're the same workflow)\n"
+        "    - Generating content and formatting it → one story (formatting is not standalone)\n"
+        "    - Success notifications and failure escalation → one 'Implement Notification & Escalation' story\n"
+        "    Only split when the work is genuinely independent and would be reviewed/deployed separately.\n\n"
         "## Story Splitting Strategies\n\n"
-        "When a story feels too large, split by:\n"
+        "When a story feels too large (> 8 points), split by:\n"
         "- **Workflow step:** separate creation, editing, deletion, viewing\n"
         "- **Business rule:** separate validation, authorization, notification\n"
         "- **Data type:** separate handling for different entity types\n"
         "- **Interface:** separate API endpoint, UI component, background job\n\n"
         "## Chain of Thought\n\n"
-        "Think step by step for each epic:\n"
-        "1. Identify the key workflows and user interactions in this epic.\n"
-        "2. Slice into independent, deliverable user stories.\n"
-        "3. Write acceptance criteria covering happy path, error path, and edge cases.\n"
-        "4. Estimate story points based on complexity, uncertainty, and effort.\n"
-        "5. If any story exceeds 8 points, split it using the strategies above.\n"
-        "6. Assign priority based on the parent epic's priority and business value.\n\n"
+        "Think step by step for each feature:\n"
+        "1. Identify the key workflows and user interactions in this feature.\n"
+        "2. Draft initial story candidates — start broad, then check if any need splitting.\n"
+        "3. **Consolidation check:** can any candidates be merged and still fit within 8 points? "
+        "If two stories share the same persona, same system boundary, or are always done together, merge them.\n"
+        "4. Write acceptance criteria covering happy path, error path, and edge cases.\n"
+        "5. Estimate story points based on complexity, uncertainty, and effort.\n"
+        "6. If any story exceeds 8 points, split it using the strategies above.\n"
+        "7. Assign priority based on the parent feature's priority and business value.\n\n"
         "Return ONLY the JSON array, no other text."
     )
 

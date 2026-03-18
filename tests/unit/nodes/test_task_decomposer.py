@@ -25,7 +25,7 @@ from scrum_agent.prompts.task_decomposer import get_task_decomposer_prompt
 from tests._node_helpers import (
     VALID_TASKS_JSON,
     make_dummy_analysis,
-    make_sample_epics,
+    make_sample_features,
     make_sample_stories,
 )
 
@@ -38,53 +38,53 @@ class TestFormatStoriesForPrompt:
     def test_returns_string(self):
         """Should return a non-empty string."""
         stories = make_sample_stories()
-        epics = make_sample_epics()
-        result = _format_stories_for_prompt(stories, epics)
+        features = make_sample_features()
+        result = _format_stories_for_prompt(stories, features)
         assert isinstance(result, str)
         assert len(result) > 0
 
     def test_includes_story_ids(self):
         """All story IDs should appear in the output."""
         stories = make_sample_stories()
-        epics = make_sample_epics()
-        result = _format_stories_for_prompt(stories, epics)
-        assert "US-E1-001" in result
-        assert "US-E1-002" in result
+        features = make_sample_features()
+        result = _format_stories_for_prompt(stories, features)
+        assert "US-F1-001" in result
+        assert "US-F1-002" in result
 
     def test_includes_story_points(self):
         """Story point values should appear in the output."""
         stories = make_sample_stories()
-        epics = make_sample_epics()
-        result = _format_stories_for_prompt(stories, epics)
+        features = make_sample_features()
+        result = _format_stories_for_prompt(stories, features)
         assert "5 pts" in result
         assert "3 pts" in result
 
-    def test_includes_epic_headers(self):
-        """Epic titles should appear as group headers."""
+    def test_includes_feature_headers(self):
+        """Feature titles should appear as group headers."""
         stories = make_sample_stories()
-        epics = make_sample_epics()
-        result = _format_stories_for_prompt(stories, epics)
-        assert "E1:" in result
+        features = make_sample_features()
+        result = _format_stories_for_prompt(stories, features)
+        assert "F1:" in result
         assert "User Authentication" in result
 
     def test_empty_stories_returns_empty(self):
         """Empty story list should return empty string."""
-        result = _format_stories_for_prompt([], make_sample_epics())
+        result = _format_stories_for_prompt([], make_sample_features())
         assert result.strip() == ""
 
     def test_includes_documentation_in_dod_tag_when_applicable(self):
         """Stories with dod_applicable[1]=True should have [Documentation in DoD] tag."""
         # Default dod_applicable is all-True, so Documentation (index 1) is True
         stories = make_sample_stories()
-        epics = make_sample_epics()
-        result = _format_stories_for_prompt(stories, epics)
+        features = make_sample_features()
+        result = _format_stories_for_prompt(stories, features)
         assert "[Documentation in DoD]" in result
 
     def test_excludes_documentation_tag_when_not_applicable(self):
         """Stories with dod_applicable[1]=False should NOT have [Documentation in DoD] tag."""
         story = UserStory(
-            id="US-E1-001",
-            epic_id="E1",
+            id="US-F1-001",
+            feature_id="F1",
             persona="user",
             goal="do something",
             benefit="value",
@@ -94,8 +94,8 @@ class TestFormatStoriesForPrompt:
             # Documentation (index 1) is False
             dod_applicable=(True, False, True, True, True, True, True),
         )
-        epics = make_sample_epics()
-        result = _format_stories_for_prompt([story], epics)
+        features = make_sample_features()
+        result = _format_stories_for_prompt([story], features)
         assert "[Documentation in DoD]" not in result
 
 
@@ -120,7 +120,7 @@ class TestParseTasksResponse:
         fenced = f"```json\n{VALID_TASKS_JSON}\n```"
         result = _parse_tasks_response(fenced, self._stories())
         assert len(result) == 4
-        assert result[0].id == "T-US-E1-001-01"
+        assert result[0].id == "T-US-F1-001-01"
 
     def test_invalid_json_returns_fallback(self):
         """Invalid JSON should fall back to deterministic tasks."""
@@ -145,23 +145,23 @@ class TestParseTasksResponse:
 
     def test_auto_generates_missing_id(self):
         """Tasks with missing IDs should get auto-generated IDs."""
-        json_str = '[{"story_id": "US-E1-001", "title": "Test task", "description": "Test desc"}]'
+        json_str = '[{"story_id": "US-F1-001", "title": "Test task", "description": "Test desc"}]'
         result = _parse_tasks_response(json_str, self._stories())
-        assert result[0].id == "T-US-E1-001-01"
+        assert result[0].id == "T-US-F1-001-01"
 
     def test_defaults_empty_title(self):
         """Empty title should get a default value."""
-        json_str = '[{"id": "T-US-E1-001-01", "story_id": "US-E1-001", "title": "", "description": "Some desc"}]'
+        json_str = '[{"id": "T-US-F1-001-01", "story_id": "US-F1-001", "title": "", "description": "Some desc"}]'
         result = _parse_tasks_response(json_str, self._stories())
         assert result[0].title != ""
-        assert "US-E1-001" in result[0].title
+        assert "US-F1-001" in result[0].title
 
     def test_defaults_empty_description(self):
         """Empty description should get a default value."""
-        json_str = '[{"id": "T-US-E1-001-01", "story_id": "US-E1-001", "title": "Task", "description": ""}]'
+        json_str = '[{"id": "T-US-F1-001-01", "story_id": "US-F1-001", "title": "Task", "description": ""}]'
         result = _parse_tasks_response(json_str, self._stories())
         assert result[0].description != ""
-        assert "US-E1-001" in result[0].description
+        assert "US-F1-001" in result[0].description
 
 
 # ── _build_fallback_tasks tests ──────────────────────────────────────
@@ -180,10 +180,10 @@ class TestBuildFallbackTasks:
         """Task IDs should follow T-{story_id}-01, T-{story_id}-02 format."""
         stories = make_sample_stories()
         result = _build_fallback_tasks(stories)
-        assert result[0].id == "T-US-E1-001-01"
-        assert result[1].id == "T-US-E1-001-02"
-        assert result[2].id == "T-US-E1-002-01"
-        assert result[3].id == "T-US-E1-002-02"
+        assert result[0].id == "T-US-F1-001-01"
+        assert result[1].id == "T-US-F1-001-02"
+        assert result[2].id == "T-US-F1-002-01"
+        assert result[3].id == "T-US-F1-002-02"
 
     def test_task_story_ids_valid(self):
         """Each task's story_id should match a story."""
@@ -215,36 +215,36 @@ class TestFormatTasks:
 
     def _sample_tasks(self) -> list[Task]:
         return [
-            Task(id="T-US-E1-001-01", story_id="US-E1-001", title="Create registration API", description="Build it"),
-            Task(id="T-US-E1-001-02", story_id="US-E1-001", title="Write registration tests", description="Test it"),
+            Task(id="T-US-F1-001-01", story_id="US-F1-001", title="Create registration API", description="Build it"),
+            Task(id="T-US-F1-001-02", story_id="US-F1-001", title="Write registration tests", description="Test it"),
         ]
 
     def test_returns_non_empty_string(self):
         """Should return a non-empty markdown string."""
-        result = _format_tasks(self._sample_tasks(), make_sample_stories(), make_sample_epics(), "Test Project")
+        result = _format_tasks(self._sample_tasks(), make_sample_stories(), make_sample_features(), "Test Project")
         assert isinstance(result, str)
         assert len(result) > 0
 
-    def test_groups_by_epic(self):
-        """Epic titles should appear as headers."""
-        result = _format_tasks(self._sample_tasks(), make_sample_stories(), make_sample_epics(), "Test Project")
-        assert "E1:" in result
+    def test_groups_by_feature(self):
+        """Feature titles should appear as headers."""
+        result = _format_tasks(self._sample_tasks(), make_sample_stories(), make_sample_features(), "Test Project")
+        assert "F1:" in result
         assert "User Authentication" in result
 
     def test_includes_task_titles(self):
         """Task titles should appear in the output."""
-        result = _format_tasks(self._sample_tasks(), make_sample_stories(), make_sample_epics(), "Test Project")
+        result = _format_tasks(self._sample_tasks(), make_sample_stories(), make_sample_features(), "Test Project")
         assert "Create registration API" in result
         assert "Write registration tests" in result
 
     def test_includes_review_footer(self):
         """The review prompt footer should be present."""
-        result = _format_tasks(self._sample_tasks(), make_sample_stories(), make_sample_epics(), "Test Project")
+        result = _format_tasks(self._sample_tasks(), make_sample_stories(), make_sample_features(), "Test Project")
         assert "[Accept / Edit / Reject]" in result
 
     def test_includes_project_name(self):
         """The project name should appear in the header."""
-        result = _format_tasks(self._sample_tasks(), make_sample_stories(), make_sample_epics(), "Widget Builder")
+        result = _format_tasks(self._sample_tasks(), make_sample_stories(), make_sample_features(), "Widget Builder")
         assert "Widget Builder" in result
 
 
@@ -255,15 +255,15 @@ class TestTaskDecomposer:
     """Tests for the task_decomposer() node function."""
 
     def _make_state(self, **extras: object) -> dict:
-        """Build a minimal state with project_analysis, epics, and stories for task decomposer tests."""
+        """Build a minimal state with project_analysis, features, and stories for task decomposer tests."""
         analysis = make_dummy_analysis()
-        epics = make_sample_epics()
+        features = make_sample_features()
         stories = make_sample_stories()
         state = {
             "messages": [HumanMessage(content="continue")],
             "questionnaire": QuestionnaireState(completed=True),
             "project_analysis": analysis,
-            "epics": epics,
+            "features": features,
             "stories": stories,
         }
         state.update(extras)
@@ -471,7 +471,7 @@ class TestDocumentationSubTaskPrompt:
             project_name="Test",
             project_type="greenfield",
             tech_stack="- Python",
-            stories_block="**US-E1-001** (5 pts, backend) [Documentation in DoD]",
+            stories_block="**US-F1-001** (5 pts, backend) [Documentation in DoD]",
         )
         assert "Documentation Sub-Task Rule" in prompt
         assert "exactly one" in prompt
@@ -516,10 +516,10 @@ class TestTaskLabelParsing:
         """Tasks with valid labels should have the correct TaskLabel."""
         json_str = (
             "["
-            '{"id":"T-US-E1-001-01","story_id":"US-E1-001","title":"Build API","description":"d","label":"Code"},'
-            '{"id":"T-US-E1-001-02","story_id":"US-E1-001","title":"Write tests","description":"d","label":"Testing"},'
-            '{"id":"T-US-E1-002-01","story_id":"US-E1-002","title":"Deploy","description":"d","label":"Infrastructure"},'
-            '{"id":"T-US-E1-002-02","story_id":"US-E1-002",'
+            '{"id":"T-US-F1-001-01","story_id":"US-F1-001","title":"Build API","description":"d","label":"Code"},'
+            '{"id":"T-US-F1-001-02","story_id":"US-F1-001","title":"Write tests","description":"d","label":"Testing"},'
+            '{"id":"T-US-F1-002-01","story_id":"US-F1-002","title":"Deploy","description":"d","label":"Infrastructure"},'
+            '{"id":"T-US-F1-002-02","story_id":"US-F1-002",'
             '"title":"Write docs","description":"d","label":"Documentation"}'
             "]"
         )
@@ -531,21 +531,21 @@ class TestTaskLabelParsing:
 
     def test_missing_label_defaults_to_code(self):
         """Tasks without a label field should default to Code."""
-        json_str = '[{"id":"T-US-E1-001-01","story_id":"US-E1-001","title":"Task","description":"d"}]'
+        json_str = '[{"id":"T-US-F1-001-01","story_id":"US-F1-001","title":"Task","description":"d"}]'
         result = _parse_tasks_response(json_str, self._stories())
         assert result[0].label == TaskLabel.CODE
 
     def test_invalid_label_defaults_to_code(self):
         """Tasks with an invalid label value should default to Code."""
         json_str = (
-            '[{"id":"T-US-E1-001-01","story_id":"US-E1-001","title":"Task","description":"d","label":"InvalidLabel"}]'
+            '[{"id":"T-US-F1-001-01","story_id":"US-F1-001","title":"Task","description":"d","label":"InvalidLabel"}]'
         )
         result = _parse_tasks_response(json_str, self._stories())
         assert result[0].label == TaskLabel.CODE
 
     def test_empty_label_defaults_to_code(self):
         """Tasks with an empty label value should default to Code."""
-        json_str = '[{"id":"T-US-E1-001-01","story_id":"US-E1-001","title":"Task","description":"d","label":""}]'
+        json_str = '[{"id":"T-US-F1-001-01","story_id":"US-F1-001","title":"Task","description":"d","label":""}]'
         result = _parse_tasks_response(json_str, self._stories())
         assert result[0].label == TaskLabel.CODE
 
@@ -556,16 +556,16 @@ class TestTaskLabelDisplay:
     def test_labels_appear_in_markdown_output(self):
         """Task labels should appear in the formatted markdown output."""
         tasks = [
-            Task(id="T-US-E1-001-01", story_id="US-E1-001", title="Build API", description="d", label=TaskLabel.CODE),
+            Task(id="T-US-F1-001-01", story_id="US-F1-001", title="Build API", description="d", label=TaskLabel.CODE),
             Task(
-                id="T-US-E1-001-02",
-                story_id="US-E1-001",
+                id="T-US-F1-001-02",
+                story_id="US-F1-001",
                 title="Write docs",
                 description="d",
                 label=TaskLabel.DOCUMENTATION,
             ),
         ]
-        result = _format_tasks(tasks, make_sample_stories(), make_sample_epics(), "Test")
+        result = _format_tasks(tasks, make_sample_stories(), make_sample_features(), "Test")
         assert "[Code]" in result
         assert "[Documentation]" in result
 
@@ -617,7 +617,7 @@ class TestTestPlanParsing:
     def test_parses_test_plan_from_json(self):
         """Tasks with test_plan in JSON should have it populated."""
         json_str = (
-            '[{"id":"T-US-E1-001-01","story_id":"US-E1-001","title":"Build API",'
+            '[{"id":"T-US-F1-001-01","story_id":"US-F1-001","title":"Build API",'
             '"description":"d","label":"Code",'
             '"test_plan":"Unit: test endpoint returns 201"}]'
         )
@@ -626,7 +626,7 @@ class TestTestPlanParsing:
 
     def test_missing_test_plan_defaults_to_empty(self):
         """Tasks without test_plan should default to empty string."""
-        json_str = '[{"id":"T-US-E1-001-01","story_id":"US-E1-001","title":"Task","description":"d","label":"Code"}]'
+        json_str = '[{"id":"T-US-F1-001-01","story_id":"US-F1-001","title":"Task","description":"d","label":"Code"}]'
         result = _parse_tasks_response(json_str, self._stories())
         assert result[0].test_plan == ""
 
@@ -659,15 +659,15 @@ class TestTestPlanDisplay:
         """Tasks with test_plan should show it in markdown output."""
         tasks = [
             Task(
-                id="T-US-E1-001-01",
-                story_id="US-E1-001",
+                id="T-US-F1-001-01",
+                story_id="US-F1-001",
                 title="Build API",
                 description="d",
                 label=TaskLabel.CODE,
                 test_plan="Unit: test POST /register returns 201",
             ),
         ]
-        result = _format_tasks(tasks, make_sample_stories(), make_sample_epics(), "Test")
+        result = _format_tasks(tasks, make_sample_stories(), make_sample_features(), "Test")
         assert "Test plan:" in result
         assert "POST /register returns 201" in result
 
@@ -675,14 +675,14 @@ class TestTestPlanDisplay:
         """Tasks without test_plan should not show test plan line."""
         tasks = [
             Task(
-                id="T-US-E1-001-01",
-                story_id="US-E1-001",
+                id="T-US-F1-001-01",
+                story_id="US-F1-001",
                 title="Write docs",
                 description="d",
                 label=TaskLabel.DOCUMENTATION,
             ),
         ]
-        result = _format_tasks(tasks, make_sample_stories(), make_sample_epics(), "Test")
+        result = _format_tasks(tasks, make_sample_stories(), make_sample_features(), "Test")
         assert "Test plan:" not in result
 
 
@@ -730,7 +730,7 @@ class TestAiPromptParsing:
 
     def test_missing_ai_prompt_defaults_to_empty(self):
         """Tasks without ai_prompt should default to empty string."""
-        json_str = '[{"id":"T-US-E1-001-01","story_id":"US-E1-001","title":"Task","description":"d","label":"Code"}]'
+        json_str = '[{"id":"T-US-F1-001-01","story_id":"US-F1-001","title":"Task","description":"d","label":"Code"}]'
         result = _parse_tasks_response(json_str, self._stories())
         assert result[0].ai_prompt == ""
 
@@ -738,13 +738,13 @@ class TestAiPromptParsing:
         """All 4 task label types should retain their ai_prompt."""
         json_str = (
             "["
-            '{"id":"T-US-E1-001-01","story_id":"US-E1-001","title":"Build","description":"d",'
+            '{"id":"T-US-F1-001-01","story_id":"US-F1-001","title":"Build","description":"d",'
             '"label":"Code","ai_prompt":"You are a backend engineer."},'
-            '{"id":"T-US-E1-001-02","story_id":"US-E1-001","title":"Docs","description":"d",'
+            '{"id":"T-US-F1-001-02","story_id":"US-F1-001","title":"Docs","description":"d",'
             '"label":"Documentation","ai_prompt":"You are a technical writer."},'
-            '{"id":"T-US-E1-002-01","story_id":"US-E1-002","title":"Deploy","description":"d",'
+            '{"id":"T-US-F1-002-01","story_id":"US-F1-002","title":"Deploy","description":"d",'
             '"label":"Infrastructure","ai_prompt":"You are a DevOps engineer."},'
-            '{"id":"T-US-E1-002-02","story_id":"US-E1-002","title":"Test","description":"d",'
+            '{"id":"T-US-F1-002-02","story_id":"US-F1-002","title":"Test","description":"d",'
             '"label":"Testing","ai_prompt":"You are a QA engineer."}'
             "]"
         )
@@ -769,15 +769,15 @@ class TestAiPromptDisplay:
         """Tasks with ai_prompt should show it in markdown output."""
         tasks = [
             Task(
-                id="T-US-E1-001-01",
-                story_id="US-E1-001",
+                id="T-US-F1-001-01",
+                story_id="US-F1-001",
                 title="Build API",
                 description="d",
                 label=TaskLabel.CODE,
                 ai_prompt="You are a backend engineer. Implement the registration endpoint.",
             ),
         ]
-        result = _format_tasks(tasks, make_sample_stories(), make_sample_epics(), "Test")
+        result = _format_tasks(tasks, make_sample_stories(), make_sample_features(), "Test")
         assert "AI prompt:" in result
         assert "backend engineer" in result
 
@@ -785,14 +785,14 @@ class TestAiPromptDisplay:
         """Tasks without ai_prompt should not show AI prompt line."""
         tasks = [
             Task(
-                id="T-US-E1-001-01",
-                story_id="US-E1-001",
+                id="T-US-F1-001-01",
+                story_id="US-F1-001",
                 title="Build API",
                 description="d",
                 label=TaskLabel.CODE,
             ),
         ]
-        result = _format_tasks(tasks, make_sample_stories(), make_sample_epics(), "Test")
+        result = _format_tasks(tasks, make_sample_stories(), make_sample_features(), "Test")
         assert "AI prompt:" not in result
 
 

@@ -76,7 +76,7 @@ def get_task_decomposer_prompt(
     Returns:
         The complete prompt string ready to send to the LLM.
     """
-    from scrum_agent.prompts.epic_generator import _build_review_section
+    from scrum_agent.prompts.feature_generator import _build_review_section
 
     # Build optional documentation context section.
     # When the user provided documentation references during intake (Q14, Confluence

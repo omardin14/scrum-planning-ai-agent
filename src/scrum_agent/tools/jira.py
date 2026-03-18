@@ -100,6 +100,60 @@ def _create_issue_with_epic_link(jira: JIRA, fields: dict, epic_key: str, link_m
         raise
 
 
+# ---------------------------------------------------------------------------
+# Non-@tool helpers for batch sync (called by jira_sync.py, not the ReAct agent)
+# ---------------------------------------------------------------------------
+
+
+def create_subtask(
+    jira: JIRA,
+    summary: str,
+    parent_key: str,
+    description: str = "",
+    project_key: str = "",
+    labels: list[str] | None = None,
+    issue_type_name: str = "Sub-task",
+) -> str:
+    """Create a Jira Sub-task linked to a parent issue.
+
+    Returns the new sub-task's issue key (e.g. "PROJ-99").
+    Used by the batch sync module to create tasks as Jira Sub-tasks
+    under their parent Story.
+
+    issue_type_name defaults to "Sub-task" but can be overridden for
+    projects that use "Subtask" or other names (discovered at runtime).
+
+    # See README: "Tools" — tool types, write tools
+    """
+    key = project_key.strip() or (get_jira_project_key() or "")
+    fields: dict = {
+        "project": {"key": key},
+        "summary": summary,
+        "description": description,
+        "issuetype": {"name": issue_type_name},
+        "parent": {"key": parent_key},
+    }
+    if labels:
+        fields["labels"] = labels
+    issue = jira.create_issue(fields=fields)
+    logger.debug("Created sub-task %s under %s", issue.key, parent_key)
+    return issue.key
+
+
+def add_issues_to_sprint(jira: JIRA, sprint_id: int, issue_keys: list[str]) -> None:
+    """Move issues into a sprint by their keys.
+
+    Calls the Jira Agile REST API to assign existing issues to a sprint.
+    Used by the batch sync module to populate sprints after creation.
+
+    # See README: "Tools" — tool types, write tools
+    """
+    if not issue_keys:
+        return
+    jira.add_issues_to_sprint(sprint_id, issue_keys)
+    logger.debug("Added %d issues to sprint %d", len(issue_keys), sprint_id)
+
+
 @tool
 def jira_read_board(project_key: str = "") -> str:
     """Read the current state of a Jira board: active sprint, backlog size, and velocity.
@@ -201,7 +255,11 @@ def jira_create_epic(
     issue_type: str = "Epic",
     internal_id: str = "",
 ) -> str:
-    """Create an epic in Jira.
+    """Create a single project-level epic in Jira.
+
+    Each project gets one Jira Epic that acts as the container for all features
+    and stories. This is NOT called per-feature — features are internal planning
+    artifacts that map to stories under the single epic.
 
     Only call this after the user has explicitly confirmed they want to create issues in Jira.
     Falls back to JIRA_PROJECT_KEY env var when project_key is not provided.

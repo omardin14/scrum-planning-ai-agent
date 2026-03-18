@@ -26,7 +26,7 @@ from scrum_agent.agent.graph import create_graph
 from scrum_agent.agent.state import (
     TOTAL_QUESTIONS,
     AcceptanceCriterion,
-    Epic,
+    Feature,
     Priority,
     ProjectAnalysis,
     QuestionnaireState,
@@ -117,11 +117,11 @@ def _pipeline_complete_state() -> dict:
         "messages": [],
         "questionnaire": _make_completed_questionnaire(),
         "project_analysis": _make_dummy_analysis(),
-        "epics": [Epic(id="E1", title="Auth", description="Auth epic", priority=Priority.HIGH)],
+        "features": [Feature(id="F1", title="Auth", description="Auth feature", priority=Priority.HIGH)],
         "stories": [
             UserStory(
                 id="US-1",
-                epic_id="E1",
+                feature_id="F1",
                 persona="developer",
                 goal="do something",
                 benefit="it helps",

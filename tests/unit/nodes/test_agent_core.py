@@ -248,7 +248,7 @@ class TestShouldContinueRiskRouting:
         msg = AIMessage(
             content="",
             tool_calls=[
-                {"name": "jira_create_epic", "args": {"title": "Auth Epic"}, "id": "call_1", "type": "tool_call"}
+                {"name": "jira_create_epic", "args": {"title": "Auth Feature"}, "id": "call_1", "type": "tool_call"}
             ],
         )
         state = {"messages": [msg]}
@@ -292,7 +292,7 @@ class TestShouldContinueRiskRouting:
 
     def test_confirmed_high_risk_routes_to_tools(self):
         """After user confirms, high-risk tool routes to 'tools' (not human_review again)."""
-        confirmation_msg = AIMessage(content="I'd like to create an epic. Please confirm — yes/no?")
+        confirmation_msg = AIMessage(content="I'd like to create a feature. Please confirm — yes/no?")
         user_yes = HumanMessage(content="yes")
         tool_call_msg = AIMessage(
             content="",
@@ -325,7 +325,7 @@ class TestShouldContinueRiskRouting:
 
     def test_insufficient_history_stays_human_review(self):
         """Without prior confirmation messages, high-risk routes to human_review."""
-        user_msg = HumanMessage(content="Create an epic for auth")
+        user_msg = HumanMessage(content="Create a feature for auth")
         tool_call_msg = AIMessage(
             content="",
             tool_calls=[{"name": "jira_create_epic", "args": {}, "id": "call_1", "type": "tool_call"}],

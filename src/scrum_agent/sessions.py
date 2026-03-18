@@ -6,7 +6,7 @@ name is derived as <project-slug>-<YYYY-MM-DD> for human readability.
 
 Phase 8A stores metadata (project name, timestamps, last node).
 Phase 8B adds full state serialisation for --resume: questionnaire answers,
-project analysis, epics, stories, tasks, sprints, and all scalar fields are
+project analysis, features, stories, tasks, sprints, and all scalar fields are
 persisted as JSON so interrupted sessions can be resumed from where they left off.
 
 # See README: "Memory & State" — MemorySaver, thread_id, session persistence
@@ -27,7 +27,7 @@ from uuid import uuid4
 from scrum_agent.agent.state import (
     AcceptanceCriterion,
     Discipline,
-    Epic,
+    Feature,
     OutputFormat,
     Priority,
     ProjectAnalysis,
@@ -141,10 +141,10 @@ CREATE TABLE IF NOT EXISTS schema_info (
 # ---------------------------------------------------------------------------
 # Phase 8B: persist graph state as JSON so --resume can reconstruct it.
 # Messages are NOT serialised — pipeline nodes read from artifacts (project_analysis,
-# epics, etc.), not from chat history. On resume a synthetic message is injected.
+# features, etc.), not from chat history. On resume a synthetic message is injected.
 #
 # Custom handling needed for:
-# - Frozen dataclasses (Epic, UserStory, Task, Sprint, ProjectAnalysis, AcceptanceCriterion)
+# - Frozen dataclasses (Feature, UserStory, Task, Sprint, ProjectAnalysis, AcceptanceCriterion)
 # - Enums (Priority, StoryPointValue, Discipline, ReviewDecision, OutputFormat)
 # - Sets (skipped_questions, probed_questions, etc.) → lists in JSON
 # - Tuples (story_ids, goals, etc.) → lists in JSON, reconstructed as tuples
@@ -200,7 +200,7 @@ def _serialize_state(graph_state: dict) -> str:
     """Serialize graph_state to JSON, handling dataclasses, enums, and sets.
 
     Skips ``messages`` — not needed for resume. Pipeline nodes read from
-    artifacts (project_analysis, epics, etc.), not from chat history.
+    artifacts (project_analysis, features, etc.), not from chat history.
 
     Returns:
         JSON string of the serialisable subset of graph_state.
@@ -213,7 +213,7 @@ def _serialize_state(graph_state: dict) -> str:
             out[key] = _questionnaire_to_dict(value)
         elif key == "project_analysis" and isinstance(value, ProjectAnalysis):
             out[key] = asdict(value)
-        elif key == "epics":
+        elif key == "features":
             out[key] = [asdict(e) for e in value]
         elif key == "stories":
             out[key] = [asdict(s) for s in value]
@@ -300,9 +300,9 @@ def _dict_to_analysis(d: dict) -> ProjectAnalysis:
     )
 
 
-def _dict_to_epic(d: dict) -> Epic:
-    """Reconstruct an Epic from a JSON-parsed dict."""
-    return Epic(
+def _dict_to_feature(d: dict) -> Feature:
+    """Reconstruct a Feature from a JSON-parsed dict."""
+    return Feature(
         id=d["id"],
         title=d["title"],
         description=d["description"],
@@ -318,7 +318,7 @@ def _dict_to_story(d: dict) -> UserStory:
     acs = tuple(AcceptanceCriterion(**ac) for ac in d.get("acceptance_criteria", ()))
     return UserStory(
         id=d["id"],
-        epic_id=d["epic_id"],
+        feature_id=d["feature_id"],
         persona=d["persona"],
         goal=d["goal"],
         benefit=d["benefit"],
@@ -370,8 +370,8 @@ def _deserialize_state(json_str: str) -> dict:
             state[key] = _dict_to_questionnaire(value)
         elif key == "project_analysis":
             state[key] = _dict_to_analysis(value)
-        elif key == "epics":
-            state[key] = [_dict_to_epic(e) for e in value]
+        elif key == "features":
+            state[key] = [_dict_to_feature(e) for e in value]
         elif key == "stories":
             state[key] = [_dict_to_story(s) for s in value]
         elif key == "tasks":

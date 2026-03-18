@@ -37,7 +37,7 @@ from rich.console import Console, ConsoleRenderable
 from scrum_agent.agent.state import (
     AcceptanceCriterion,
     Discipline,
-    Epic,
+    Feature,
     Priority,
     ProjectAnalysis,
     Sprint,
@@ -68,8 +68,8 @@ def _render(obj: ConsoleRenderable, width: int = 80) -> str:
 # Shared fixture data
 # ---------------------------------------------------------------------------
 
-_EPIC_AUTH = Epic(id="E1", title="User Authentication", description="OAuth2 and JWT flow", priority=Priority.HIGH)
-_EPIC_TASKS = Epic(id="E2", title="Task Management", description="CRUD for tasks", priority=Priority.MEDIUM)
+_FEATURE_AUTH = Feature(id="F1", title="User Authentication", description="OAuth2 and JWT flow", priority=Priority.HIGH)
+_FEATURE_TASKS = Feature(id="F2", title="Task Management", description="CRUD for tasks", priority=Priority.MEDIUM)
 
 _AC_LOGIN = AcceptanceCriterion(
     given="a valid email and password",
@@ -84,7 +84,7 @@ _AC_LOGOUT = AcceptanceCriterion(
 
 _STORY_LOGIN = UserStory(
     id="US-1",
-    epic_id="E1",
+    feature_id="F1",
     persona="developer",
     goal="log in with email and password",
     benefit="I can access my personal task list",
@@ -97,7 +97,7 @@ _STORY_LOGIN = UserStory(
 
 _STORY_CREATE_TASK = UserStory(
     id="US-2",
-    epic_id="E2",
+    feature_id="F2",
     persona="user",
     goal="create a new task",
     benefit="I can track my work",
@@ -181,43 +181,43 @@ class TestRenderAnalysisPanel:
 
 
 # ---------------------------------------------------------------------------
-# render_epics_table
+# render_features_table
 # ---------------------------------------------------------------------------
 
 
-class TestRenderEpicsTable:
-    """Snapshot tests for the epics Rich Table.
+class TestRenderFeaturesTable:
+    """Snapshot tests for the features Rich Table.
 
-    # See README: "Scrum Standards" — epic decomposition
+    # See README: "Scrum Standards" — feature decomposition
     """
 
     def test_full(self, snapshot):
-        from scrum_agent.formatters import render_epics_table
+        from scrum_agent.formatters import render_features_table
 
-        assert _render(render_epics_table([_EPIC_AUTH, _EPIC_TASKS])) == snapshot
+        assert _render(render_features_table([_FEATURE_AUTH, _FEATURE_TASKS])) == snapshot
 
     def test_compact(self, snapshot):
-        from scrum_agent.formatters import render_epics_table
+        from scrum_agent.formatters import render_features_table
 
-        assert _render(render_epics_table([_EPIC_AUTH, _EPIC_TASKS], compact=True)) == snapshot
+        assert _render(render_features_table([_FEATURE_AUTH, _FEATURE_TASKS], compact=True)) == snapshot
 
     def test_empty_list(self, snapshot):
-        """Empty epics list produces a table with headers but no rows."""
-        from scrum_agent.formatters import render_epics_table
+        """Empty features list produces a table with headers but no rows."""
+        from scrum_agent.formatters import render_features_table
 
-        assert _render(render_epics_table([])) == snapshot
+        assert _render(render_features_table([])) == snapshot
 
     def test_all_priorities_represented(self, snapshot):
         """All four Priority levels are rendered with their colour-coded styles."""
-        from scrum_agent.formatters import render_epics_table
+        from scrum_agent.formatters import render_features_table
 
-        epics = [
-            Epic(id="E1", title="Critical Epic", description="Urgent", priority=Priority.CRITICAL),
-            Epic(id="E2", title="High Epic", description="High prio", priority=Priority.HIGH),
-            Epic(id="E3", title="Medium Epic", description="Med prio", priority=Priority.MEDIUM),
-            Epic(id="E4", title="Low Epic", description="Low prio", priority=Priority.LOW),
+        features = [
+            Feature(id="F1", title="Critical Feature", description="Urgent", priority=Priority.CRITICAL),
+            Feature(id="F2", title="High Feature", description="High prio", priority=Priority.HIGH),
+            Feature(id="F3", title="Medium Feature", description="Med prio", priority=Priority.MEDIUM),
+            Feature(id="F4", title="Low Feature", description="Low prio", priority=Priority.LOW),
         ]
-        assert _render(render_epics_table(epics)) == snapshot
+        assert _render(render_features_table(features)) == snapshot
 
 
 # ---------------------------------------------------------------------------
@@ -226,7 +226,7 @@ class TestRenderEpicsTable:
 
 
 class TestRenderStoriesTable:
-    """Snapshot tests for the stories Rich Group (one Table per epic).
+    """Snapshot tests for the stories Rich Group (one Table per feature).
 
     # See README: "Scrum Standards" — user story format, acceptance criteria
     """
@@ -235,13 +235,13 @@ class TestRenderStoriesTable:
         from scrum_agent.formatters import render_stories_table
 
         stories = [_STORY_LOGIN, _STORY_CREATE_TASK]
-        assert _render(render_stories_table(stories, [_EPIC_AUTH, _EPIC_TASKS])) == snapshot
+        assert _render(render_stories_table(stories, [_FEATURE_AUTH, _FEATURE_TASKS])) == snapshot
 
     def test_compact(self, snapshot):
         from scrum_agent.formatters import render_stories_table
 
         stories = [_STORY_LOGIN, _STORY_CREATE_TASK]
-        assert _render(render_stories_table(stories, [_EPIC_AUTH, _EPIC_TASKS], compact=True)) == snapshot
+        assert _render(render_stories_table(stories, [_FEATURE_AUTH, _FEATURE_TASKS], compact=True)) == snapshot
 
     def test_empty_list(self, snapshot):
         """Empty stories list returns an empty Group (no tables rendered)."""
@@ -249,13 +249,13 @@ class TestRenderStoriesTable:
 
         assert _render(render_stories_table([], [])) == snapshot
 
-    def test_multiple_stories_per_epic(self, snapshot):
-        """Two stories under the same epic are rendered in a single table."""
+    def test_multiple_stories_per_feature(self, snapshot):
+        """Two stories under the same feature are rendered in a single table."""
         from scrum_agent.formatters import render_stories_table
 
         story_b = UserStory(
             id="US-3",
-            epic_id="E1",
+            feature_id="F1",
             persona="admin",
             goal="reset a user password",
             benefit="account recovery is possible",
@@ -263,7 +263,7 @@ class TestRenderStoriesTable:
             story_points=StoryPointValue.TWO,
             priority=Priority.MEDIUM,
         )
-        assert _render(render_stories_table([_STORY_LOGIN, story_b], [_EPIC_AUTH])) == snapshot
+        assert _render(render_stories_table([_STORY_LOGIN, story_b], [_FEATURE_AUTH])) == snapshot
 
 
 # ---------------------------------------------------------------------------
@@ -272,7 +272,7 @@ class TestRenderStoriesTable:
 
 
 class TestRenderTasksTable:
-    """Snapshot tests for the tasks Rich Group (one Table per epic).
+    """Snapshot tests for the tasks Rich Group (one Table per feature).
 
     # See README: "Scrum Standards" — task decomposition
     """
@@ -282,8 +282,8 @@ class TestRenderTasksTable:
 
         tasks = [_TASK_1, _TASK_2, _TASK_3]
         stories = [_STORY_LOGIN, _STORY_CREATE_TASK]
-        epics = [_EPIC_AUTH, _EPIC_TASKS]
-        assert _render(render_tasks_table(tasks, stories, epics)) == snapshot
+        features = [_FEATURE_AUTH, _FEATURE_TASKS]
+        assert _render(render_tasks_table(tasks, stories, features)) == snapshot
 
     def test_compact(self, snapshot):
         from scrum_agent.formatters import render_tasks_table
@@ -293,7 +293,7 @@ class TestRenderTasksTable:
                 render_tasks_table(
                     [_TASK_1, _TASK_2, _TASK_3],
                     [_STORY_LOGIN, _STORY_CREATE_TASK],
-                    [_EPIC_AUTH, _EPIC_TASKS],
+                    [_FEATURE_AUTH, _FEATURE_TASKS],
                     compact=True,
                 )
             )
@@ -310,7 +310,7 @@ class TestRenderTasksTable:
         """Two tasks under the same story both appear under the story header row."""
         from scrum_agent.formatters import render_tasks_table
 
-        assert _render(render_tasks_table([_TASK_1, _TASK_2], [_STORY_LOGIN], [_EPIC_AUTH])) == snapshot
+        assert _render(render_tasks_table([_TASK_1, _TASK_2], [_STORY_LOGIN], [_FEATURE_AUTH])) == snapshot
 
 
 # ---------------------------------------------------------------------------
@@ -332,7 +332,7 @@ class TestRenderSprintPlan:
                 render_sprint_plan(
                     [_SPRINT_1, _SPRINT_2],
                     [_STORY_LOGIN, _STORY_CREATE_TASK],
-                    [_EPIC_AUTH, _EPIC_TASKS],
+                    [_FEATURE_AUTH, _FEATURE_TASKS],
                     velocity=10,
                 )
             )
@@ -347,7 +347,7 @@ class TestRenderSprintPlan:
                 render_sprint_plan(
                     [_SPRINT_1, _SPRINT_2],
                     [_STORY_LOGIN, _STORY_CREATE_TASK],
-                    [_EPIC_AUTH, _EPIC_TASKS],
+                    [_FEATURE_AUTH, _FEATURE_TASKS],
                     velocity=10,
                     compact=True,
                 )
@@ -367,7 +367,7 @@ class TestRenderSprintPlan:
                 render_sprint_plan(
                     [overcapacity],
                     [_STORY_LOGIN, _STORY_CREATE_TASK],
-                    [_EPIC_AUTH, _EPIC_TASKS],
+                    [_FEATURE_AUTH, _FEATURE_TASKS],
                     velocity=5,
                 )
             )

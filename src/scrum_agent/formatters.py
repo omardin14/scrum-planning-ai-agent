@@ -4,7 +4,7 @@
 #
 # Nodes produce markdown AIMessages (needed for LLM conversation history).
 # This module provides Rich Table/Panel renderers that the REPL uses when
-# structured artifacts (epics, stories, tasks, sprints, project analysis)
+# structured artifacts (features, stories, tasks, sprints, project analysis)
 # are available in the graph result — giving scannable, colour-coded output
 # instead of raw streamed markdown.
 
@@ -22,7 +22,7 @@ from rich.theme import Theme
 
 from scrum_agent.agent.state import (
     PHASE_QUESTION_RANGES,
-    Epic,
+    Feature,
     Priority,
     ProjectAnalysis,
     QuestionnaireState,
@@ -228,24 +228,24 @@ def render_analysis_panel(analysis: ProjectAnalysis, *, compact: bool = False) -
 
 
 # ---------------------------------------------------------------------------
-# Epics Table
+# Features Table
 # ---------------------------------------------------------------------------
 
 
-def render_epics_table(epics: list[Epic], *, compact: bool = False) -> Table:
-    """Render a list of Epics as a Rich Table with colour-coded priorities.
+def render_features_table(features: list[Feature], *, compact: bool = False) -> Table:
+    """Render a list of Features as a Rich Table with colour-coded priorities.
 
     Args:
-        epics: List of Epic dataclasses.
+        features: List of Feature dataclasses.
         compact: When True, omit the Description column.
 
     Returns:
         A Rich Table with columns: ID, Title, Priority, (Description).
     """
     table = Table(
-        title="Epics",
+        title="Features",
         show_lines=True,
-        caption=f"{len(epics)} epic(s)",
+        caption=f"{len(features)} feature(s)",
     )
     table.add_column("ID", style="cyan", no_wrap=True)
     table.add_column("Title", style="bold")
@@ -253,47 +253,47 @@ def render_epics_table(epics: list[Epic], *, compact: bool = False) -> Table:
     if not compact:
         table.add_column("Description")
 
-    for epic in epics:
-        row = [epic.id, epic.title, _styled_priority(epic.priority)]
+    for feature in features:
+        row = [feature.id, feature.title, _styled_priority(feature.priority)]
         if not compact:
-            row.append(epic.description)
+            row.append(feature.description)
         table.add_row(*row)
 
     return table
 
 
 # ---------------------------------------------------------------------------
-# Stories Table (grouped by epic)
+# Stories Table (grouped by feature)
 # ---------------------------------------------------------------------------
 
 
-def render_stories_table(stories: list[UserStory], epics: list[Epic], *, compact: bool = False) -> Group:
-    """Render user stories grouped by epic, each as a Rich Table.
+def render_stories_table(stories: list[UserStory], features: list[Feature], *, compact: bool = False) -> Group:
+    """Render user stories grouped by feature, each as a Rich Table.
 
     Each story row shows the story sentence on the first line, followed by
     dim Given/When/Then acceptance criteria beneath it.
 
     Args:
         stories: List of UserStory dataclasses.
-        epics: List of Epic dataclasses (for grouping headers).
+        features: List of Feature dataclasses (for grouping headers).
         compact: When True, omit acceptance criteria and Discipline column.
 
     Returns:
-        A Rich Group containing one Table per epic.
+        A Rich Group containing one Table per feature.
     """
-    # Build a lookup for epic titles
-    epic_titles = {e.id: e.title for e in epics}
+    # Build a lookup for feature titles
+    feature_titles = {e.id: e.title for e in features}
 
-    # Group stories by epic_id, preserving order
+    # Group stories by feature_id, preserving order
     grouped: dict[str, list[UserStory]] = {}
     for story in stories:
-        grouped.setdefault(story.epic_id, []).append(story)
+        grouped.setdefault(story.feature_id, []).append(story)
 
     tables: list[Table] = []
-    for epic_id, epic_stories in grouped.items():
-        epic_label = epic_titles.get(epic_id, epic_id)
+    for feature_id, feature_stories in grouped.items():
+        feature_label = feature_titles.get(feature_id, feature_id)
         table = Table(
-            title=f"Stories — {epic_label}",
+            title=f"Stories — {feature_label}",
             show_lines=True,
         )
         table.add_column("ID", style="cyan", no_wrap=True)
@@ -303,7 +303,7 @@ def render_stories_table(stories: list[UserStory], epics: list[Epic], *, compact
         if not compact:
             table.add_column("Discipline")
 
-        for i, story in enumerate(epic_stories):
+        for i, story in enumerate(feature_stories):
             # Build multi-line story cell: sentence + dim acceptance criteria + DoD
             story_text = Text(story.text)
             if not compact:
@@ -330,10 +330,14 @@ def render_stories_table(stories: list[UserStory], epics: list[Epic], *, compact
                         else:
                             story_text.append(f"{sep}✗ {short}", style="dim strike")
 
+            if story.points_rationale:
+                story_text.append("\n\n  Points rationale: ", style="dim bold")
+                story_text.append(story.points_rationale, style="dim italic")
+
             row: list = [story.id, story_text, str(story.story_points), _styled_priority(story.priority)]
             if not compact:
                 row.append(str(story.discipline.value))
-            table.add_row(*row, end_section=(i < len(epic_stories) - 1))
+            table.add_row(*row, end_section=(i < len(feature_stories) - 1))
 
         tables.append(table)
 
@@ -341,29 +345,29 @@ def render_stories_table(stories: list[UserStory], epics: list[Epic], *, compact
 
 
 # ---------------------------------------------------------------------------
-# Tasks Table (grouped by epic, with story sub-headers)
+# Tasks Table (grouped by feature, with story sub-headers)
 # ---------------------------------------------------------------------------
 
 
 def render_tasks_table(
-    tasks: list[Task], stories: list[UserStory], epics: list[Epic], *, compact: bool = False
+    tasks: list[Task], stories: list[UserStory], features: list[Feature], *, compact: bool = False
 ) -> Group:
-    """Render tasks grouped by epic with story sub-headers.
+    """Render tasks grouped by feature with story sub-headers.
 
-    Within each epic table, story header rows (bold, underlined) separate
+    Within each feature table, story header rows (bold, underlined) separate
     the tasks belonging to each story.
 
     Args:
         tasks: List of Task dataclasses.
         stories: List of UserStory dataclasses (for grouping).
-        epics: List of Epic dataclasses (for table titles).
+        features: List of Feature dataclasses (for table titles).
         compact: When True, omit the Description column.
 
     Returns:
-        A Rich Group containing one Table per epic.
+        A Rich Group containing one Table per feature.
     """
     # Build lookups
-    epic_titles = {e.id: e.title for e in epics}
+    feature_titles = {e.id: e.title for e in features}
     story_texts = {s.id: s.text for s in stories}
 
     # Group tasks by story_id
@@ -371,17 +375,17 @@ def render_tasks_table(
     for task in tasks:
         tasks_by_story.setdefault(task.story_id, []).append(task)
 
-    # Group stories by epic_id (only those that have tasks)
-    stories_by_epic: dict[str, list[str]] = {}
+    # Group stories by feature_id (only those that have tasks)
+    stories_by_feature: dict[str, list[str]] = {}
     for story in stories:
         if story.id in tasks_by_story:
-            stories_by_epic.setdefault(story.epic_id, []).append(story.id)
+            stories_by_feature.setdefault(story.feature_id, []).append(story.id)
 
     tables: list[Table] = []
-    for epic_id, story_ids in stories_by_epic.items():
-        epic_label = epic_titles.get(epic_id, epic_id)
+    for feature_id, story_ids in stories_by_feature.items():
+        feature_label = feature_titles.get(feature_id, feature_id)
         table = Table(
-            title=f"Tasks — {epic_label}",
+            title=f"Tasks — {feature_label}",
             show_lines=True,
         )
         table.add_column("ID", style="cyan", no_wrap=True)
@@ -428,7 +432,7 @@ def render_tasks_table(
 def render_sprint_plan(
     sprints: list[Sprint],
     stories: list[UserStory],
-    epics: list[Epic],
+    features: list[Feature],
     velocity: int,
     *,
     compact: bool = False,
@@ -438,7 +442,7 @@ def render_sprint_plan(
     Args:
         sprints: List of Sprint dataclasses.
         stories: List of UserStory dataclasses (for point/priority lookup).
-        epics: List of Epic dataclasses (for epic name lookup).
+        features: List of Feature dataclasses (for feature name lookup).
         velocity: Team velocity (points per sprint).
         compact: When True, omit story detail tables inside sprint panels;
             show only goal + capacity bar.

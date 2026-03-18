@@ -40,7 +40,7 @@ _JSON_SCHEMA = """\
   "risks": ["string array — risks and uncertainties from Q21, Q22"],
   "out_of_scope": ["string array — explicit exclusions from Q23"],
   "assumptions": ["string array — any defaulted or skipped answers that required assumptions"],
-  "skip_epics": "boolean — true when the project is small enough that epic grouping adds no value. Default false.",
+  "skip_features": "boolean — true when project is small enough that feature grouping adds no value. Default false.",
   "scrum_md_contributions": "JSON field names whose values came from SCRUM.md. Empty list if no SCRUM.md was present."
 }"""
 
@@ -97,7 +97,7 @@ def get_analyzer_prompt(
     Returns:
         The complete prompt string ready to send to the LLM.
     """
-    from scrum_agent.prompts.epic_generator import _build_review_section
+    from scrum_agent.prompts.feature_generator import _build_review_section
 
     # Inject repo scan results when available, placed between Team Metrics and
     # Questionnaire Answers so the LLM can ground tech_stack / project_type
@@ -175,7 +175,7 @@ def get_analyzer_prompt(
         "9. When Edit Instructions are provided below, apply them directly — override the "
         "relevant fields. Remove any assumption that the edit corrects (e.g. if the user "
         'says "we have CI/CD", remove the "No existing CI/CD pipeline" assumption).\n'
-        "10. Set `skip_epics` to `true` when the project is small enough that epic grouping "
+        "10. Set `skip_features` to `true` when the project is small enough that feature grouping "
         "adds no value (guideline: target_sprints ≤ 2 AND goals ≤ 3). Default `false` when in doubt.\n"
         "11. `scrum_md_contributions`: if a SCRUM.md user context section was present above, "
         "list the exact JSON field names whose values were primarily sourced from it. "

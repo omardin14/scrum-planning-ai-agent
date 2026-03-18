@@ -89,60 +89,60 @@
   
   '''
 # ---
-# name: TestRenderEpicsTable.test_all_priorities_represented
+# name: TestRenderFeaturesTable.test_all_priorities_represented
   '''
-                       Epics                     
-  ┏━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━┓
-  ┃ ID ┃ Title         ┃ Priority ┃ Description ┃
-  ┡━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━┩
-  │ E1 │ Critical Epic │ critical │ Urgent      │
-  ├────┼───────────────┼──────────┼─────────────┤
-  │ E2 │ High Epic     │ high     │ High prio   │
-  ├────┼───────────────┼──────────┼─────────────┤
-  │ E3 │ Medium Epic   │ medium   │ Med prio    │
-  ├────┼───────────────┼──────────┼─────────────┤
-  │ E4 │ Low Epic      │ low      │ Low prio    │
-  └────┴───────────────┴──────────┴─────────────┘
-                     4 epic(s)                   
+                       Features                     
+  ┏━━━━┳━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━┓
+  ┃ ID ┃ Title            ┃ Priority ┃ Description ┃
+  ┡━━━━╇━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━┩
+  │ F1 │ Critical Feature │ critical │ Urgent      │
+  ├────┼──────────────────┼──────────┼─────────────┤
+  │ F2 │ High Feature     │ high     │ High prio   │
+  ├────┼──────────────────┼──────────┼─────────────┤
+  │ F3 │ Medium Feature   │ medium   │ Med prio    │
+  ├────┼──────────────────┼──────────┼─────────────┤
+  │ F4 │ Low Feature      │ low      │ Low prio    │
+  └────┴──────────────────┴──────────┴─────────────┘
+                     4 feature(s)                   
   
   '''
 # ---
-# name: TestRenderEpicsTable.test_compact
+# name: TestRenderFeaturesTable.test_compact
   '''
-                   Epics                 
+                 Features                
   ┏━━━━┳━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━┓
   ┃ ID ┃ Title               ┃ Priority ┃
   ┡━━━━╇━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━┩
-  │ E1 │ User Authentication │ high     │
+  │ F1 │ User Authentication │ high     │
   ├────┼─────────────────────┼──────────┤
-  │ E2 │ Task Management     │ medium   │
+  │ F2 │ Task Management     │ medium   │
   └────┴─────────────────────┴──────────┘
-                 2 epic(s)               
+               2 feature(s)              
   
   '''
 # ---
-# name: TestRenderEpicsTable.test_empty_list
+# name: TestRenderFeaturesTable.test_empty_list
   '''
-                   Epics                 
+                 Features                
   ┏━━━━┳━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━┓
   ┃ ID ┃ Title ┃ Priority ┃ Description ┃
   ┡━━━━╇━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━┩
   └────┴───────┴──────────┴─────────────┘
-                 0 epic(s)               
+               0 feature(s)              
   
   '''
 # ---
-# name: TestRenderEpicsTable.test_full
+# name: TestRenderFeaturesTable.test_full
   '''
-                              Epics                            
+                            Features                           
   ┏━━━━┳━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━┓
   ┃ ID ┃ Title               ┃ Priority ┃ Description         ┃
   ┡━━━━╇━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━┩
-  │ E1 │ User Authentication │ high     │ OAuth2 and JWT flow │
+  │ F1 │ User Authentication │ high     │ OAuth2 and JWT flow │
   ├────┼─────────────────────┼──────────┼─────────────────────┤
-  │ E2 │ Task Management     │ medium   │ CRUD for tasks      │
+  │ F2 │ Task Management     │ medium   │ CRUD for tasks      │
   └────┴─────────────────────┴──────────┴─────────────────────┘
-                            2 epic(s)                          
+                          2 feature(s)                         
   
   '''
 # ---
@@ -272,7 +272,7 @@
   
   '''
 # ---
-# name: TestRenderStoriesTable.test_multiple_stories_per_epic
+# name: TestRenderStoriesTable.test_multiple_stories_per_feature
   '''
                            Stories — User Authentication                          
   ┏━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━┓

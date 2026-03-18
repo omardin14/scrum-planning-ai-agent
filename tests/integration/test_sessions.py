@@ -9,7 +9,7 @@ import pytest
 from scrum_agent.agent.state import (
     AcceptanceCriterion,
     Discipline,
-    Epic,
+    Feature,
     OutputFormat,
     Priority,
     ProjectAnalysis,
@@ -137,16 +137,16 @@ class TestSessionStore:
     def test_update_last_node(self, store: SessionStore):
         sid = make_session_id()
         store.create_session(sid)
-        store.update_last_node(sid, "epic_generator")
+        store.update_last_node(sid, "feature_generator")
         meta = store.get_session(sid)
-        assert meta["last_node_completed"] == "epic_generator"
+        assert meta["last_node_completed"] == "feature_generator"
 
     def test_list_sessions_ordered_by_last_modified(self, store: SessionStore):
         sid1 = make_session_id()
         sid2 = make_session_id()
         store.create_session(sid1, project_name="Alpha")
         store.create_session(sid2, project_name="Beta")
-        store.update_last_node(sid1, "epic_generator")  # makes sid1 most recently modified
+        store.update_last_node(sid1, "feature_generator")  # makes sid1 most recently modified
         sessions = store.list_sessions()
         assert sessions[0]["session_id"] == sid1
 
@@ -186,7 +186,7 @@ class TestSessionStore:
         sid2 = make_session_id()
         store.create_session(sid1)
         store.create_session(sid2)
-        store.update_last_node(sid2, "epic_generator")
+        store.update_last_node(sid2, "feature_generator")
         assert store.get_latest_session_id() == sid2
 
     def test_get_latest_session_id_empty(self, store: SessionStore):
@@ -218,7 +218,7 @@ class TestSchemaMigration:
         )
         conn.execute(
             "INSERT INTO sessions_meta VALUES (?, ?, ?, ?, ?)",
-            ("old-session", "OldProject", "2026-01-01T00:00:00", "2026-01-01T00:00:00", "epic_generator"),
+            ("old-session", "OldProject", "2026-01-01T00:00:00", "2026-01-01T00:00:00", "feature_generator"),
         )
         conn.close()
 
@@ -268,11 +268,11 @@ def _make_full_state() -> dict:
         assumptions=("Team ramp-up complete",),
         scrum_md_contributions=("goals", "tech_stack"),
     )
-    epic = Epic(id="epic-1", title="User Onboarding", description="Onboarding flow", priority=Priority.HIGH)
+    feature = Feature(id="feature-1", title="User Onboarding", description="Onboarding flow", priority=Priority.HIGH)
     ac = AcceptanceCriterion(given="a new user", when="they sign up", then="they see the dashboard")
     story = UserStory(
         id="story-1",
-        epic_id="epic-1",
+        feature_id="feature-1",
         persona="lender",
         goal="sign up",
         benefit="access the platform",
@@ -288,7 +288,7 @@ def _make_full_state() -> dict:
         "messages": [],
         "questionnaire": qs,
         "project_analysis": pa,
-        "epics": [epic],
+        "features": [feature],
         "stories": [story],
         "tasks": [task],
         "sprints": [sprint],
@@ -305,7 +305,7 @@ def _make_full_state() -> dict:
         "last_review_feedback": "Add more stories",
         "output_format": OutputFormat.BOTH,
         "context_sources": [{"name": "repo", "status": "ok", "detail": "42 files"}],
-        "jira_epic_keys": {"epic-1": "PROJ-1"},
+        "jira_feature_keys": {"feature-1": "PROJ-1"},
         "jira_story_keys": {"story-1": "PROJ-2"},
     }
 
@@ -382,18 +382,18 @@ class TestDeserializeState:
         assert state["project_analysis"].project_name == "X"
         assert state["project_analysis"].goals == ("g1",)
 
-    def test_reconstructs_epic(self):
-        epic = Epic(id="e-1", title="T", description="D", priority=Priority.CRITICAL)
-        serialized = _serialize_state({"messages": [], "epics": [epic]})
+    def test_reconstructs_feature(self):
+        feature = Feature(id="f-1", title="T", description="D", priority=Priority.CRITICAL)
+        serialized = _serialize_state({"messages": [], "features": [feature]})
         state = _deserialize_state(serialized)
-        assert isinstance(state["epics"][0], Epic)
-        assert state["epics"][0].priority == Priority.CRITICAL
+        assert isinstance(state["features"][0], Feature)
+        assert state["features"][0].priority == Priority.CRITICAL
 
     def test_reconstructs_story_with_nested_ac(self):
         ac = AcceptanceCriterion(given="g", when="w", then="t")
         story = UserStory(
             id="s-1",
-            epic_id="e-1",
+            feature_id="f-1",
             persona="user",
             goal="do",
             benefit="gain",
@@ -444,10 +444,10 @@ class TestDeserializeState:
         assert state["_intake_mode"] == "quick"
 
     def test_jira_mappings_passthrough(self):
-        state_in = {"messages": [], "jira_epic_keys": {"e-1": "PROJ-1"}}
+        state_in = {"messages": [], "jira_feature_keys": {"e-1": "PROJ-1"}}
         serialized = _serialize_state(state_in)
         state = _deserialize_state(serialized)
-        assert state["jira_epic_keys"] == {"e-1": "PROJ-1"}
+        assert state["jira_feature_keys"] == {"e-1": "PROJ-1"}
 
     def test_context_sources_passthrough(self):
         state_in = {"messages": [], "context_sources": [{"name": "repo", "status": "ok"}]}
@@ -477,8 +477,8 @@ class TestRoundTrip:
         assert restored["project_analysis"].goals == ("Launch MVP", "Onboard 10 lenders")
 
         # Artifacts
-        assert len(restored["epics"]) == 1
-        assert restored["epics"][0].priority == Priority.HIGH
+        assert len(restored["features"]) == 1
+        assert restored["features"][0].priority == Priority.HIGH
         assert len(restored["stories"]) == 1
         assert restored["stories"][0].story_points == StoryPointValue.THREE
         assert restored["stories"][0].discipline == Discipline.FRONTEND
@@ -513,7 +513,7 @@ class TestSaveLoadState:
         assert loaded is not None
         assert loaded["team_size"] == 5
         assert isinstance(loaded["questionnaire"], QuestionnaireState)
-        assert isinstance(loaded["epics"][0], Epic)
+        assert isinstance(loaded["features"][0], Feature)
 
     def test_load_state_missing_session(self, store: SessionStore):
         assert store.load_state("nonexistent") is None

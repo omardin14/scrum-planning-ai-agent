@@ -59,3 +59,4 @@ SCRUM.md
 
 # Allow test fixtures (overrides SCRUM.md ignore above)
 !tests/fixtures/SCRUM.md
+!projects/*/SCRUM.md

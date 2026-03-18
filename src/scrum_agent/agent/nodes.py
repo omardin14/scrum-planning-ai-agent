@@ -31,7 +31,7 @@ from scrum_agent.agent.state import (
     TOTAL_QUESTIONS,
     AcceptanceCriterion,
     Discipline,
-    Epic,
+    Feature,
     Priority,
     ProjectAnalysis,
     PromptQualityRating,
@@ -46,7 +46,7 @@ from scrum_agent.agent.state import (
     UserStory,
 )
 from scrum_agent.prompts.analyzer import get_analyzer_prompt
-from scrum_agent.prompts.epic_generator import get_epic_generator_prompt
+from scrum_agent.prompts.feature_generator import get_feature_generator_prompt
 from scrum_agent.prompts.intake import (
     INTAKE_QUESTIONS,
     PHASE_INTROS,
@@ -62,7 +62,7 @@ from scrum_agent.prompts.intake import (
     is_choice_question,
 )
 from scrum_agent.prompts.sprint_planner import get_sprint_planner_prompt
-from scrum_agent.prompts.story_writer import MAX_STORIES_PER_EPIC, MIN_STORIES_PER_EPIC, get_story_writer_prompt
+from scrum_agent.prompts.story_writer import MAX_STORIES_PER_FEATURE, MIN_STORIES_PER_FEATURE, get_story_writer_prompt
 from scrum_agent.prompts.system import get_system_prompt  # noqa: E402 — direct submodule imports avoid circular import
 from scrum_agent.prompts.task_decomposer import get_task_decomposer_prompt
 from scrum_agent.tools import detect_platform
@@ -1414,17 +1414,49 @@ def _load_user_context(path: str | None = None, docs_dir: str | None = None) -> 
         return None, {"name": "User context", "status": "error", "detail": str(e)[:80]}
 
 
-def _fetch_confluence_context(questionnaire: QuestionnaireState) -> tuple[str | None, dict]:
+def _extract_confluence_page_ids(text: str) -> list[str]:
+    """Extract Confluence page IDs from URLs found in free-form text (e.g. SCRUM.md).
+
+    # See README: "Tools" — read-only tool pattern
+    #
+    # Confluence Cloud URLs embed the numeric page ID in the path, e.g.:
+    #   https://example.atlassian.net/wiki/spaces/SPACE/pages/1234567890/Page+Title
+    # This regex extracts those IDs so we can call confluence_read_page directly
+    # instead of relying on keyword search which often misses specific pages.
+    """
+    # Match /wiki/spaces/<key>/pages/<page_id> — the page_id is always numeric.
+    return re.findall(r"/wiki/spaces/[^/]+/pages/(\d+)", text)
+
+
+def _fetch_confluence_context(
+    questionnaire: QuestionnaireState,
+    user_context: str | None = None,
+) -> tuple[str | None, dict]:
     """Search Confluence for docs related to the project and return combined context + status.
 
-    Uses the project name (Q1) as the search query. Falls back to (None, status) when
-    Confluence is not configured, Q1 is blank, or all searches fail.
+    # See README: "Tools" — read-only tool pattern
+    #
+    # Two strategies are used to find relevant Confluence pages:
+    # 1. Keyword search using the project name (Q1) — broad discovery.
+    # 2. Direct page fetch for any Confluence URLs found in SCRUM.md — precise
+    #    targeting of pages the user has explicitly linked (e.g. RunBook URLs).
+    #
+    # Both are combined into a single context string. Strategy 2 is the fix for
+    # the issue where RunBook URLs in SCRUM.md's "Key Links" section were ignored
+    # because the keyword search used the full project description as a CQL query,
+    # which rarely matched specific page titles.
+
+    Uses the project name (Q1) as the search query, and also extracts Confluence
+    page IDs from user_context (SCRUM.md) URLs to fetch those pages directly.
+    Falls back to (None, status) when Confluence is not configured.
     The caller proceeds gracefully with reduced context when None is returned.
+
+    Args:
+        questionnaire: The completed QuestionnaireState with Q1 (project name).
+        user_context: Raw SCRUM.md content — scanned for Confluence URLs to fetch directly.
 
     Returns:
         Tuple of (context string or None, status dict with name/status/detail).
-
-    # See README: "Tools" — read-only tool pattern
     """
     try:
         from scrum_agent.config import get_jira_base_url, get_jira_email, get_jira_token
@@ -1433,17 +1465,54 @@ def _fetch_confluence_context(questionnaire: QuestionnaireState) -> tuple[str | 
         if not all([get_jira_base_url(), get_jira_email(), get_jira_token()]):
             return None, {"name": "Confluence", "status": "skipped", "detail": "not configured"}
 
+        from scrum_agent.tools.confluence import confluence_read_page, confluence_search_docs
+
+        parts: list[str] = []
+
+        # Strategy 1: Keyword search using project name (Q1).
         project_name = questionnaire.answers.get(1, "").strip()
-        if not project_name or project_name == QUESTION_DEFAULTS.get(1):
-            return None, {"name": "Confluence", "status": "skipped", "detail": "no project name"}
+        if project_name and project_name != QUESTION_DEFAULTS.get(1):
+            result = confluence_search_docs.invoke({"query": project_name, "limit": 5})
+            if result and not result.startswith("Error") and not result.startswith("No Confluence"):
+                parts.append(result)
+                logger.debug("CONFLUENCE: keyword search returned results for %r", project_name)
+            else:
+                logger.debug("CONFLUENCE: keyword search returned no results for %r", project_name)
 
-        from scrum_agent.tools.confluence import confluence_search_docs
+        # Strategy 2: Fetch pages directly from Confluence URLs in SCRUM.md.
+        # This covers explicit links the user added (e.g. RunBook URLs) that
+        # keyword search would miss.
+        if user_context:
+            page_ids = _extract_confluence_page_ids(user_context)
+            logger.debug("CONFLUENCE: extracted %d page ID(s) from user_context: %s", len(page_ids), page_ids[:10])
+            seen = set()
+            for pid in page_ids:
+                if pid in seen:
+                    continue
+                seen.add(pid)
+                try:
+                    logger.debug("CONFLUENCE: fetching page ID %s", pid)
+                    page_content = confluence_read_page.invoke({"page_id": pid})
+                    if page_content and not page_content.startswith("Error"):
+                        parts.append(page_content)
+                        logger.debug("CONFLUENCE: fetched page ID %s (%d chars)", pid, len(page_content))
+                    else:
+                        logger.debug(
+                            "CONFLUENCE: page ID %s returned error: %s",
+                            pid,
+                            page_content[:100] if page_content else "empty",
+                        )
+                except Exception:
+                    logger.debug("CONFLUENCE: failed to fetch page %s (non-fatal)", pid, exc_info=True)
+        else:
+            logger.debug("CONFLUENCE: no user_context provided, skipping URL extraction")
 
-        result = confluence_search_docs.invoke({"query": project_name, "limit": 5})
-        if not result or result.startswith("Error") or result.startswith("No Confluence"):
+        if not parts:
             return None, {"name": "Confluence", "status": "error", "detail": "no docs found"}
 
-        return result, {"name": "Confluence", "status": "success", "detail": f"docs for '{project_name}'"}
+        combined = "\n\n---\n\n".join(parts)
+        detail = f"search + {len(parts) - 1} linked page(s)" if len(parts) > 1 else f"docs for '{project_name}'"
+        return combined, {"name": "Confluence", "status": "success", "detail": detail}
     except Exception as e:
         logger.debug("Confluence context fetch failed (non-fatal)", exc_info=True)
         return None, {"name": "Confluence", "status": "error", "detail": str(e)[:80]}
@@ -2257,13 +2326,13 @@ _CONFIRM_PROMPT = (
 # ── Review intent detection ─────────────────────────────────────────
 # See README: "Guardrails" — human-in-the-loop pattern
 #
-# After each generation node (epic_generator, story_writer, task_decomposer,
+# After each generation node (feature_generator, story_writer, task_decomposer,
 # sprint_planner), the user reviews the output and chooses Accept / Edit / Reject.
 # This is deterministic keyword matching — same pattern as _is_skip_intent() and
 # _is_confirm_intent(). No LLM call needed.
 #
 # Design: unrecognized text defaults to REJECT with the full text as feedback.
-# This is the most natural UX — typing "add a security epic" without a keyword
+# This is the most natural UX — typing "add a security feature" without a keyword
 # prefix is clearly rejection feedback.
 
 _ACCEPT_KEYWORDS: frozenset[str] = frozenset(
@@ -2303,7 +2372,7 @@ def _parse_review_intent(text: str) -> tuple[ReviewDecision, str]:
     # - REJECT: user wants a full regeneration (feedback extracted)
     #
     # Fallback: unrecognized text → REJECT with full text as feedback.
-    # This is the most natural UX — "add a security epic" without a prefix
+    # This is the most natural UX — "add a security feature" without a prefix
     # is clearly rejection feedback.
 
     Args:
@@ -2349,12 +2418,12 @@ def route_entry(state: ScrumState) -> str:
     # See README: "Agentic Blueprint Reference" — conditional edges
     #
     # This is a conditional edge function that runs at the START of every
-    # graph invocation. It checks questionnaire, analysis, epic, story,
+    # graph invocation. It checks questionnaire, analysis, feature, story,
     # task, and sprint state for seven-way routing:
     #   - Questionnaire not completed → "project_intake" node
     #   - Questionnaire completed, no project_analysis → "project_analyzer"
-    #   - Analysis done, no epics → "epic_generator"
-    #   - Epics done, no stories → "story_writer"
+    #   - Analysis done, no features → "feature_generator"
+    #   - Features done, no stories → "story_writer"
     #   - Stories done, no tasks → "task_decomposer"
     #   - Tasks done, no sprints → "sprint_planner"
     #   - Sprints populated → "agent" node (main ReAct loop)
@@ -2368,14 +2437,14 @@ def route_entry(state: ScrumState) -> str:
         return "project_intake"
     if state.get("project_analysis") is None:
         return "project_analyzer"
-    if not state.get("epics"):
-        # When the analyzer determined the project is too small for epics,
-        # skip epic generation and use a sentinel epic instead.
-        # See README: "Scrum Standards" — epic generation
+    if not state.get("features"):
+        # When the analyzer determined the project is too small for features,
+        # skip feature generation and use a sentinel feature instead.
+        # See README: "Scrum Standards" — feature generation
         analysis = state.get("project_analysis")
-        if analysis and analysis.skip_epics:
-            return "epic_skip"
-        return "epic_generator"
+        if analysis and analysis.skip_features:
+            return "feature_skip"
+        return "feature_generator"
     if not state.get("stories"):
         return "story_writer"
     if not state.get("tasks"):
@@ -3658,7 +3727,7 @@ def project_intake(state: ScrumState) -> dict:
 #
 # After the user confirms the 26-question intake questionnaire, this node
 # synthesizes all answers into a structured ProjectAnalysis dataclass.
-# Downstream nodes (epic_generator, story_writer, sprint_planner) read
+# Downstream nodes (feature_generator, story_writer, sprint_planner) read
 # ProjectAnalysis instead of re-parsing raw conversation history.
 #
 # Why LLM-powered extraction (not deterministic)?
@@ -3768,10 +3837,10 @@ def _parse_analysis_response(
             risks=to_str_tuple(parsed.get("risks")),
             out_of_scope=to_str_tuple(parsed.get("out_of_scope")),
             assumptions=to_str_tuple(parsed.get("assumptions")),
-            # Deterministic guardrail: only allow skip_epics when the project is
+            # Deterministic guardrail: only allow skip_features when the project is
             # genuinely small (target_sprints ≤ 2 AND goals ≤ 3). The LLM may
-            # over-eagerly set skip_epics=true for larger projects.
-            skip_epics=bool(parsed.get("skip_epics", False))
+            # over-eagerly set skip_features=true for larger projects.
+            skip_features=bool(parsed.get("skip_features", False))
             and target_sprints <= 2
             and len(to_str_tuple(parsed.get("goals"))) <= 3,
             scrum_md_contributions=to_str_tuple(parsed.get("scrum_md_contributions")),
@@ -4079,7 +4148,7 @@ def project_analyzer(state: ScrumState) -> dict:
     # 5. Return the analysis + populate ScrumState metadata fields.
     #
     # Why this returns to END (not to agent)?
-    # Same pattern as epic_generator — the node produces output, the REPL
+    # Same pattern as feature_generator — the node produces output, the REPL
     # displays it, and the user reviews with [Accept / Edit / Reject]. On
     # accept, route_entry sees project_analysis populated and routes to
     # the next pipeline node.
@@ -4117,16 +4186,24 @@ def project_analyzer(state: ScrumState) -> dict:
     # See README: "Tools" — read-only tool pattern
     repo_context, repo_status = _scan_repo_context(questionnaire)
 
-    # Search Confluence for docs related to the project name — surfaces architecture
-    # docs, ADRs, and product specs that inform tech_stack and constraint extraction.
-    # Returns (None, status) gracefully when Confluence is not configured or no docs found.
-    # See README: "Tools" — read-only tool pattern
-    confluence_context, confluence_status = _fetch_confluence_context(questionnaire)
-
-    # Load SCRUM.md from the working directory — the user's own project context file.
+    # Load SCRUM.md first — the user's own project context file. Loaded before
+    # Confluence so that any Confluence URLs in SCRUM.md can be fetched directly.
     # Similar to CLAUDE.md for Claude Code: a free-form markdown file containing URLs,
     # design notes, tech decisions, and anything else the user wants the agent to know.
     user_context, user_status = _load_user_context()
+
+    # Search Confluence for docs related to the project name AND fetch any pages
+    # linked directly in SCRUM.md (e.g. RunBook URLs). Passing user_context allows
+    # _fetch_confluence_context to extract page IDs from Confluence URLs.
+    # Returns (None, status) gracefully when Confluence is not configured or no docs found.
+    # See README: "Tools" — read-only tool pattern
+    logger.debug(
+        "CONFLUENCE: passing user_context=%s to _fetch_confluence_context", "present" if user_context else "None"
+    )
+    confluence_context, confluence_status = _fetch_confluence_context(questionnaire, user_context=user_context)
+    logger.debug(
+        "CONFLUENCE: result status=%s detail=%s", confluence_status.get("status"), confluence_status.get("detail")
+    )
 
     # Build the formatted answers block for the prompt
     answers_block = _build_answers_block(questionnaire)
@@ -4171,7 +4248,7 @@ def project_analyzer(state: ScrumState) -> dict:
     )
 
     # Set pending_review so the REPL intercepts the next user input for
-    # the [Accept / Edit / Reject] review flow — same pattern as epics/stories.
+    # the [Accept / Edit / Reject] review flow — same pattern as features/stories.
     return_dict: dict = {
         "project_analysis": analysis,
         "project_name": analysis.project_name,
@@ -4197,15 +4274,15 @@ def project_analyzer(state: ScrumState) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Epic generator node — decomposes ProjectAnalysis into 3-6 Epic dataclasses
+# Feature generator node — decomposes ProjectAnalysis into 3-6 Feature dataclasses
 # ---------------------------------------------------------------------------
-# See README: "Architecture" — epic_generator sits between analyzer and agent
-# See README: "Scrum Standards" — epic decomposition
+# See README: "Architecture" — feature_generator sits between analyzer and agent
+# See README: "Scrum Standards" — feature decomposition
 #
 # Same pattern as project_analyzer: extract from state → build prompt →
 # LLM call → parse JSON → fallback → format display → return state update.
-# The node returns to END so the REPL can display the epics and wait for user
-# input. On the next invocation, route_entry sees epics populated and routes
+# The node returns to END so the REPL can display the features and wait for user
+# input. On the next invocation, route_entry sees features populated and routes
 # to the agent node.
 
 
@@ -4223,13 +4300,13 @@ def _format_epic_list(items: tuple[str, ...]) -> str:
     return "\n".join(f"- {item}" for item in items)
 
 
-def _parse_epics_response(raw: str, analysis: ProjectAnalysis) -> list[Epic]:
-    """Parse the LLM's JSON response into a list of Epic dataclasses.
+def _parse_features_response(raw: str, analysis: ProjectAnalysis) -> list[Feature]:
+    """Parse the LLM's JSON response into a list of Feature dataclasses.
 
-    # See README: "Scrum Standards" — epic format
+    # See README: "Scrum Standards" — feature format
     #
     # Strips markdown code fences, parses JSON array, validates priority
-    # against the Priority enum, and falls back to _build_fallback_epics
+    # against the Priority enum, and falls back to _build_fallback_features
     # on any parse error. Same defensive pattern as _parse_analysis_response.
 
     Args:
@@ -4237,7 +4314,7 @@ def _parse_epics_response(raw: str, analysis: ProjectAnalysis) -> list[Epic]:
         analysis: The ProjectAnalysis (for fallback).
 
     Returns:
-        A list of Epic instances.
+        A list of Feature instances.
     """
     try:
         # Strip markdown code fences that LLMs sometimes wrap JSON in
@@ -4250,54 +4327,54 @@ def _parse_epics_response(raw: str, analysis: ProjectAnalysis) -> list[Epic]:
 
         parsed = json.loads(text)
         if not isinstance(parsed, list):
-            return _build_fallback_epics(analysis)
+            return _build_fallback_features(analysis)
 
-        # Validate and convert each epic dict into an Epic dataclass
+        # Validate and convert each feature dict into a Feature dataclass
         # Priority validation: default to MEDIUM if the LLM returns an invalid value
         valid_priorities = {p.value for p in Priority}
-        epics: list[Epic] = []
+        features: list[Feature] = []
         for item in parsed:
             if not isinstance(item, dict):
                 continue
             raw_priority = str(item.get("priority", "medium")).lower().strip()
             priority = Priority(raw_priority) if raw_priority in valid_priorities else Priority.MEDIUM
-            epics.append(
-                Epic(
-                    id=str(item.get("id", f"E{len(epics) + 1}")),
-                    title=str(item.get("title", "Untitled Epic")),
+            features.append(
+                Feature(
+                    id=str(item.get("id", f"F{len(features) + 1}")),
+                    title=str(item.get("title", "Untitled Feature")),
                     description=str(item.get("description", "")),
                     priority=priority,
                 )
             )
 
-        if not epics:
-            return _build_fallback_epics(analysis)
+        if not features:
+            return _build_fallback_features(analysis)
 
-        return epics
+        return features
 
     except Exception:
-        logger.debug("Failed to parse epics JSON, falling back to deterministic extraction", exc_info=True)
-        return _build_fallback_epics(analysis)
+        logger.debug("Failed to parse features JSON, falling back to deterministic extraction", exc_info=True)
+        return _build_fallback_features(analysis)
 
 
-def _build_fallback_epics(analysis: ProjectAnalysis) -> list[Epic]:
-    """Build 3 deterministic fallback epics from ProjectAnalysis fields.
+def _build_fallback_features(analysis: ProjectAnalysis) -> list[Feature]:
+    """Build 3 deterministic fallback features from ProjectAnalysis fields.
 
-    # See README: "Scrum Standards" — epic decomposition
+    # See README: "Scrum Standards" — feature decomposition
     #
     # When the LLM fails to produce valid JSON, this function creates 3
-    # generic epics that give downstream nodes something to work with:
+    # generic features that give downstream nodes something to work with:
     # 1. Core functionality — derived from the first goal
     # 2. Infrastructure & setup — always needed
     # 3. Integrations & extensions — derived from integrations/tech stack
 
     Args:
-        analysis: The ProjectAnalysis to derive epics from.
+        analysis: The ProjectAnalysis to derive features from.
 
     Returns:
-        A list of 3 Epic instances.
+        A list of 3 Feature instances.
     """
-    # Derive core epic title from the first goal, or use a generic label
+    # Derive core feature title from the first goal, or use a generic label
     core_title = "Core Functionality"
     core_desc = "Implement the primary features of the project."
     if analysis.goals:
@@ -4305,20 +4382,20 @@ def _build_fallback_epics(analysis: ProjectAnalysis) -> list[Epic]:
         core_desc = f"Implement: {analysis.goals[0]}"
 
     return [
-        Epic(
-            id="E1",
+        Feature(
+            id="F1",
             title=core_title,
             description=core_desc,
             priority=Priority.HIGH,
         ),
-        Epic(
-            id="E2",
+        Feature(
+            id="F2",
             title="Infrastructure & Setup",
             description=f"Project scaffolding, CI/CD, and deployment for {analysis.project_name}.",
             priority=Priority.HIGH,
         ),
-        Epic(
-            id="E3",
+        Feature(
+            id="F3",
             title="Integrations & Extensions",
             description="Third-party integrations, APIs, and extensibility features.",
             priority=Priority.MEDIUM,
@@ -4326,57 +4403,59 @@ def _build_fallback_epics(analysis: ProjectAnalysis) -> list[Epic]:
     ]
 
 
-def _format_epics(epics: list[Epic], project_name: str) -> str:
-    """Format a list of Epics as a markdown display for the user.
+def _format_features(features: list[Feature], project_name: str) -> str:
+    """Format a list of Features as a markdown display for the user.
 
     Matches the project's analysis summary style — sections with structured
     content. The REPL renders this as a Rich table and waits for user
     review before routing to the next pipeline step.
 
     Args:
-        epics: List of Epic dataclasses to display.
+        features: List of Feature dataclasses to display.
         project_name: Project name for the header.
 
     Returns:
         A formatted markdown string.
     """
     sections = [
-        f"# Epic Decomposition: {project_name}\n",
-        f"**{len(epics)} epic(s) identified**\n",
+        f"# Feature Decomposition: {project_name}\n",
+        f"**{len(features)} feature(s) identified**\n",
     ]
 
-    for epic in epics:
-        sections.append(f"## {epic.id}: {epic.title}\n**Priority:** {epic.priority.value}\n{epic.description}\n")
+    for feature in features:
+        sections.append(
+            f"## {feature.id}: {feature.title}\n**Priority:** {feature.priority.value}\n{feature.description}\n"
+        )
 
-    sections.append("\n---\n**[Accept / Edit / Reject]** — Review the epics above.")
+    sections.append("\n---\n**[Accept / Edit / Reject]** — Review the features above.")
 
     return "\n".join(sections)
 
 
-def epic_skip(state: ScrumState) -> dict:
-    """LangGraph node: create a single epic for small projects.
+def feature_skip(state: ScrumState) -> dict:
+    """LangGraph node: create a single feature for small projects.
 
-    # See README: "Scrum Standards" — epic generation
+    # See README: "Scrum Standards" — feature generation
     #
-    # When the analyzer sets skip_epics=True, this node runs instead of
-    # epic_generator. It creates a single epic (id=E0) named after the project
-    # so the user sees 1 epic instead of the usual 3-6. This keeps downstream
+    # When the analyzer sets skip_features=True, this node runs instead of
+    # feature_generator. It creates a single feature (id=F1) named after the project
+    # so the user sees 1 feature instead of the usual 3-6. This keeps downstream
     # code (story_writer, task_decomposer, sprint_planner, renderers) working
-    # unchanged — they still see an epic_id on every story.
+    # unchanged — they still see a feature_id on every story.
     #
-    # Sets pending_review to "epic_generator" so the review checkpoint fires
-    # and the user sees the epic before moving to stories. This keeps
-    # the flow consistent: analyze → epics (review) → stories → tasks → sprints.
+    # Sets pending_review to "feature_generator" so the review checkpoint fires
+    # and the user sees the feature before moving to stories. This keeps
+    # the flow consistent: analyze → features (review) → stories → tasks → sprints.
 
     Args:
         state: The current LangGraph state with project_analysis.
 
     Returns:
-        A dict updating epics, messages, and pending_review.
+        A dict updating features, messages, and pending_review.
     """
     analysis: ProjectAnalysis = state["project_analysis"]
-    sentinel = Epic(
-        id="E1",
+    sentinel = Feature(
+        id="F1",
         title=analysis.project_name,
         description=analysis.project_description,
         priority=Priority.HIGH,
@@ -4384,44 +4463,44 @@ def epic_skip(state: ScrumState) -> dict:
 
     display = (
         f"# {analysis.project_name}\n\n"
-        f"Project scope is small — 1 epic covers all planned work.\n\n"
+        f"Project scope is small — 1 feature covers all planned work.\n\n"
         f"**{analysis.project_name}:** {analysis.project_description}\n"
     )
 
     return {
-        "epics": [sentinel],
+        "features": [sentinel],
         "messages": [AIMessage(content=display)],
-        "pending_review": "epic_generator",
+        "pending_review": "feature_generator",
     }
 
 
-def epic_generator(state: ScrumState) -> dict:
-    """LangGraph node: decompose ProjectAnalysis into 3-6 epics.
+def feature_generator(state: ScrumState) -> dict:
+    """LangGraph node: decompose ProjectAnalysis into 3-6 features.
 
     # See README: "Agentic Blueprint Reference" — node return format
-    # See README: "Architecture" — epic_generator node
-    # See README: "Scrum Standards" — epic decomposition
+    # See README: "Architecture" — feature_generator node
+    # See README: "Scrum Standards" — feature decomposition
     #
     # How this works:
     # 1. Read the ProjectAnalysis from state.
     # 2. Format analysis fields into strings for the prompt.
-    # 3. Call the LLM with the epic generator prompt (temperature=0.0).
-    # 4. Parse the JSON array response into Epic dataclasses.
-    # 5. Return {"epics": [...], "messages": [AIMessage]}.
+    # 3. Call the LLM with the feature generator prompt (temperature=0.0).
+    # 4. Parse the JSON array response into Feature dataclasses.
+    # 5. Return {"features": [...], "messages": [AIMessage]}.
     #
     # Why this returns to END (not to agent)?
     # Same pattern as project_analyzer — the node produces output, the REPL
     # displays it, and the user types anything to continue. On the next
-    # invocation, route_entry sees epics populated and routes to the agent.
+    # invocation, route_entry sees features populated and routes to the agent.
 
     Args:
         state: The current LangGraph state with project_analysis.
 
     Returns:
-        A dict updating epics and messages.
+        A dict updating features and messages.
     """
     analysis: ProjectAnalysis = state["project_analysis"]
-    # Read repo context scanned during project_analyzer — grounds epic scope
+    # Read repo context scanned during project_analyzer — grounds feature scope
     # in real directory structure and README goals vs. user descriptions only.
     repo_context: str | None = state.get("repo_context")
 
@@ -4446,7 +4525,7 @@ def epic_generator(state: ScrumState) -> dict:
     # free of imports from agent.state (avoiding circular imports).
     target_sprints_str = str(analysis.target_sprints) if analysis.target_sprints else "scope-based"
 
-    prompt = get_epic_generator_prompt(
+    prompt = get_feature_generator_prompt(
         project_name=analysis.project_name,
         project_description=analysis.project_description,
         project_type=analysis.project_type,
@@ -4468,55 +4547,55 @@ def epic_generator(state: ScrumState) -> dict:
         # Single LLM call with low temperature for deterministic JSON output.
         # See README: "Agentic Blueprint Reference" — using the LLM outside the main graph
         response = get_llm(temperature=0.0).invoke([HumanMessage(content=prompt)])
-        epics = _parse_epics_response(response.content, analysis)
+        features = _parse_features_response(response.content, analysis)
     except Exception as exc:
         if _is_llm_auth_or_billing_error(exc):
             raise
         # LLM call failed entirely — use deterministic fallback.
-        logger.warning("LLM call failed in epic_generator, using fallback", exc_info=True)
-        epics = _build_fallback_epics(analysis)
+        logger.warning("LLM call failed in feature_generator, using fallback", exc_info=True)
+        features = _build_fallback_features(analysis)
 
-    # Format the epics for display
-    display = _format_epics(epics, analysis.project_name)
+    # Format the features for display
+    display = _format_features(features, analysis.project_name)
 
     # Set pending_review so the REPL intercepts the next user input for
     # the [Accept / Edit / Reject] flow instead of invoking the graph.
     return {
-        "epics": epics,
+        "features": features,
         "messages": [AIMessage(content=display)],
-        "pending_review": "epic_generator",
+        "pending_review": "feature_generator",
     }
 
 
 # ---------------------------------------------------------------------------
-# Story writer node — decomposes Epics into UserStory dataclasses
+# Story writer node — decomposes Features into UserStory dataclasses
 # ---------------------------------------------------------------------------
-# See README: "Architecture" — story_writer sits between epic_generator and agent
+# See README: "Architecture" — story_writer sits between feature_generator and agent
 # See README: "Scrum Standards" — story format, acceptance criteria, story points
 #
-# Same pattern as epic_generator: extract from state → build prompt →
+# Same pattern as feature_generator: extract from state → build prompt →
 # LLM call → parse JSON → fallback → format display → return state update.
 # The node returns to END so the REPL can display the stories and wait for
 # user input. On the next invocation, route_entry sees stories populated
 # and routes to the agent node.
 
 
-def _format_epics_for_prompt(epics: list[Epic]) -> str:
-    """Format a list of epics as a readable text block for the story writer prompt.
+def _format_features_for_prompt(features: list[Feature]) -> str:
+    """Format a list of features as a readable text block for the story writer prompt.
 
-    Each epic is shown with its ID, title, description, and priority so the LLM
+    Each feature is shown with its ID, title, description, and priority so the LLM
     can reference them when generating stories.
 
     Args:
-        epics: List of Epic dataclasses from the epic_generator node.
+        features: List of Feature dataclasses from the feature_generator node.
 
     Returns:
-        A formatted multi-line string describing all epics.
+        A formatted multi-line string describing all features.
     """
     lines: list[str] = []
-    for epic in epics:
-        lines.append(f"**{epic.id}: {epic.title}** (Priority: {epic.priority.value})")
-        lines.append(f"  {epic.description}")
+    for feature in features:
+        lines.append(f"**{feature.id}: {feature.title}** (Priority: {feature.priority.value})")
+        lines.append(f"  {feature.description}")
         lines.append("")
     return "\n".join(lines)
 
@@ -4639,7 +4718,7 @@ def _infer_discipline(story: UserStory) -> Discipline:
 # See README: "Scrum Standards" — Story Checklist
 #
 # Deterministic post-processing after LLM parsing. Checks acceptance criteria
-# count (>= 3), non-empty required fields, and per-epic story counts. Auto-fixes
+# count (>= 3), non-empty required fields, and per-feature story counts. Auto-fixes
 # what it can and collects warnings for the user. No LLM call needed — all rules
 # are deterministic.
 
@@ -4662,7 +4741,7 @@ _GENERIC_ACS = (
 )
 
 
-def _validate_stories(stories: list[UserStory], epics: list[Epic]) -> tuple[list[UserStory], list[str]]:
+def _validate_stories(stories: list[UserStory], features: list[Feature]) -> tuple[list[UserStory], list[str]]:
     """Validate stories against the Story Checklist and auto-fix where possible.
 
     # See README: "Scrum Standards" — Story Checklist
@@ -4670,13 +4749,13 @@ def _validate_stories(stories: list[UserStory], epics: list[Epic]) -> tuple[list
     # Checks:
     # 1. AC count >= 3 — pads with generic ACs if fewer.
     # 2. Non-empty persona, goal, benefit — sets defaults if empty.
-    # 3. Per-epic story count in [MIN_STORIES_PER_EPIC, MAX_STORIES_PER_EPIC] — warns if out of range.
+    # 3. Per-feature story count in [MIN_STORIES_PER_FEATURE, MAX_STORIES_PER_FEATURE] — warns if out of range.
     #
     # Returns new UserStory instances (frozen, so must rebuild) with fixes applied.
 
     Args:
         stories: The parsed stories to validate.
-        epics: The epic list for per-epic count validation.
+        features: The feature list for per-feature count validation.
 
     Returns:
         A tuple of (validated_stories, warnings).
@@ -4734,44 +4813,41 @@ def _validate_stories(stories: list[UserStory], epics: list[Epic]) -> tuple[list
 
         if needs_rebuild:
             validated.append(
-                UserStory(
-                    id=story.id,
-                    epic_id=story.epic_id,
+                dataclasses.replace(
+                    story,
                     persona=new_persona,
                     goal=new_goal,
                     benefit=new_benefit,
                     acceptance_criteria=tuple(new_acs),
-                    story_points=story.story_points,
-                    priority=story.priority,
                     title=new_title,
-                    discipline=story.discipline,
                 )
             )
         else:
             validated.append(story)
 
-    # Per-epic story count warnings.
+    # Per-feature story count warnings.
 
-    epic_counts: dict[str, int] = {}
+    feature_counts: dict[str, int] = {}
     for story in validated:
-        epic_counts[story.epic_id] = epic_counts.get(story.epic_id, 0) + 1
+        feature_counts[story.feature_id] = feature_counts.get(story.feature_id, 0) + 1
 
-    for epic in epics:
-        count = epic_counts.get(epic.id, 0)
-        if count < MIN_STORIES_PER_EPIC:
+    for feature in features:
+        count = feature_counts.get(feature.id, 0)
+        if count < MIN_STORIES_PER_FEATURE:
             warnings.append(
-                f"Epic {epic.id} ({epic.title}) has only {count} story(ies)"
-                f" — minimum recommended is {MIN_STORIES_PER_EPIC}."
+                f"Feature {feature.id} ({feature.title}) has only {count} story(ies)"
+                f" — minimum recommended is {MIN_STORIES_PER_FEATURE}."
             )
-        elif count > MAX_STORIES_PER_EPIC:
+        elif count > MAX_STORIES_PER_FEATURE:
             warnings.append(
-                f"Epic {epic.id} ({epic.title}) has {count} stories — maximum recommended is {MAX_STORIES_PER_EPIC}."
+                f"Feature {feature.id} ({feature.title}) has {count} stories "
+                f"— maximum recommended is {MAX_STORIES_PER_FEATURE}."
             )
 
     return validated, warnings
 
 
-def _parse_stories_response(raw: str, epics: list[Epic], analysis: ProjectAnalysis) -> list[UserStory]:
+def _parse_stories_response(raw: str, features: list[Feature], analysis: ProjectAnalysis) -> list[UserStory]:
     """Parse the LLM's JSON response into a list of UserStory dataclasses.
 
     # See README: "Scrum Standards" — story format, acceptance criteria
@@ -4779,11 +4855,11 @@ def _parse_stories_response(raw: str, epics: list[Epic], analysis: ProjectAnalys
     # Strips markdown code fences, parses JSON array, validates priorities
     # and story points, parses nested acceptance criteria, generates IDs
     # when missing, and falls back to _build_fallback_stories on error.
-    # Same defensive pattern as _parse_epics_response.
+    # Same defensive pattern as _parse_features_response.
 
     Args:
         raw: The raw LLM response string (expected to be a JSON array).
-        epics: The list of epics (for fallback and ID validation).
+        features: The list of features (for fallback and ID validation).
         analysis: The ProjectAnalysis (for fallback).
 
     Returns:
@@ -4800,13 +4876,13 @@ def _parse_stories_response(raw: str, epics: list[Epic], analysis: ProjectAnalys
 
         parsed = json.loads(text)
         if not isinstance(parsed, list):
-            return _build_fallback_stories(epics, analysis)
+            return _build_fallback_stories(features, analysis)
 
-        # Build a set of valid epic IDs for validation
-        valid_epic_ids = {e.id for e in epics}
+        # Build a set of valid feature IDs for validation
+        valid_feature_ids = {e.id for e in features}
 
-        # Track per-epic story counts for auto-ID generation
-        epic_story_counts: dict[str, int] = {}
+        # Track per-feature story counts for auto-ID generation
+        feature_story_counts: dict[str, int] = {}
 
         valid_priorities = {p.value for p in Priority}
         stories: list[UserStory] = []
@@ -4815,17 +4891,17 @@ def _parse_stories_response(raw: str, epics: list[Epic], analysis: ProjectAnalys
             if not isinstance(item, dict):
                 continue
 
-            # Validate epic_id — skip stories with unknown epic IDs
-            epic_id = str(item.get("epic_id", ""))
-            if epic_id not in valid_epic_ids:
+            # Validate feature_id — skip stories with unknown feature IDs
+            feature_id = str(item.get("feature_id", ""))
+            if feature_id not in valid_feature_ids:
                 continue
 
             # Auto-generate ID if missing
-            epic_story_counts.setdefault(epic_id, 0)
-            epic_story_counts[epic_id] += 1
+            feature_story_counts.setdefault(feature_id, 0)
+            feature_story_counts[feature_id] += 1
             story_id = str(item.get("id", ""))
             if not story_id:
-                story_id = f"US-{epic_id}-{epic_story_counts[epic_id]:03d}"
+                story_id = f"US-{feature_id}-{feature_story_counts[feature_id]:03d}"
 
             # Validate and snap story points to Fibonacci
             raw_points = item.get("story_points", 3)
@@ -4877,9 +4953,11 @@ def _parse_stories_response(raw: str, epics: list[Epic], analysis: ProjectAnalys
             else:
                 dod_applicable = (True,) * len(DOD_ITEMS)
 
+            points_rationale = str(item.get("points_rationale", ""))
+
             story = UserStory(
                 id=story_id,
-                epic_id=epic_id,
+                feature_id=feature_id,
                 persona=str(item.get("persona", "user")),
                 goal=str(item.get("goal", "")),
                 benefit=str(item.get("benefit", "")),
@@ -4889,45 +4967,34 @@ def _parse_stories_response(raw: str, epics: list[Epic], analysis: ProjectAnalys
                 title=str(item.get("title", "")),
                 discipline=discipline if discipline is not None else Discipline.FULLSTACK,
                 dod_applicable=dod_applicable,
+                points_rationale=points_rationale,
             )
             # Infer discipline from text when the LLM didn't provide a valid one
             if discipline is None:
-                story = UserStory(
-                    id=story.id,
-                    epic_id=story.epic_id,
-                    persona=story.persona,
-                    goal=story.goal,
-                    benefit=story.benefit,
-                    acceptance_criteria=story.acceptance_criteria,
-                    story_points=story.story_points,
-                    priority=story.priority,
-                    title=story.title,
-                    discipline=_infer_discipline(story),
-                    dod_applicable=dod_applicable,
-                )
+                story = dataclasses.replace(story, discipline=_infer_discipline(story))
             stories.append(story)
 
         if not stories:
-            return _build_fallback_stories(epics, analysis)
+            return _build_fallback_stories(features, analysis)
 
         return stories
 
     except Exception:
         logger.debug("Failed to parse stories JSON, falling back to deterministic extraction", exc_info=True)
-        return _build_fallback_stories(epics, analysis)
+        return _build_fallback_stories(features, analysis)
 
 
-def _build_fallback_stories(epics: list[Epic], analysis: ProjectAnalysis) -> list[UserStory]:
-    """Build deterministic fallback stories per epic.
+def _build_fallback_stories(features: list[Feature], analysis: ProjectAnalysis) -> list[UserStory]:
+    """Build deterministic fallback stories per feature.
 
     # See README: "Scrum Standards" — story format
     #
     # When the LLM fails to produce valid JSON, this function creates generic
     # stories that give downstream nodes something to work with.
-    # Generates 2 stories per epic (core functionality + setup/testing).
+    # Generates 2 stories per feature (core functionality + setup/testing).
 
     Args:
-        epics: The list of epics to generate stories for.
+        features: The list of features to generate stories for.
         analysis: The ProjectAnalysis for context.
 
     Returns:
@@ -4936,25 +5003,25 @@ def _build_fallback_stories(epics: list[Epic], analysis: ProjectAnalysis) -> lis
     stories: list[UserStory] = []
     end_user = analysis.end_users[0] if analysis.end_users else "user"
 
-    for epic in epics:
+    for feature in features:
         # Story 1: core functionality
         stories.append(
             UserStory(
-                id=f"US-{epic.id}-001",
-                epic_id=epic.id,
+                id=f"US-{feature.id}-001",
+                feature_id=feature.id,
                 persona=end_user,
-                goal=f"use the core features of {epic.title}",
-                benefit=f"I can accomplish the primary objectives of {epic.title}",
+                goal=f"use the core features of {feature.title}",
+                benefit=f"I can accomplish the primary objectives of {feature.title}",
                 acceptance_criteria=(
                     AcceptanceCriterion(
-                        given=f"the {end_user} has access to {epic.title}",
+                        given=f"the {end_user} has access to {feature.title}",
                         when="they perform the main workflow",
                         then="the expected outcome is achieved",
                     ),
                 ),
                 story_points=StoryPointValue.FIVE,
-                priority=epic.priority,
-                title=f"Core {epic.title}",
+                priority=feature.priority,
+                title=f"Core {feature.title}",
                 discipline=Discipline.FULLSTACK,
             )
         )
@@ -4962,21 +5029,21 @@ def _build_fallback_stories(epics: list[Epic], analysis: ProjectAnalysis) -> lis
         # Story 2: setup and testing
         stories.append(
             UserStory(
-                id=f"US-{epic.id}-002",
-                epic_id=epic.id,
+                id=f"US-{feature.id}-002",
+                feature_id=feature.id,
                 persona="developer",
-                goal=f"set up and validate {epic.title}",
+                goal=f"set up and validate {feature.title}",
                 benefit="the feature is reliable and properly tested",
                 acceptance_criteria=(
                     AcceptanceCriterion(
                         given="the development environment is configured",
-                        when=f"the {epic.title} feature is deployed",
+                        when=f"the {feature.title} feature is deployed",
                         then="all tests pass and the feature works as expected",
                     ),
                 ),
                 story_points=StoryPointValue.THREE,
-                priority=epic.priority,
-                title=f"Validate {epic.title}",
+                priority=feature.priority,
+                title=f"Validate {feature.title}",
                 discipline=Discipline.TESTING,
             )
         )
@@ -4986,20 +5053,20 @@ def _build_fallback_stories(epics: list[Epic], analysis: ProjectAnalysis) -> lis
 
 def _format_stories(
     stories: list[UserStory],
-    epics: list[Epic],
+    features: list[Feature],
     project_name: str,
     warnings: list[str] | None = None,
 ) -> str:
     """Format a list of UserStories as a markdown display for the user.
 
-    Groups stories by their parent epic for readability. Shows the full
+    Groups stories by their parent feature for readability. Shows the full
     story text, acceptance criteria, story points, priority, and discipline.
     Includes optional validation warnings. The REPL renders this as Rich
     tables and waits for user review.
 
     Args:
         stories: List of UserStory dataclasses to display.
-        epics: List of Epic dataclasses (for grouping headers).
+        features: List of Feature dataclasses (for grouping headers).
         project_name: Project name for the header.
         warnings: Optional list of validation warning strings to display.
 
@@ -5008,23 +5075,23 @@ def _format_stories(
     """
     sections = [
         f"# User Stories: {project_name}\n",
-        f"**{len(stories)} user story(ies) across {len(epics)} epic(s)**\n",
+        f"**{len(stories)} user story(ies) across {len(features)} feature(s)**\n",
     ]
 
-    # Build an epic lookup for grouping
-    epic_map = {e.id: e for e in epics}
+    # Build a feature lookup for grouping
+    feature_map = {e.id: e for e in features}
 
-    # Group stories by epic_id, preserving order
-    stories_by_epic: dict[str, list[UserStory]] = {}
+    # Group stories by feature_id, preserving order
+    stories_by_feature: dict[str, list[UserStory]] = {}
     for story in stories:
-        stories_by_epic.setdefault(story.epic_id, []).append(story)
+        stories_by_feature.setdefault(story.feature_id, []).append(story)
 
-    for epic_id, epic_stories in stories_by_epic.items():
-        epic = epic_map.get(epic_id)
-        epic_title = epic.title if epic else epic_id
-        sections.append(f"## {epic_id}: {epic_title}\n")
+    for feature_id, feature_stories in stories_by_feature.items():
+        feature = feature_map.get(feature_id)
+        feature_title = feature.title if feature else feature_id
+        sections.append(f"## {feature_id}: {feature_title}\n")
 
-        for story in epic_stories:
+        for story in feature_stories:
             sections.append(f"### {story.id}")
             sections.append(f"**As a** {story.persona}, **I want to** {story.goal}, **so that** {story.benefit}.")
             sections.append(
@@ -5052,40 +5119,40 @@ def _format_stories(
 
 
 def story_writer(state: ScrumState) -> dict:
-    """LangGraph node: decompose epics into user stories with ACs and points.
+    """LangGraph node: decompose features into user stories with ACs and points.
 
     # See README: "Agentic Blueprint Reference" — node return format
-    # See README: "Architecture" — story_writer sits between epic_generator and agent
+    # See README: "Architecture" — story_writer sits between feature_generator and agent
     # See README: "Scrum Standards" — story format, acceptance criteria, story points
     #
     # How this works:
-    # 1. Read the ProjectAnalysis and epics from state.
-    # 2. Format analysis fields and epics into strings for the prompt.
+    # 1. Read the ProjectAnalysis and features from state.
+    # 2. Format analysis fields and features into strings for the prompt.
     # 3. Call the LLM with the story writer prompt (temperature=0.0).
     # 4. Parse the JSON array response into UserStory dataclasses.
     # 5. Return {"stories": [...], "messages": [AIMessage]}.
     #
-    # Why a single LLM call for all epics (not per-epic)?
-    # Projects have 3-6 epics producing 6-30 stories. A single call keeps
-    # the pattern consistent with epic_generator, avoids per-epic prompt
-    # complexity, and lets the LLM see all epics to avoid cross-epic
+    # Why a single LLM call for all features (not per-feature)?
+    # Projects have 3-6 features producing 6-30 stories. A single call keeps
+    # the pattern consistent with feature_generator, avoids per-feature prompt
+    # complexity, and lets the LLM see all features to avoid cross-feature
     # duplication. ~6000 output tokens is well within Claude's limits.
     #
     # Why this returns to END (not to agent)?
-    # Same pattern as epic_generator — the node produces output, the REPL
+    # Same pattern as feature_generator — the node produces output, the REPL
     # displays it, and the user types anything to continue. On the next
     # invocation, route_entry sees stories populated and routes to the agent.
 
     Args:
-        state: The current LangGraph state with project_analysis and epics.
+        state: The current LangGraph state with project_analysis and features.
 
     Returns:
         A dict updating stories and messages.
     """
     analysis: ProjectAnalysis = state["project_analysis"]
-    epics: list[Epic] = state["epics"]
+    features: list[Feature] = state["features"]
 
-    # Read review state (same pattern as epic_generator)
+    # Read review state (same pattern as feature_generator)
     review_decision = state.get("last_review_decision")
     review_feedback = state.get("last_review_feedback", "")
     review_mode = review_decision.value if review_decision else None
@@ -5096,11 +5163,11 @@ def story_writer(state: ScrumState) -> dict:
         review_feedback = parts[0].strip()
         previous_output = parts[1].strip()
 
-    # Format ProjectAnalysis fields and epics into strings for the prompt.
+    # Format ProjectAnalysis fields and features into strings for the prompt.
     # This avoids passing dataclasses directly, keeping the prompt module
     # free of imports from agent.state (avoiding circular imports).
     # See README: "Prompt Construction" — pre-formatted strings pattern
-    epics_block = _format_epics_for_prompt(epics)
+    features_block = _format_features_for_prompt(features)
 
     prompt = get_story_writer_prompt(
         project_name=analysis.project_name,
@@ -5110,7 +5177,7 @@ def story_writer(state: ScrumState) -> dict:
         end_users=_format_epic_list(analysis.end_users),
         tech_stack=_format_epic_list(analysis.tech_stack),
         constraints=_format_epic_list(analysis.constraints),
-        epics_block=epics_block,
+        features_block=features_block,
         out_of_scope=_format_epic_list(analysis.out_of_scope),
         review_feedback=review_feedback if review_mode else None,
         review_mode=review_mode,
@@ -5121,21 +5188,21 @@ def story_writer(state: ScrumState) -> dict:
         # Single LLM call with low temperature for deterministic JSON output.
         # See README: "Agentic Blueprint Reference" — using the LLM outside the main graph
         response = get_llm(temperature=0.0).invoke([HumanMessage(content=prompt)])
-        stories = _parse_stories_response(response.content, epics, analysis)
+        stories = _parse_stories_response(response.content, features, analysis)
     except Exception as exc:
         if _is_llm_auth_or_billing_error(exc):
             raise
         # LLM call failed entirely — use deterministic fallback.
         logger.warning("LLM call failed in story_writer, using fallback", exc_info=True)
-        stories = _build_fallback_stories(epics, analysis)
+        stories = _build_fallback_stories(features, analysis)
 
     # Validate stories against the Story Checklist — auto-fix where possible
     # and collect warnings for the user. Deterministic post-processing, no LLM.
     # See README: "Scrum Standards" — Story Checklist
-    stories, warnings = _validate_stories(stories, epics)
+    stories, warnings = _validate_stories(stories, features)
 
     # Format the stories for display (with warnings if any)
-    display = _format_stories(stories, epics, analysis.project_name, warnings=warnings)
+    display = _format_stories(stories, features, analysis.project_name, warnings=warnings)
 
     return {
         "stories": stories,
@@ -5197,8 +5264,8 @@ def _build_doc_context(state: ScrumState) -> str | None:
     return "\n".join(parts)
 
 
-def _format_stories_for_prompt(stories: list[UserStory], epics: list[Epic]) -> str:
-    """Format stories grouped by epic for the task decomposer prompt.
+def _format_stories_for_prompt(stories: list[UserStory], features: list[Feature]) -> str:
+    """Format stories grouped by feature for the task decomposer prompt.
 
     For each story shows: ID, story text, story points, discipline,
     a summary of acceptance criteria, and a `[Documentation in DoD]`
@@ -5208,25 +5275,25 @@ def _format_stories_for_prompt(stories: list[UserStory], epics: list[Epic]) -> s
 
     Args:
         stories: List of UserStory dataclasses from the story_writer node.
-        epics: List of Epic dataclasses for grouping headers.
+        features: List of Feature dataclasses for grouping headers.
 
     Returns:
-        A formatted multi-line string describing all stories grouped by epic.
+        A formatted multi-line string describing all stories grouped by feature.
     """
-    epic_map = {e.id: e for e in epics}
+    feature_map = {e.id: e for e in features}
 
-    # Group stories by epic_id, preserving order
-    stories_by_epic: dict[str, list[UserStory]] = {}
+    # Group stories by feature_id, preserving order
+    stories_by_feature: dict[str, list[UserStory]] = {}
     for story in stories:
-        stories_by_epic.setdefault(story.epic_id, []).append(story)
+        stories_by_feature.setdefault(story.feature_id, []).append(story)
 
     lines: list[str] = []
-    for epic_id, epic_stories in stories_by_epic.items():
-        epic = epic_map.get(epic_id)
-        epic_title = epic.title if epic else epic_id
-        lines.append(f"### {epic_id}: {epic_title}\n")
+    for feature_id, feature_stories in stories_by_feature.items():
+        feature = feature_map.get(feature_id)
+        feature_title = feature.title if feature else feature_id
+        lines.append(f"### {feature_id}: {feature_title}\n")
 
-        for story in epic_stories:
+        for story in feature_stories:
             # Check if Documentation (index 1 in DOD_ITEMS) is applicable for this story.
             # When True, the prompt instructs the LLM to generate a dedicated documentation
             # sub-task that consolidates all doc work for the story.
@@ -5390,19 +5457,19 @@ def _build_fallback_tasks(stories: list[UserStory]) -> list[Task]:
 def _format_tasks(
     tasks: list[Task],
     stories: list[UserStory],
-    epics: list[Epic],
+    features: list[Feature],
     project_name: str,
 ) -> str:
     """Format a list of Tasks as a markdown display for the user.
 
-    Groups tasks by epic → story for readability. Shows the task ID, title,
+    Groups tasks by feature → story for readability. Shows the task ID, title,
     and description. The REPL renders this as Rich tables and waits for
     user review before routing to the next pipeline step.
 
     Args:
         tasks: List of Task dataclasses to display.
         stories: List of UserStory dataclasses (for grouping and context).
-        epics: List of Epic dataclasses (for grouping headers).
+        features: List of Feature dataclasses (for grouping headers).
         project_name: Project name for the header.
 
     Returns:
@@ -5414,24 +5481,24 @@ def _format_tasks(
     ]
 
     # Build lookups for grouping
-    epic_map = {e.id: e for e in epics}
+    feature_map = {e.id: e for e in features}
 
     # Group tasks by story_id
     tasks_by_story: dict[str, list[Task]] = {}
     for task in tasks:
         tasks_by_story.setdefault(task.story_id, []).append(task)
 
-    # Group stories by epic_id for display
-    stories_by_epic: dict[str, list[UserStory]] = {}
+    # Group stories by feature_id for display
+    stories_by_feature: dict[str, list[UserStory]] = {}
     for story in stories:
-        stories_by_epic.setdefault(story.epic_id, []).append(story)
+        stories_by_feature.setdefault(story.feature_id, []).append(story)
 
-    for epic_id, epic_stories in stories_by_epic.items():
-        epic = epic_map.get(epic_id)
-        epic_title = epic.title if epic else epic_id
-        sections.append(f"## {epic_id}: {epic_title}\n")
+    for feature_id, feature_stories in stories_by_feature.items():
+        feature = feature_map.get(feature_id)
+        feature_title = feature.title if feature else feature_id
+        sections.append(f"## {feature_id}: {feature_title}\n")
 
-        for story in epic_stories:
+        for story in feature_stories:
             story_tasks = tasks_by_story.get(story.id, [])
             if not story_tasks:
                 continue
@@ -5462,7 +5529,7 @@ def task_decomposer(state: ScrumState) -> dict:
     # See README: "Scrum Standards" — task decomposition
     #
     # How this works:
-    # 1. Read the ProjectAnalysis, epics, and stories from state.
+    # 1. Read the ProjectAnalysis, features, and stories from state.
     # 2. Format stories into a text block for the prompt.
     # 3. Call the LLM with the task decomposer prompt (temperature=0.0).
     # 4. Parse the JSON array response into Task dataclasses.
@@ -5480,16 +5547,16 @@ def task_decomposer(state: ScrumState) -> dict:
     # invocation, route_entry sees tasks populated and routes to the agent.
 
     Args:
-        state: The current LangGraph state with project_analysis, epics, and stories.
+        state: The current LangGraph state with project_analysis, features, and stories.
 
     Returns:
         A dict updating tasks and messages.
     """
     analysis: ProjectAnalysis = state["project_analysis"]
-    epics: list[Epic] = state["epics"]
+    features: list[Feature] = state["features"]
     stories: list[UserStory] = state["stories"]
 
-    # Read review state (same pattern as epic_generator)
+    # Read review state (same pattern as feature_generator)
     review_decision = state.get("last_review_decision")
     review_feedback = state.get("last_review_feedback", "")
     review_mode = review_decision.value if review_decision else None
@@ -5504,7 +5571,7 @@ def task_decomposer(state: ScrumState) -> dict:
     # This avoids passing dataclasses directly, keeping the prompt module
     # free of imports from agent.state (avoiding circular imports).
     # See README: "Prompt Construction" — pre-formatted strings pattern
-    stories_block = _format_stories_for_prompt(stories, epics)
+    stories_block = _format_stories_for_prompt(stories, features)
 
     # Build documentation context from intake answers and external sources.
     # The task decomposer prompt uses this to tell the LLM where documentation
@@ -5537,7 +5604,7 @@ def task_decomposer(state: ScrumState) -> dict:
         tasks = _build_fallback_tasks(stories)
 
     # Format the tasks for display
-    display = _format_tasks(tasks, stories, epics, analysis.project_name)
+    display = _format_tasks(tasks, stories, features, analysis.project_name)
 
     return {
         "tasks": tasks,
@@ -5573,7 +5640,7 @@ _PRIORITY_SORT_ORDER = {
 }
 
 
-def _format_stories_for_sprint_planner(stories: list[UserStory], epics: list[Epic]) -> str:
+def _format_stories_for_sprint_planner(stories: list[UserStory], features: list[Feature]) -> str:
     """Format stories in a compact layout for the sprint planner prompt.
 
     # See README: "Prompt Construction" — pre-formatted strings pattern
@@ -5584,26 +5651,26 @@ def _format_stories_for_sprint_planner(stories: list[UserStory], epics: list[Epi
 
     Args:
         stories: List of UserStory dataclasses to format.
-        epics: List of Epic dataclasses for grouping headers.
+        features: List of Feature dataclasses for grouping headers.
 
     Returns:
-        A formatted multi-line string with stories grouped by epic.
+        A formatted multi-line string with stories grouped by feature.
     """
-    epic_map = {e.id: e for e in epics}
+    feature_map = {e.id: e for e in features}
 
-    # Group stories by epic_id, preserving order
-    stories_by_epic: dict[str, list[UserStory]] = {}
+    # Group stories by feature_id, preserving order
+    stories_by_feature: dict[str, list[UserStory]] = {}
     for story in stories:
-        stories_by_epic.setdefault(story.epic_id, []).append(story)
+        stories_by_feature.setdefault(story.feature_id, []).append(story)
 
     lines: list[str] = []
-    for epic_id, epic_stories in stories_by_epic.items():
-        epic = epic_map.get(epic_id)
-        epic_title = epic.title if epic else epic_id
-        epic_priority = epic.priority.value if epic else "medium"
-        lines.append(f"### {epic_id}: {epic_title} ({epic_priority})")
+    for feature_id, feature_stories in stories_by_feature.items():
+        feature = feature_map.get(feature_id)
+        feature_title = feature.title if feature else feature_id
+        feature_priority = feature.priority.value if feature else "medium"
+        lines.append(f"### {feature_id}: {feature_title} ({feature_priority})")
 
-        for story in epic_stories:
+        for story in feature_stories:
             lines.append(
                 f"- **{story.id}** | {story.story_points.value} pts | "
                 f"{story.priority.value} | {story.discipline.value} — {story.goal}"
@@ -5996,20 +6063,20 @@ def _merge_sprints_to_target(
 def _format_sprints(
     sprints: list[Sprint],
     stories: list[UserStory],
-    epics: list[Epic],
+    features: list[Feature],
     project_name: str,
     velocity: int,
 ) -> str:
     """Format a list of Sprints as a rich markdown display for the user.
 
     Shows a header with sprint count and velocity, then per-sprint details
-    including goal, capacity bar, and story list with epic context.
+    including goal, capacity bar, and story list with feature context.
     The REPL renders this as Rich panels and waits for user review.
 
     Args:
         sprints: List of Sprint dataclasses to display.
         stories: List of UserStory dataclasses (for story details).
-        epics: List of Epic dataclasses (for epic context).
+        features: List of Feature dataclasses (for feature context).
         project_name: Project name for the header.
         velocity: Team velocity for capacity display.
 
@@ -6017,7 +6084,7 @@ def _format_sprints(
         A formatted markdown string.
     """
     story_map = {s.id: s for s in stories}
-    epic_map = {e.id: e for e in epics}
+    feature_map = {e.id: e for e in features}
 
     total_points = sum(sp.capacity_points for sp in sprints)
 
@@ -6033,11 +6100,11 @@ def _format_sprints(
         for sid in sp.story_ids:
             story = story_map.get(sid)
             if story:
-                epic = epic_map.get(story.epic_id)
-                epic_label = f"[{epic.title}]" if epic else f"[{story.epic_id}]"
+                feature = feature_map.get(story.feature_id)
+                feature_label = f"[{feature.title}]" if feature else f"[{story.feature_id}]"
                 sections.append(
                     f"- **{story.id}** ({story.story_points.value} pts, {story.priority.value}) "
-                    f"{epic_label} — {story.goal}"
+                    f"{feature_label} — {story.goal}"
                 )
             else:
                 sections.append(f"- **{sid}** (unknown story)")
@@ -6097,7 +6164,7 @@ def sprint_planner(state: ScrumState) -> dict:
     # See README: "Scrum Standards" — sprint planning, capacity allocation
     #
     # How this works:
-    # 1. Read the ProjectAnalysis, epics, stories, velocity, and target_sprints from state.
+    # 1. Read the ProjectAnalysis, features, stories, velocity, and target_sprints from state.
     # 2. Format stories in a compact layout for the prompt (no ACs — just points/priority).
     # 3. Call the LLM with the sprint planner prompt (temperature=0.0).
     # 4. Parse the JSON array response into Sprint dataclasses.
@@ -6114,16 +6181,16 @@ def sprint_planner(state: ScrumState) -> dict:
     # If velocity_per_sprint isn't in state, we calculate it here as a fallback.
 
     Args:
-        state: The current LangGraph state with project_analysis, epics, stories, and velocity.
+        state: The current LangGraph state with project_analysis, features, stories, and velocity.
 
     Returns:
         A dict updating sprints and messages.
     """
     analysis: ProjectAnalysis = state["project_analysis"]
-    epics: list[Epic] = state["epics"]
+    features: list[Feature] = state["features"]
     stories: list[UserStory] = state["stories"]
 
-    # Read review state (same pattern as epic_generator)
+    # Read review state (same pattern as feature_generator)
     review_decision = state.get("last_review_decision")
     review_feedback = state.get("last_review_feedback", "")
     review_mode = review_decision.value if review_decision else None
@@ -6264,7 +6331,7 @@ def sprint_planner(state: ScrumState) -> dict:
     # Format stories into a compact text block for the prompt.
     # Unlike the task_decomposer prompt, we omit ACs — the sprint planner
     # only needs points, priority, and discipline for capacity allocation.
-    stories_block = _format_stories_for_sprint_planner(stories, epics)
+    stories_block = _format_stories_for_sprint_planner(stories, features)
 
     prompt = get_sprint_planner_prompt(
         project_name=analysis.project_name,
@@ -6304,7 +6371,7 @@ def sprint_planner(state: ScrumState) -> dict:
         sprints = _merge_sprints_to_target(sprints, target_sprints, stories, starting_sprint_number)
 
     # Format the sprints for display
-    display = _format_sprints(sprints, stories, epics, analysis.project_name, velocity)
+    display = _format_sprints(sprints, stories, features, analysis.project_name, velocity)
 
     result: dict = {
         "sprints": sprints,

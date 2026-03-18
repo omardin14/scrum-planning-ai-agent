@@ -14,8 +14,8 @@ from scrum_agent.agent.state import QuestionnaireState
 _SPINNER_MESSAGES: dict[str, str] = {
     "project_intake": "Processing your answer",
     "project_analyzer": "Analysing project",
-    "epic_skip": "Generating epics",
-    "epic_generator": "Generating epics",
+    "feature_skip": "Generating features",
+    "feature_generator": "Generating features",
     "story_writer": "Writing user stories",
     "task_decomposer": "Breaking down tasks",
     "sprint_planner": "Planning sprints",
@@ -26,7 +26,7 @@ _SPINNER_MESSAGES: dict[str, str] = {
 # Only nodes AFTER the questionnaire are counted as pipeline steps.
 _PIPELINE_STEPS: tuple[str, ...] = (
     "project_analyzer",
-    "epic_generator",
+    "feature_generator",
     "story_writer",
     "task_decomposer",
     "sprint_planner",
@@ -46,11 +46,11 @@ def _predict_next_node(state: dict) -> str:
         return "project_intake"
     if state.get("project_analysis") is None:
         return "project_analyzer"
-    if not state.get("epics"):
+    if not state.get("features"):
         analysis = state.get("project_analysis")
-        if analysis and getattr(analysis, "skip_epics", False):
-            return "epic_skip"
-        return "epic_generator"
+        if analysis and getattr(analysis, "skip_features", False):
+            return "feature_skip"
+        return "feature_generator"
     if not state.get("stories"):
         return "story_writer"
     if not state.get("tasks"):
@@ -63,8 +63,8 @@ def _predict_next_node(state: dict) -> str:
 def _build_spinner_message(node_name: str) -> str:
     """Build the status message with optional [N/5] prefix for pipeline steps."""
     base = _SPINNER_MESSAGES.get(node_name, "Working")
-    # epic_skip occupies the same pipeline slot as epic_generator (step 2/5).
-    step_node = "epic_generator" if node_name == "epic_skip" else node_name
+    # feature_skip occupies the same pipeline slot as feature_generator (step 2/5).
+    step_node = "feature_generator" if node_name == "feature_skip" else node_name
     if step_node in _PIPELINE_STEPS:
         step = _PIPELINE_STEPS.index(step_node) + 1
         total = len(_PIPELINE_STEPS)
@@ -106,7 +106,7 @@ def _build_toolbar(graph_state: dict) -> HTML:
     elif isinstance(qs, QuestionnaireState) and qs.completed:
         # Show pipeline step
         node = _predict_next_node(graph_state)
-        toolbar_node = "epic_generator" if node == "epic_skip" else node
+        toolbar_node = "feature_generator" if node == "feature_skip" else node
         if toolbar_node in _PIPELINE_STEPS:
             step = _PIPELINE_STEPS.index(toolbar_node) + 1
             total = len(_PIPELINE_STEPS)

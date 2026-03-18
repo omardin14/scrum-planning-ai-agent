@@ -13,7 +13,7 @@ from scrum_agent.agent.state import (
     TOTAL_QUESTIONS,
     AcceptanceCriterion,
     Discipline,
-    Epic,
+    Feature,
     Priority,
     ProjectAnalysis,
     QuestionnaireState,
@@ -219,12 +219,12 @@ class TestInputHandling:
 
     def test_ai_response_displayed(self, monkeypatch):
         """The AI response content should appear in the console output."""
-        monkeypatch.setattr("scrum_agent.repl.create_graph", lambda: _mock_graph_factory("Here are your epics."))
+        monkeypatch.setattr("scrum_agent.repl.create_graph", lambda: _mock_graph_factory("Here are your features."))
         monkeypatch.setattr("scrum_agent.repl.PromptSession", _mock_session_factory(["plan my project", "exit"]))
         console, buf = _make_console()
         run_repl(console=console, intake_mode="smart")
         output = buf.getvalue()
-        assert "Here are your epics." in output
+        assert "Here are your features." in output
 
     def test_multiple_inputs_before_exit(self, monkeypatch):
         monkeypatch.setattr("scrum_agent.repl.create_graph", lambda: _mock_graph_factory("response"))
@@ -782,30 +782,30 @@ class TestPreloadedQuestionnaire:
 class TestClearDownstreamArtifacts:
     """Tests for _clear_downstream_artifacts()."""
 
-    def test_clears_epics_and_all_downstream(self):
-        """Rejecting epics should clear epics, stories, tasks, and sprints."""
+    def test_clears_features_and_all_downstream(self):
+        """Rejecting features should clear features, stories, tasks, and sprints."""
         state = {
-            "epics": [Epic(id="E1", title="Auth", description="Auth", priority=Priority.HIGH)],
+            "features": [Feature(id="F1", title="Auth", description="Auth", priority=Priority.HIGH)],
             "stories": ["story1"],
             "tasks": ["task1"],
             "sprints": ["sprint1"],
         }
-        _clear_downstream_artifacts(state, "epic_generator")
-        assert "epics" not in state
+        _clear_downstream_artifacts(state, "feature_generator")
+        assert "features" not in state
         assert "stories" not in state
         assert "tasks" not in state
         assert "sprints" not in state
 
     def test_clears_stories_and_downstream_only(self):
-        """Rejecting stories should clear stories, tasks, sprints but NOT epics."""
+        """Rejecting stories should clear stories, tasks, sprints but NOT features."""
         state = {
-            "epics": ["epic1"],
+            "features": ["feature1"],
             "stories": ["story1"],
             "tasks": ["task1"],
             "sprints": ["sprint1"],
         }
         _clear_downstream_artifacts(state, "story_writer")
-        assert "epics" in state  # preserved
+        assert "features" in state  # preserved
         assert "stories" not in state
         assert "tasks" not in state
         assert "sprints" not in state
@@ -813,39 +813,39 @@ class TestClearDownstreamArtifacts:
     def test_clears_sprints_only(self):
         """Rejecting sprints should only clear sprints."""
         state = {
-            "epics": ["epic1"],
+            "features": ["feature1"],
             "stories": ["story1"],
             "tasks": ["task1"],
             "sprints": ["sprint1"],
         }
         _clear_downstream_artifacts(state, "sprint_planner")
-        assert "epics" in state
+        assert "features" in state
         assert "stories" in state
         assert "tasks" in state
         assert "sprints" not in state
 
     def test_unknown_node_does_nothing(self):
         """Unknown node names should not clear anything."""
-        state = {"epics": ["epic1"], "stories": ["story1"]}
+        state = {"features": ["feature1"], "stories": ["story1"]}
         _clear_downstream_artifacts(state, "unknown_node")
-        assert "epics" in state
+        assert "features" in state
         assert "stories" in state
 
 
 class TestSerializeArtifactsForReview:
     """Tests for _serialize_artifacts_for_review()."""
 
-    def test_serializes_epics(self):
-        """Should serialize epic dataclasses to JSON text."""
-        epics = [Epic(id="E1", title="Auth", description="Auth epic", priority=Priority.HIGH)]
-        state = {"epics": epics}
-        result = _serialize_artifacts_for_review(state, "epic_generator")
-        assert "E1" in result
+    def test_serializes_features(self):
+        """Should serialize feature dataclasses to JSON text."""
+        features = [Feature(id="F1", title="Auth", description="Auth feature", priority=Priority.HIGH)]
+        state = {"features": features}
+        result = _serialize_artifacts_for_review(state, "feature_generator")
+        assert "F1" in result
         assert "Auth" in result
 
     def test_empty_artifacts_returns_empty(self):
         """Should return empty string when no artifacts present."""
-        result = _serialize_artifacts_for_review({}, "epic_generator")
+        result = _serialize_artifacts_for_review({}, "feature_generator")
         assert result == ""
 
 
@@ -861,8 +861,8 @@ class TestReviewAcceptFlow:
             call_count[0] += 1
             input_msgs = state["messages"]
             if call_count[0] == 1:
-                ai_msg = AIMessage(content="Here are your epics...")
-                return {**state, "messages": [*input_msgs, ai_msg], "pending_review": "epic_generator"}
+                ai_msg = AIMessage(content="Here are your features...")
+                return {**state, "messages": [*input_msgs, ai_msg], "pending_review": "feature_generator"}
             else:
                 ai_msg = AIMessage(content="Here are your stories...")
                 return {**state, "messages": [*input_msgs, ai_msg]}
@@ -884,9 +884,9 @@ class TestReviewAcceptFlow:
         def _invoke(state):
             input_msgs = state["messages"]
             ai_msg = AIMessage(content="Done")
-            result = {**state, "messages": [*input_msgs, ai_msg], "pending_review": "epic_generator"}
-            if "epics" not in state:
-                result["epics"] = ["fake_epic"]
+            result = {**state, "messages": [*input_msgs, ai_msg], "pending_review": "feature_generator"}
+            if "features" not in state:
+                result["features"] = ["fake_feature"]
             return result
 
         mock_graph = MagicMock()
@@ -898,10 +898,10 @@ class TestReviewAcceptFlow:
 
         console, buf = _make_console()
         run_repl(console=console, intake_mode="smart")
-        # The second graph.invoke call should still have epics in state
+        # The second graph.invoke call should still have features in state
         if mock_graph.invoke.call_count >= 2:
             second_call_state = mock_graph.invoke.call_args_list[1][0][0]
-            assert "epics" in second_call_state
+            assert "features" in second_call_state
 
     def test_numeric_1_accepts(self, monkeypatch):
         """Typing '1' should resolve to 'accept' and approve the output."""
@@ -910,9 +910,9 @@ class TestReviewAcceptFlow:
         def _invoke(state):
             call_count[0] += 1
             input_msgs = state["messages"]
-            ai_msg = AIMessage(content="Here are your epics...")
+            ai_msg = AIMessage(content="Here are your features...")
             if call_count[0] == 1:
-                return {**state, "messages": [*input_msgs, ai_msg], "pending_review": "epic_generator"}
+                return {**state, "messages": [*input_msgs, ai_msg], "pending_review": "feature_generator"}
             return {**state, "messages": [*input_msgs, ai_msg]}
 
         mock_graph = MagicMock()
@@ -938,7 +938,7 @@ class TestReviewAcceptFlow:
                 "pending_review": "sprint_planner",
                 "questionnaire": QuestionnaireState(completed=True),
                 "project_analysis": "analysis",
-                "epics": ["epic"],
+                "features": ["feature"],
                 "stories": ["story"],
                 "tasks": ["task"],
                 "sprints": ["sprint"],
@@ -973,9 +973,9 @@ class TestReviewRejectFlow:
             call_count[0] += 1
             input_msgs = state["messages"]
             ai_msg = AIMessage(content="Output")
-            result = {**state, "messages": [*input_msgs, ai_msg], "pending_review": "epic_generator"}
-            if "epics" not in state:
-                result["epics"] = ["fake_epic"]
+            result = {**state, "messages": [*input_msgs, ai_msg], "pending_review": "feature_generator"}
+            if "features" not in state:
+                result["features"] = ["fake_feature"]
                 result["stories"] = ["fake_story"]
             return result
 
@@ -1004,8 +1004,8 @@ class TestReviewRejectFlow:
             ai_msg = AIMessage(content="Output")
             result = {**state, "messages": [*input_msgs, ai_msg]}
             if call_count[0] == 1:
-                result["pending_review"] = "epic_generator"
-                result["epics"] = ["fake_epic"]
+                result["pending_review"] = "feature_generator"
+                result["features"] = ["fake_feature"]
             return result
 
         mock_graph = MagicMock()
@@ -1035,8 +1035,8 @@ class TestReviewRejectFlow:
             ai_msg = AIMessage(content="Output")
             result = {**state, "messages": [*input_msgs, ai_msg]}
             if call_count[0] == 1:
-                result["pending_review"] = "epic_generator"
-                result["epics"] = ["fake_epic"]
+                result["pending_review"] = "feature_generator"
+                result["features"] = ["fake_feature"]
             return result
 
         mock_graph = MagicMock()
@@ -1344,7 +1344,7 @@ class TestChatAttribution:
 
     def test_ai_label_shown(self, monkeypatch):
         """'Scrum AI:' should appear before the AI response."""
-        monkeypatch.setattr("scrum_agent.repl.create_graph", lambda: _mock_graph_factory("Here are your epics."))
+        monkeypatch.setattr("scrum_agent.repl.create_graph", lambda: _mock_graph_factory("Here are your features."))
         monkeypatch.setattr("scrum_agent.repl.PromptSession", _mock_session_factory(["plan my project", "exit"]))
         console, buf = _make_console()
         run_repl(console=console, intake_mode="smart")
@@ -1674,17 +1674,17 @@ class TestSpinnerProgress:
         qs = QuestionnaireState(completed=True)
         assert _predict_next_node({"questionnaire": qs}) == "project_analyzer"
 
-    def test_predict_next_node_epic_generator(self):
-        """Analysis present, no epics → epic_generator."""
+    def test_predict_next_node_feature_generator(self):
+        """Analysis present, no features → feature_generator."""
         qs = QuestionnaireState(completed=True)
         state = {"questionnaire": qs, "project_analysis": "some analysis"}
-        assert _predict_next_node(state) == "epic_generator"
+        assert _predict_next_node(state) == "feature_generator"
 
     def test_predict_next_node_story_writer(self):
-        """Epics present, no stories → story_writer."""
+        """Features present, no stories → story_writer."""
         qs = QuestionnaireState(completed=True)
-        epic = Epic(id="E-1", title="t", priority=Priority.HIGH, description="d")
-        state = {"questionnaire": qs, "project_analysis": "x", "epics": [epic]}
+        feature = Feature(id="F-1", title="t", priority=Priority.HIGH, description="d")
+        state = {"questionnaire": qs, "project_analysis": "x", "features": [feature]}
         assert _predict_next_node(state) == "story_writer"
 
     def test_predict_next_node_full_pipeline(self):
@@ -1693,7 +1693,7 @@ class TestSpinnerProgress:
         state = {
             "questionnaire": qs,
             "project_analysis": "x",
-            "epics": ["e"],
+            "features": ["e"],
             "stories": ["s"],
             "tasks": ["t"],
             "sprints": ["sp"],
@@ -1708,8 +1708,8 @@ class TestSpinnerProgress:
 
     def test_build_spinner_message_pipeline_step(self):
         """Pipeline steps get [N/5] prefix."""
-        msg = _build_spinner_message("epic_generator")
-        assert msg == "[2/5] Generating epics"
+        msg = _build_spinner_message("feature_generator")
+        assert msg == "[2/5] Generating features"
 
     def test_build_spinner_message_first_pipeline_step(self):
         """First pipeline step is [1/5]."""
@@ -1881,9 +1881,9 @@ class TestReviewUnrecognizedInput:
         def _invoke(state):
             call_count[0] += 1
             input_msgs = state["messages"]
-            ai_msg = AIMessage(content="Here are your epics...")
+            ai_msg = AIMessage(content="Here are your features...")
             if call_count[0] == 1:
-                return {**state, "messages": [*input_msgs, ai_msg], "pending_review": "epic_generator"}
+                return {**state, "messages": [*input_msgs, ai_msg], "pending_review": "feature_generator"}
             return {**state, "messages": [*input_msgs, ai_msg]}
 
         mock_graph = MagicMock()
@@ -2056,11 +2056,11 @@ def _make_full_graph_state() -> dict:
         out_of_scope=(),
         assumptions=(),
     )
-    epics = [Epic(id="E-1", title="Epic 1", description="First epic", priority=Priority.HIGH)]
+    features = [Feature(id="F-1", title="Feature 1", description="First feature", priority=Priority.HIGH)]
     stories = [
         UserStory(
             id="S-1",
-            epic_id="E-1",
+            feature_id="F-1",
             persona="developer",
             goal="do something",
             benefit="value delivered",
@@ -2076,7 +2076,7 @@ def _make_full_graph_state() -> dict:
         "messages": [AIMessage(content="done")],
         "questionnaire": qs,
         "project_analysis": analysis,
-        "epics": epics,
+        "features": features,
         "stories": stories,
         "tasks": tasks,
         "sprints": sprints,
@@ -2154,7 +2154,7 @@ class TestExportOnly:
         assert out_path.exists()
         content = out_path.read_text()
         assert "Test Project" in content
-        assert "E-1" in content
+        assert "F-1" in content
         assert "S-1" in content
         assert "T-1" in content
         assert "Sprint 1" in content
@@ -2446,7 +2446,7 @@ class TestStatusBar:
             {
                 "questionnaire": qs,
                 "project_analysis": "analysis",
-                "epics": ["e"],
+                "features": ["e"],
                 "stories": ["s"],
                 "tasks": ["t"],
                 "sprints": ["sp"],

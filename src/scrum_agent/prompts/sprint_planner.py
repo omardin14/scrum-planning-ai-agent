@@ -99,19 +99,25 @@ def get_sprint_planner_prompt(
     else:
         target_note = "Calculate the number of sprints from total story points ÷ velocity (rounded up)"
 
-    from scrum_agent.prompts.epic_generator import _build_review_section
+    from scrum_agent.prompts.feature_generator import _build_review_section
 
     # When starting_sprint_number > 0, use real sprint numbers in the schema and rules.
     # e.g. SP-105, SP-106, Sprint 105, Sprint 106 instead of SP-1, SP-2.
     if starting_sprint_number > 0:
         n = starting_sprint_number
-        id_example = f"SP-{n}, SP-{n + 1}, ..."
-        name_example = f"Sprint {n}, Sprint {n + 1}, ..."
+        id_example = f"SP-{n}, SP-{n + 1}, SP-{n + 2}, SP-{n + 3}"
+        name_example = f"Sprint {n}, Sprint {n + 1}, Sprint {n + 2}, Sprint {n + 3}"
         first_sprint_label = f"Sprint {n}"
+        naming_rule = (
+            f"5. Sequential numbering starting at {n}: IDs are {id_example}. "
+            f"Names are {name_example}. "
+            f"NEVER reset to Sprint 1, Sprint 2 — always continue the sequence from {n}.\n"
+        )
     else:
-        id_example = "SP-1, SP-2, ..."
-        name_example = "Sprint 1, Sprint 2, ..."
+        id_example = "SP-1, SP-2, SP-3, SP-4"
+        name_example = "Sprint 1, Sprint 2, Sprint 3, Sprint 4"
         first_sprint_label = "Sprint 1"
+        naming_rule = f"5. Sequential IDs: {id_example}. Names: {name_example}.\n"
 
     # Build velocity section — per-sprint when bank holidays affect specific sprints
     has_per_sprint = sprint_capacities and any(
@@ -178,11 +184,16 @@ def get_sprint_planner_prompt(
         )
         + "3. Priority ordering: schedule Critical and High priority stories in earlier sprints.\n"
         f"4. Schedule spike/investigation/infrastructure stories in {first_sprint_label} to de-risk unknowns.\n"
-        f"5. Sequential IDs: {id_example}. Names: {name_example}.\n"
-        "6. Each sprint goal summarises the sprint's theme in 1-2 sentences.\n"
+        + naming_rule
+        + "6. Each sprint goal summarises the sprint's theme in 1-2 sentences.\n"
         f"7. {target_note}.\n"
         "8. Every story must appear in exactly one sprint — no duplicates.\n"
-        f"9. Maximum {MAX_SPRINTS} sprints.\n\n"
+        f"9. Maximum {MAX_SPRINTS} sprints.\n"
+        "10. MINIMUM SPRINT LOAD: if the remaining stories after filling all previous sprints "
+        "would create a final sprint with fewer points than 30% of velocity, merge them into "
+        "the previous sprint instead (allow it to slightly exceed velocity). A nearly-empty "
+        "sprint wastes a full sprint cycle. It is better to slightly overflow the previous "
+        "sprint than to create a sprint with trivial work.\n\n"
         "## Chain of Thought\n\n"
         "Think step by step:\n"
         "1. Sort stories by priority (Critical → High → Medium → Low).\n"
