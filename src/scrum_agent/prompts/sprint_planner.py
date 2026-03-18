@@ -105,13 +105,19 @@ def get_sprint_planner_prompt(
     # e.g. SP-105, SP-106, Sprint 105, Sprint 106 instead of SP-1, SP-2.
     if starting_sprint_number > 0:
         n = starting_sprint_number
-        id_example = f"SP-{n}, SP-{n + 1}, ..."
-        name_example = f"Sprint {n}, Sprint {n + 1}, ..."
+        id_example = f"SP-{n}, SP-{n + 1}, SP-{n + 2}, SP-{n + 3}"
+        name_example = f"Sprint {n}, Sprint {n + 1}, Sprint {n + 2}, Sprint {n + 3}"
         first_sprint_label = f"Sprint {n}"
+        naming_rule = (
+            f"5. Sequential numbering starting at {n}: IDs are {id_example}. "
+            f"Names are {name_example}. "
+            f"NEVER reset to Sprint 1, Sprint 2 — always continue the sequence from {n}.\n"
+        )
     else:
-        id_example = "SP-1, SP-2, ..."
-        name_example = "Sprint 1, Sprint 2, ..."
+        id_example = "SP-1, SP-2, SP-3, SP-4"
+        name_example = "Sprint 1, Sprint 2, Sprint 3, Sprint 4"
         first_sprint_label = "Sprint 1"
+        naming_rule = f"5. Sequential IDs: {id_example}. Names: {name_example}.\n"
 
     # Build velocity section — per-sprint when bank holidays affect specific sprints
     has_per_sprint = sprint_capacities and any(
@@ -178,7 +184,7 @@ def get_sprint_planner_prompt(
         )
         + "3. Priority ordering: schedule Critical and High priority stories in earlier sprints.\n"
         f"4. Schedule spike/investigation/infrastructure stories in {first_sprint_label} to de-risk unknowns.\n"
-        f"5. Sequential IDs: {id_example}. Names: {name_example}.\n"
+        + naming_rule +
         "6. Each sprint goal summarises the sprint's theme in 1-2 sentences.\n"
         f"7. {target_note}.\n"
         "8. Every story must appear in exactly one sprint — no duplicates.\n"
