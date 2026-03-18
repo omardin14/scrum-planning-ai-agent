@@ -852,7 +852,28 @@ def _phase_pipeline(
                 elif action == "Export":
                     logger.info("Review decision: Export for %s", pending)
                     _export_checkpoint(console, graph_state, stage=pending)
-                    status_msg = "Exported successfully"
+                    status_msg = "✓ Exported to scrum-plan.html + scrum-plan.md"
+                    # Force immediate redraw so the confirmation is visible
+                    w, h = console.size
+                    live.update(
+                        _build_pipeline_screen(
+                            stage_label,
+                            progress,
+                            content_lines,
+                            scroll_offset,
+                            menu_selected,
+                            status="complete",
+                            width=w,
+                            height=h,
+                            status_msg=status_msg,
+                            btn_fades=btn_fades,
+                            step=step,
+                            total=total,
+                            sticky_headers=sticky_headers,
+                            actions=actions,
+                            warning_text=cap_warning_text if is_sprint_stage else "",
+                        )
+                    )
                 elif action == "Jira":
                     logger.info("Jira sync requested for %s", pending)
                     jira_result = _handle_jira_sync(
