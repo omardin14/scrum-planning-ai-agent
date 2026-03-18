@@ -315,9 +315,7 @@ def sync_tasks_to_jira(
 
     result = JiraSyncResult(epic_key=state.get("jira_epic_key"))
     # Carry over story creation stats from cascade
-    result.stories_created = {
-        k: v for k, v in story_keys.items() if k not in graph_state.get("jira_story_keys", {})
-    }
+    result.stories_created = {k: v for k, v in story_keys.items() if k not in graph_state.get("jira_story_keys", {})}
 
     jira = _make_jira_client()
     if jira is None:
@@ -538,9 +536,7 @@ def sync_sprints_to_jira(
                 if sprint.goal:
                     kwargs["goal"] = sprint.goal
                 if sprint_start_date_str:
-                    start = datetime.fromisoformat(sprint_start_date_str) + timedelta(
-                        weeks=sprint_length_weeks * idx
-                    )
+                    start = datetime.fromisoformat(sprint_start_date_str) + timedelta(weeks=sprint_length_weeks * idx)
                     end = start + timedelta(weeks=sprint_length_weeks)
                     kwargs["startDate"] = start.strftime("%Y-%m-%d")
                     kwargs["endDate"] = end.strftime("%Y-%m-%d")

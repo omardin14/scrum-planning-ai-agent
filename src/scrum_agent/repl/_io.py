@@ -164,7 +164,9 @@ def _render_artifacts(console: Console, result: dict, *, compact: bool = False) 
             console.print(render_stories_table(result["stories"], result.get("features", []), compact=compact))
         elif pending == "task_decomposer" and result.get("tasks"):
             console.print(
-                render_tasks_table(result["tasks"], result.get("stories", []), result.get("features", []), compact=compact)
+                render_tasks_table(
+                    result["tasks"], result.get("stories", []), result.get("features", []), compact=compact
+                )
             )
         elif pending == "sprint_planner" and result.get("sprints"):
             velocity = result.get("velocity_per_sprint", 10)
@@ -377,7 +379,9 @@ def _export_plan_markdown(graph_state: dict, path: Path | None = None) -> Path:
         lines.append("")
         for feature in features:
             lines.append(f"## {feature.id}: {feature.title}")
-            lines.append(f"**Priority:** {feature.priority.value if hasattr(feature.priority, 'value') else feature.priority}")
+            lines.append(
+                f"**Priority:** {feature.priority.value if hasattr(feature.priority, 'value') else feature.priority}"
+            )
             lines.append(f"{feature.description}")
             lines.append("")
 

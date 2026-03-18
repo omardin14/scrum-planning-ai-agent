@@ -421,9 +421,7 @@ def select_mode(
                                             finally:
                                                 _sync_done.set()
 
-                                        _sync_thread = threading.Thread(
-                                            target=_run_jira_sync, daemon=True
-                                        )
+                                        _sync_thread = threading.Thread(target=_run_jira_sync, daemon=True)
                                         _sync_thread.start()
 
                                         # Show live scrolling log while the thread runs
@@ -479,9 +477,7 @@ def select_mode(
                                                 summary += f"\n{first_err}"
                                                 # Write all errors to log file for debugging
                                                 _err_path = Path.home() / ".scrum-agent" / "jira-sync-errors.log"
-                                                _err_path.write_text(
-                                                    "\n".join(sr.errors), encoding="utf-8"
-                                                )
+                                                _err_path.write_text("\n".join(sr.errors), encoding="utf-8")
                                             path = prefix + summary
 
                             if path:

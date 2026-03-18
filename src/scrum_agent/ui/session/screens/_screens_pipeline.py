@@ -105,7 +105,7 @@ def _build_pipeline_screen(
         # otherwise fall back to generic "Processing..." with pulsing dots.
         body.append(Text(""))
         if content_lines:
-            visible = content_lines[-(viewport_h - 2):] if len(content_lines) > viewport_h - 2 else content_lines
+            visible = content_lines[-(viewport_h - 2) :] if len(content_lines) > viewport_h - 2 else content_lines
             for line in visible:
                 body.append(Text.from_ansi(_PAD + line, justify="left"))
             for _ in range(max(0, viewport_h - 2 - len(visible))):

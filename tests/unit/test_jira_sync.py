@@ -52,9 +52,7 @@ def _make_story(id="story-1", feature_id="feat-1", title="Login endpoint"):
         persona="developer",
         goal="log in via API",
         benefit="access protected resources",
-        acceptance_criteria=(
-            AcceptanceCriterion(given="valid credentials", when="POST /login", then="return 200"),
-        ),
+        acceptance_criteria=(AcceptanceCriterion(given="valid credentials", when="POST /login", then="return 200"),),
         story_points=StoryPointValue.THREE,
         priority=Priority.HIGH,
         title=title,

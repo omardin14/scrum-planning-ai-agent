@@ -1497,7 +1497,11 @@ def _fetch_confluence_context(
                         parts.append(page_content)
                         logger.debug("CONFLUENCE: fetched page ID %s (%d chars)", pid, len(page_content))
                     else:
-                        logger.debug("CONFLUENCE: page ID %s returned error: %s", pid, page_content[:100] if page_content else "empty")
+                        logger.debug(
+                            "CONFLUENCE: page ID %s returned error: %s",
+                            pid,
+                            page_content[:100] if page_content else "empty",
+                        )
                 except Exception:
                     logger.debug("CONFLUENCE: failed to fetch page %s (non-fatal)", pid, exc_info=True)
         else:
@@ -4193,9 +4197,13 @@ def project_analyzer(state: ScrumState) -> dict:
     # _fetch_confluence_context to extract page IDs from Confluence URLs.
     # Returns (None, status) gracefully when Confluence is not configured or no docs found.
     # See README: "Tools" — read-only tool pattern
-    logger.debug("CONFLUENCE: passing user_context=%s to _fetch_confluence_context", "present" if user_context else "None")
+    logger.debug(
+        "CONFLUENCE: passing user_context=%s to _fetch_confluence_context", "present" if user_context else "None"
+    )
     confluence_context, confluence_status = _fetch_confluence_context(questionnaire, user_context=user_context)
-    logger.debug("CONFLUENCE: result status=%s detail=%s", confluence_status.get("status"), confluence_status.get("detail"))
+    logger.debug(
+        "CONFLUENCE: result status=%s detail=%s", confluence_status.get("status"), confluence_status.get("detail")
+    )
 
     # Build the formatted answers block for the prompt
     answers_block = _build_answers_block(questionnaire)
@@ -4415,7 +4423,9 @@ def _format_features(features: list[Feature], project_name: str) -> str:
     ]
 
     for feature in features:
-        sections.append(f"## {feature.id}: {feature.title}\n**Priority:** {feature.priority.value}\n{feature.description}\n")
+        sections.append(
+            f"## {feature.id}: {feature.title}\n**Priority:** {feature.priority.value}\n{feature.description}\n"
+        )
 
     sections.append("\n---\n**[Accept / Edit / Reject]** — Review the features above.")
 
@@ -4830,7 +4840,8 @@ def _validate_stories(stories: list[UserStory], features: list[Feature]) -> tupl
             )
         elif count > MAX_STORIES_PER_FEATURE:
             warnings.append(
-                f"Feature {feature.id} ({feature.title}) has {count} stories — maximum recommended is {MAX_STORIES_PER_FEATURE}."
+                f"Feature {feature.id} ({feature.title}) has {count} stories "
+                f"— maximum recommended is {MAX_STORIES_PER_FEATURE}."
             )
 
     return validated, warnings

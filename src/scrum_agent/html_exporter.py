@@ -463,13 +463,13 @@ def _build_stories_section(graph_state: dict) -> str:
             if story.points_rationale:
                 rationale_html = (
                     f'<div class="card-desc" style="margin-top:0.5rem;font-style:italic;">'
-                    f'<strong>Points rationale:</strong> {_e(story.points_rationale)}</div>'
+                    f"<strong>Points rationale:</strong> {_e(story.points_rationale)}</div>"
                 )
 
             # User story description ("As a X, I want to Y, so that Z")
             desc_html = (
                 f'<div class="card-desc" style="margin-top:0.5rem;font-style:italic;color:var(--text-muted);">'
-                f'{_e(story.text)}</div>'
+                f"{_e(story.text)}</div>"
             )
 
             # Definition of Done flags
@@ -480,7 +480,7 @@ def _build_stories_section(graph_state: dict) -> str:
             if len(dod_flags) == len(DOD_ITEMS):
                 dod_items_html = "".join(
                     f'<li style="{"text-decoration:line-through;opacity:0.5;" if not applicable else ""}">'
-                    f'{"✓" if applicable else "✗"} {_e(item)}</li>'
+                    f"{'✓' if applicable else '✗'} {_e(item)}</li>"
                     for item, applicable in zip(DOD_ITEMS, dod_flags)
                 )
                 dod_html = (
@@ -764,7 +764,9 @@ def export_plan_html(graph_state: dict, stage: str = "complete", path: Path | No
     output_path = path or Path("scrum-plan.html")
     output_path.write_text(build_export_html(graph_state, stage=stage), encoding="utf-8")
     sections = sum(
-        1 for k in ("questionnaire", "project_analysis", "features", "stories", "tasks", "sprints") if graph_state.get(k)
+        1
+        for k in ("questionnaire", "project_analysis", "features", "stories", "tasks", "sprints")
+        if graph_state.get(k)
     )
     logger.info("HTML exported to %s (%d section(s), stage=%s)", output_path, sections, stage)
     return output_path

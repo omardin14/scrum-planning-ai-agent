@@ -183,7 +183,9 @@ class TestFeatureEvaluator:
     def test_features_have_valid_priorities(self, pipeline_state):
         state, _expected = pipeline_state
         for feature in state["features"]:
-            assert feature.priority.value in VALID_PRIORITIES, f"Feature {feature.id} has invalid priority: {feature.priority}"
+            assert feature.priority.value in VALID_PRIORITIES, (
+                f"Feature {feature.id} has invalid priority: {feature.priority}"
+            )
 
     def test_feature_ids_unique(self, pipeline_state):
         state, _expected = pipeline_state
@@ -202,7 +204,9 @@ class TestStoryEvaluator:
         state, _expected = pipeline_state
         feature_ids = {e.id for e in state["features"]}
         for story in state["stories"]:
-            assert story.feature_id in feature_ids, f"Story {story.id} references non-existent feature {story.feature_id}"
+            assert story.feature_id in feature_ids, (
+                f"Story {story.id} references non-existent feature {story.feature_id}"
+            )
 
     def test_story_points_are_fibonacci(self, pipeline_state):
         state, _expected = pipeline_state

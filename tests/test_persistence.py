@@ -381,17 +381,23 @@ class TestComputeJiraSummary:
 
     def test_partial_sync(self):
         sync = {
-            "stories_synced": 3, "stories_total": 4,
-            "tasks_synced": 0, "tasks_total": 0,
-            "sprints_synced": 0, "sprints_total": 0,
+            "stories_synced": 3,
+            "stories_total": 4,
+            "tasks_synced": 0,
+            "tasks_total": 0,
+            "sprints_synced": 0,
+            "sprints_total": 0,
         }
         assert _compute_jira_summary(sync) == "3/4 stories synced"
 
     def test_full_sync(self):
         sync = {
-            "stories_synced": 15, "stories_total": 15,
-            "tasks_synced": 30, "tasks_total": 30,
-            "sprints_synced": 3, "sprints_total": 3,
+            "stories_synced": 15,
+            "stories_total": 15,
+            "tasks_synced": 30,
+            "tasks_total": 30,
+            "sprints_synced": 3,
+            "sprints_total": 3,
         }
         result = _compute_jira_summary(sync)
         assert "15/15 stories" in result

@@ -184,8 +184,8 @@ def get_sprint_planner_prompt(
         )
         + "3. Priority ordering: schedule Critical and High priority stories in earlier sprints.\n"
         f"4. Schedule spike/investigation/infrastructure stories in {first_sprint_label} to de-risk unknowns.\n"
-        + naming_rule +
-        "6. Each sprint goal summarises the sprint's theme in 1-2 sentences.\n"
+        + naming_rule
+        + "6. Each sprint goal summarises the sprint's theme in 1-2 sentences.\n"
         f"7. {target_note}.\n"
         "8. Every story must appear in exactly one sprint — no duplicates.\n"
         f"9. Maximum {MAX_SPRINTS} sprints.\n"

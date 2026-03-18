@@ -40,7 +40,7 @@ _JSON_SCHEMA = """\
   "risks": ["string array — risks and uncertainties from Q21, Q22"],
   "out_of_scope": ["string array — explicit exclusions from Q23"],
   "assumptions": ["string array — any defaulted or skipped answers that required assumptions"],
-  "skip_features": "boolean — true when the project is small enough that feature grouping adds no value. Default false.",
+  "skip_features": "boolean — true when project is small enough that feature grouping adds no value. Default false.",
   "scrum_md_contributions": "JSON field names whose values came from SCRUM.md. Empty list if no SCRUM.md was present."
 }"""
 

@@ -526,7 +526,9 @@ class TestLlmOutputSchemas:
     def test_feature_priority_is_valid_value(self):
         """Feature priority must be one of the four allowed values."""
         allowed = {"critical", "high", "medium", "low"}
-        assert _CANONICAL_FEATURE["priority"] in allowed, f"priority {_CANONICAL_FEATURE['priority']!r} not in {allowed}"
+        assert _CANONICAL_FEATURE["priority"] in allowed, (
+            f"priority {_CANONICAL_FEATURE['priority']!r} not in {allowed}"
+        )
 
     def test_story_points_is_fibonacci_value(self):
         """Story points must be on the Fibonacci scale (1, 2, 3, 5, 8)."""

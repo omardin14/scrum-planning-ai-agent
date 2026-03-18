@@ -331,7 +331,7 @@ def render_stories_table(stories: list[UserStory], features: list[Feature], *, c
                             story_text.append(f"{sep}✗ {short}", style="dim strike")
 
             if story.points_rationale:
-                story_text.append(f"\n\n  Points rationale: ", style="dim bold")
+                story_text.append("\n\n  Points rationale: ", style="dim bold")
                 story_text.append(story.points_rationale, style="dim italic")
 
             row: list = [story.id, story_text, str(story.story_points), _styled_priority(story.priority)]

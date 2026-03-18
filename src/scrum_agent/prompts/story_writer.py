@@ -58,7 +58,7 @@ _JSON_SCHEMA = """\
       }
     ],
     "story_points": "integer — Fibonacci value: 1, 2, 3, 5, or 8",
-    "points_rationale": "string — 1-2 sentences explaining why this story got this point value. Describe the complexity factors, unknowns, integration surface area, or effort that drove the estimate.",
+    "points_rationale": "string — 1-2 sentences explaining the point value. Describe complexity, unknowns, or effort.",
     "priority": "string — one of: critical, high, medium, low",
     "discipline": "string — one of: frontend, backend, fullstack, infrastructure, design, testing",
     "dod_applicable": [true, true, true, true, true, true, true]
@@ -128,7 +128,9 @@ def get_story_writer_prompt(
         f"Return a JSON array matching this exact schema:\n\n"
         f"```json\n{_JSON_SCHEMA}\n```\n\n"
     )
-    count_rule = f"1. Produce {MIN_STORIES_PER_FEATURE}-{MAX_STORIES_PER_FEATURE} stories per feature — no fewer, no more.\n"
+    count_rule = (
+        f"1. Produce {MIN_STORIES_PER_FEATURE}-{MAX_STORIES_PER_FEATURE} stories per feature — no fewer, no more.\n"
+    )
     id_rule = "2. Use sequential IDs per feature: US-F1-001, US-F1-002, US-F2-001, etc.\n"
 
     base = (
