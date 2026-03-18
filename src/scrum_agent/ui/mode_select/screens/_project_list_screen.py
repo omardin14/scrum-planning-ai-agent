@@ -52,6 +52,7 @@ def _build_project_row(
     submenu_md_fade: float = 0.0,
     submenu_jira_fade: float = 0.0,
     submenu_visible: float = 0.0,
+    jira_enabled: bool = True,
 ) -> Table:
     """Build a project card with optional Delete/Export buttons to its right.
 
@@ -124,13 +125,17 @@ def _build_project_row(
             ("Jira", 2, submenu_jira_fade, jira_opacity),
         ]:
             if btn_opacity > 0:
+                # Jira button is dimmed when credentials are not configured
+                is_jira_btn = btn_label == "Jira"
+                btn_color = (100, 100, 100) if (is_jira_btn and not jira_enabled) else (255, 255, 255)
+                btn_op = opacity * btn_opacity * (0.4 if is_jira_btn and not jira_enabled else 1.0)
                 sub_btns.append(
                     _build_action_button(
                         btn_label,
-                        focused=(selected and submenu_sel == btn_idx),
+                        focused=(selected and submenu_sel == btn_idx and (not is_jira_btn or jira_enabled)),
                         card_selected=selected,
-                        color=(255, 255, 255),
-                        opacity=opacity * btn_opacity,
+                        color=btn_color,
+                        opacity=btn_op,
                         fade_t=btn_fade,
                         btn_w=_EXPORT_SUB_BTN_W,
                     )
@@ -167,6 +172,7 @@ def _build_project_list_screen(
     delete_popup_t: float = 0.0,
     delete_popup_pulse: float = 0.0,
     delete_popup_flash: float = 0.0,
+    jira_enabled: bool = True,
 ) -> Panel:
     """Build the project list screen with Planning title pinned at top.
 
@@ -273,6 +279,7 @@ def _build_project_list_screen(
                     submenu_md_fade=submenu_md_fade if is_sel else 0.0,
                     submenu_jira_fade=submenu_jira_fade if is_sel else 0.0,
                     submenu_visible=submenu_visible if is_sel else 0.0,
+                    jira_enabled=jira_enabled,
                 )
                 body.append(Padding(row, _card_pad))
             else:

@@ -7,14 +7,14 @@ from langchain_core.messages import HumanMessage
 
 from scrum_agent.agent.nodes import (
     _parse_review_intent,
-    epic_generator,
+    feature_generator,
     sprint_planner,
     story_writer,
     task_decomposer,
 )
 from scrum_agent.agent.state import (
     AcceptanceCriterion,
-    Epic,
+    Feature,
     Priority,
     QuestionnaireState,
     ReviewDecision,
@@ -22,7 +22,7 @@ from scrum_agent.agent.state import (
     UserStory,
 )
 from tests._node_helpers import (
-    VALID_EPICS_JSON,
+    VALID_FEATURES_JSON,
     VALID_SPRINTS_JSON,
     VALID_STORIES_JSON,
     VALID_TASKS_JSON,
@@ -75,9 +75,9 @@ class TestParseReviewIntent:
 
     # Unrecognized text defaults to REJECT with full text as feedback
     def test_unrecognized_text_defaults_to_reject(self):
-        decision, feedback = _parse_review_intent("add a security epic")
+        decision, feedback = _parse_review_intent("add a security feature")
         assert decision == ReviewDecision.REJECT
-        assert feedback == "add a security epic"
+        assert feedback == "add a security feature"
 
     def test_whitespace_handling(self):
         decision, feedback = _parse_review_intent("  accept  ")
@@ -91,8 +91,8 @@ class TestParseReviewIntent:
 # ── Generation node review state tests ───────────────────────────────
 
 
-class TestEpicGeneratorReview:
-    """Tests for epic_generator review state handling."""
+class TestFeatureGeneratorReview:
+    """Tests for feature_generator review state handling."""
 
     def _make_state(self, **extras: object) -> dict:
         """Build a minimal state with project_analysis."""
@@ -106,15 +106,15 @@ class TestEpicGeneratorReview:
         return state
 
     def test_returns_pending_review(self, monkeypatch):
-        """epic_generator should set pending_review='epic_generator'."""
+        """feature_generator should set pending_review='feature_generator'."""
         fake_response = MagicMock()
-        fake_response.content = VALID_EPICS_JSON
+        fake_response.content = VALID_FEATURES_JSON
         mock_llm = MagicMock()
         mock_llm.invoke.return_value = fake_response
         monkeypatch.setattr("scrum_agent.agent.nodes.get_llm", lambda **kw: mock_llm)
 
-        result = epic_generator(self._make_state())
-        assert result["pending_review"] == "epic_generator"
+        result = feature_generator(self._make_state())
+        assert result["pending_review"] == "feature_generator"
 
     def test_reject_feedback_in_prompt(self, monkeypatch):
         """When last_review_decision=REJECT, feedback should reach the LLM prompt."""
@@ -126,7 +126,7 @@ class TestEpicGeneratorReview:
             def capture_invoke(messages):
                 captured_prompts.append(messages[0].content)
                 resp = MagicMock()
-                resp.content = VALID_EPICS_JSON
+                resp.content = VALID_FEATURES_JSON
                 return resp
 
             mock.invoke.side_effect = capture_invoke
@@ -136,11 +136,11 @@ class TestEpicGeneratorReview:
 
         state = self._make_state(
             last_review_decision=ReviewDecision.REJECT,
-            last_review_feedback="add a security epic",
+            last_review_feedback="add a security feature",
         )
-        epic_generator(state)
+        feature_generator(state)
         assert len(captured_prompts) == 1
-        assert "add a security epic" in captured_prompts[0]
+        assert "add a security feature" in captured_prompts[0]
         assert "User Feedback" in captured_prompts[0]
 
     def test_edit_feedback_with_previous_output_in_prompt(self, monkeypatch):
@@ -153,7 +153,7 @@ class TestEpicGeneratorReview:
             def capture_invoke(messages):
                 captured_prompts.append(messages[0].content)
                 resp = MagicMock()
-                resp.content = VALID_EPICS_JSON
+                resp.content = VALID_FEATURES_JSON
                 return resp
 
             mock.invoke.side_effect = capture_invoke
@@ -163,11 +163,11 @@ class TestEpicGeneratorReview:
 
         state = self._make_state(
             last_review_decision=ReviewDecision.EDIT,
-            last_review_feedback='rename E1\n\n---PREVIOUS OUTPUT---\n[{"id": "E1"}]',
+            last_review_feedback='rename F1\n\n---PREVIOUS OUTPUT---\n[{"id": "F1"}]',
         )
-        epic_generator(state)
+        feature_generator(state)
         assert len(captured_prompts) == 1
-        assert "rename E1" in captured_prompts[0]
+        assert "rename F1" in captured_prompts[0]
         assert "Edit Instructions" in captured_prompts[0]
 
     def test_no_feedback_normal_prompt(self, monkeypatch):
@@ -180,7 +180,7 @@ class TestEpicGeneratorReview:
             def capture_invoke(messages):
                 captured_prompts.append(messages[0].content)
                 resp = MagicMock()
-                resp.content = VALID_EPICS_JSON
+                resp.content = VALID_FEATURES_JSON
                 return resp
 
             mock.invoke.side_effect = capture_invoke
@@ -189,7 +189,7 @@ class TestEpicGeneratorReview:
         monkeypatch.setattr("scrum_agent.agent.nodes.get_llm", mock_llm_factory)
 
         state = self._make_state()
-        epic_generator(state)
+        feature_generator(state)
         assert "User Feedback" not in captured_prompts[0]
         assert "Edit Instructions" not in captured_prompts[0]
 
@@ -199,12 +199,12 @@ class TestStoryWriterReview:
 
     def _make_state(self, **extras: object) -> dict:
         analysis = make_dummy_analysis()
-        epics = [Epic(id="E1", title="Auth", description="Auth epic", priority=Priority.HIGH)]
+        features = [Feature(id="F1", title="Auth", description="Auth feature", priority=Priority.HIGH)]
         state = {
             "messages": [HumanMessage(content="continue")],
             "questionnaire": QuestionnaireState(completed=True),
             "project_analysis": analysis,
-            "epics": epics,
+            "features": features,
         }
         state.update(extras)
         return state
@@ -240,10 +240,10 @@ class TestStoryWriterReview:
 
         state = self._make_state(
             last_review_decision=ReviewDecision.REJECT,
-            last_review_feedback="add more stories per epic",
+            last_review_feedback="add more stories per feature",
         )
         story_writer(state)
-        assert "add more stories per epic" in captured_prompts[0]
+        assert "add more stories per feature" in captured_prompts[0]
 
 
 class TestTaskDecomposerReview:
@@ -251,11 +251,11 @@ class TestTaskDecomposerReview:
 
     def _make_state(self, **extras: object) -> dict:
         analysis = make_dummy_analysis()
-        epics = [Epic(id="E1", title="Auth", description="Auth epic", priority=Priority.HIGH)]
+        features = [Feature(id="F1", title="Auth", description="Auth feature", priority=Priority.HIGH)]
         stories = [
             UserStory(
-                id="US-E1-001",
-                epic_id="E1",
+                id="US-F1-001",
+                feature_id="F1",
                 persona="user",
                 goal="log in",
                 benefit="access the system",
@@ -272,7 +272,7 @@ class TestTaskDecomposerReview:
             "messages": [HumanMessage(content="continue")],
             "questionnaire": QuestionnaireState(completed=True),
             "project_analysis": analysis,
-            "epics": epics,
+            "features": features,
             "stories": stories,
         }
         state.update(extras)
@@ -320,11 +320,11 @@ class TestSprintPlannerReview:
 
     def _make_state(self, **extras: object) -> dict:
         analysis = make_dummy_analysis()
-        epics = [Epic(id="E1", title="Auth", description="Auth epic", priority=Priority.HIGH)]
+        features = [Feature(id="F1", title="Auth", description="Auth feature", priority=Priority.HIGH)]
         stories = [
             UserStory(
-                id="US-E1-001",
-                epic_id="E1",
+                id="US-F1-001",
+                feature_id="F1",
                 persona="user",
                 goal="log in",
                 benefit="access",
@@ -337,7 +337,7 @@ class TestSprintPlannerReview:
             "messages": [HumanMessage(content="continue")],
             "questionnaire": QuestionnaireState(completed=True),
             "project_analysis": analysis,
-            "epics": epics,
+            "features": features,
             "stories": stories,
             "velocity_per_sprint": 20,
             "team_size": 3,

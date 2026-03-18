@@ -24,7 +24,7 @@ from scrum_agent.agent.state import (
 from tests._node_helpers import (
     VALID_SPRINTS_JSON,
     make_dummy_analysis,
-    make_sample_epics,
+    make_sample_features,
     make_sample_sprints,
     make_sample_stories,
 )
@@ -38,41 +38,41 @@ class TestFormatStoriesForSprintPlanner:
     def test_returns_string(self):
         """Should return a non-empty string."""
         stories = make_sample_stories()
-        epics = make_sample_epics()
-        result = _format_stories_for_sprint_planner(stories, epics)
+        features = make_sample_features()
+        result = _format_stories_for_sprint_planner(stories, features)
         assert isinstance(result, str)
         assert len(result) > 0
 
     def test_includes_story_ids(self):
         """All story IDs should appear in the output."""
         stories = make_sample_stories()
-        epics = make_sample_epics()
-        result = _format_stories_for_sprint_planner(stories, epics)
-        assert "US-E1-001" in result
-        assert "US-E1-002" in result
+        features = make_sample_features()
+        result = _format_stories_for_sprint_planner(stories, features)
+        assert "US-F1-001" in result
+        assert "US-F1-002" in result
 
     def test_includes_points_and_priority(self):
         """Story points and priority should appear in the output."""
         stories = make_sample_stories()
-        epics = make_sample_epics()
-        result = _format_stories_for_sprint_planner(stories, epics)
+        features = make_sample_features()
+        result = _format_stories_for_sprint_planner(stories, features)
         assert "5 pts" in result
         assert "3 pts" in result
         assert "high" in result
 
-    def test_includes_epic_headers(self):
-        """Epic titles should appear as group headers."""
+    def test_includes_feature_headers(self):
+        """Feature titles should appear as group headers."""
         stories = make_sample_stories()
-        epics = make_sample_epics()
-        result = _format_stories_for_sprint_planner(stories, epics)
-        assert "E1:" in result
+        features = make_sample_features()
+        result = _format_stories_for_sprint_planner(stories, features)
+        assert "F1:" in result
         assert "User Authentication" in result
 
     def test_does_not_include_acceptance_criteria(self):
         """Sprint planner format should NOT include AC details (compact format)."""
         stories = make_sample_stories()
-        epics = make_sample_epics()
-        result = _format_stories_for_sprint_planner(stories, epics)
+        features = make_sample_features()
+        result = _format_stories_for_sprint_planner(stories, features)
         assert "Given" not in result
         assert "When" not in result
         assert "Then" not in result
@@ -105,7 +105,7 @@ class TestParseSprintsResponse:
         """Only stories with valid IDs should be included."""
         json_str = (
             '[{"id": "SP-1", "name": "Sprint 1", "goal": "Test", '
-            '"capacity_points": 5, "story_ids": ["US-E1-001", "INVALID-999"]}]'
+            '"capacity_points": 5, "story_ids": ["US-F1-001", "INVALID-999"]}]'
         )
         result = _parse_sprints_response(json_str, self._stories(), velocity=20)
         # Invalid story ID should be filtered out
@@ -118,14 +118,14 @@ class TestParseSprintsResponse:
         """Non-dict items in the JSON array should be skipped."""
         json_str = (
             '[42, "string", {"id": "SP-1", "name": "Sprint 1", "goal": "Test", '
-            '"capacity_points": 5, "story_ids": ["US-E1-001"]}]'
+            '"capacity_points": 5, "story_ids": ["US-F1-001"]}]'
         )
         result = _parse_sprints_response(json_str, self._stories(), velocity=20)
         assert len(result) >= 1
 
     def test_auto_generates_ids(self):
         """Sprints with missing IDs should get auto-generated IDs."""
-        json_str = '[{"name": "Sprint 1", "goal": "Test", "capacity_points": 5, "story_ids": ["US-E1-001"]}]'
+        json_str = '[{"name": "Sprint 1", "goal": "Test", "capacity_points": 5, "story_ids": ["US-F1-001"]}]'
         result = _parse_sprints_response(json_str, self._stories(), velocity=20)
         assert result[0].id == "SP-1"
 
@@ -161,11 +161,11 @@ class TestValidateSprintCapacity:
     def test_no_change_when_under_capacity(self):
         """Sprints under velocity should pass through unchanged (except recalculated capacity)."""
         sprints = [
-            Sprint(id="SP-1", name="Sprint 1", goal="Auth", capacity_points=8, story_ids=("US-E1-001", "US-E1-002")),
+            Sprint(id="SP-1", name="Sprint 1", goal="Auth", capacity_points=8, story_ids=("US-F1-001", "US-F1-002")),
         ]
         result = _validate_sprint_capacity(sprints, self._stories(), velocity=20)
         assert len(result) == 1
-        assert set(result[0].story_ids) == {"US-E1-001", "US-E1-002"}
+        assert set(result[0].story_ids) == {"US-F1-001", "US-F1-002"}
 
     def test_recalculates_capacity_points(self):
         """capacity_points should be recalculated from actual story points, not trusted from LLM."""
@@ -175,21 +175,21 @@ class TestValidateSprintCapacity:
                 name="Sprint 1",
                 goal="Auth",
                 capacity_points=999,  # intentionally wrong
-                story_ids=("US-E1-001", "US-E1-002"),
+                story_ids=("US-F1-001", "US-F1-002"),
             ),
         ]
         result = _validate_sprint_capacity(sprints, self._stories(), velocity=20)
-        # US-E1-001=5pts + US-E1-002=3pts = 8pts, not 999
+        # US-F1-001=5pts + US-F1-002=3pts = 8pts, not 999
         assert result[0].capacity_points == 8
 
     def test_redistributes_over_capacity(self):
         """If a sprint exceeds velocity, excess stories should be moved to the next sprint."""
-        # Both stories in one sprint with velocity=5 → only US-E1-001 (5pts) fits
+        # Both stories in one sprint with velocity=5 → only US-F1-001 (5pts) fits
         sprints = [
-            Sprint(id="SP-1", name="Sprint 1", goal="Auth", capacity_points=8, story_ids=("US-E1-001", "US-E1-002")),
+            Sprint(id="SP-1", name="Sprint 1", goal="Auth", capacity_points=8, story_ids=("US-F1-001", "US-F1-002")),
         ]
         result = _validate_sprint_capacity(sprints, self._stories(), velocity=5)
-        # US-E1-001 is 5pts (fits exactly), US-E1-002 is 3pts (overflows)
+        # US-F1-001 is 5pts (fits exactly), US-F1-002 is 3pts (overflows)
         assert len(result) == 2
         assert result[0].capacity_points <= 5
         assert result[1].capacity_points <= 5
@@ -197,8 +197,8 @@ class TestValidateSprintCapacity:
     def test_no_duplicate_stories(self):
         """If a story appears in multiple sprints, only the first occurrence should be kept."""
         sprints = [
-            Sprint(id="SP-1", name="Sprint 1", goal="Auth", capacity_points=5, story_ids=("US-E1-001",)),
-            Sprint(id="SP-2", name="Sprint 2", goal="More", capacity_points=8, story_ids=("US-E1-001", "US-E1-002")),
+            Sprint(id="SP-1", name="Sprint 1", goal="Auth", capacity_points=5, story_ids=("US-F1-001",)),
+            Sprint(id="SP-2", name="Sprint 2", goal="More", capacity_points=8, story_ids=("US-F1-001", "US-F1-002")),
         ]
         result = _validate_sprint_capacity(sprints, self._stories(), velocity=20)
         all_sids = []
@@ -210,7 +210,7 @@ class TestValidateSprintCapacity:
         """All stories should appear in at least one sprint after validation."""
         # Only one story assigned — the other should be added as orphan
         sprints = [
-            Sprint(id="SP-1", name="Sprint 1", goal="Auth", capacity_points=5, story_ids=("US-E1-001",)),
+            Sprint(id="SP-1", name="Sprint 1", goal="Auth", capacity_points=5, story_ids=("US-F1-001",)),
         ]
         result = _validate_sprint_capacity(sprints, self._stories(), velocity=20)
         all_sids = set()
@@ -246,8 +246,8 @@ class TestBuildFallbackSprints:
         """Higher-priority stories should appear in earlier sprints."""
         stories = [
             UserStory(
-                id="US-E1-001",
-                epic_id="E1",
+                id="US-F1-001",
+                feature_id="F1",
                 persona="user",
                 goal="low priority thing",
                 benefit="value",
@@ -256,8 +256,8 @@ class TestBuildFallbackSprints:
                 priority=Priority.LOW,
             ),
             UserStory(
-                id="US-E1-002",
-                epic_id="E1",
+                id="US-F1-002",
+                feature_id="F1",
                 persona="user",
                 goal="critical thing",
                 benefit="value",
@@ -268,7 +268,7 @@ class TestBuildFallbackSprints:
         ]
         result = _build_fallback_sprints(stories, velocity=3)
         # Critical story should be in the first sprint
-        assert "US-E1-002" in result[0].story_ids
+        assert "US-F1-002" in result[0].story_ids
 
     def test_all_stories_allocated(self):
         """Every story should appear in exactly one sprint."""
@@ -296,14 +296,14 @@ class TestBuildFallbackSprints:
         stories = [make_sample_stories()[0]]
         result = _build_fallback_sprints(stories, velocity=20)
         assert len(result) == 1
-        assert "US-E1-001" in result[0].story_ids
+        assert "US-F1-001" in result[0].story_ids
 
     def test_story_larger_than_velocity_gets_own_sprint(self):
         """A story whose points exceed velocity should still get its own sprint."""
         stories = [
             UserStory(
-                id="US-E1-001",
-                epic_id="E1",
+                id="US-F1-001",
+                feature_id="F1",
                 persona="user",
                 goal="big story",
                 benefit="value",
@@ -314,7 +314,7 @@ class TestBuildFallbackSprints:
         ]
         result = _build_fallback_sprints(stories, velocity=5)
         assert len(result) == 1
-        assert "US-E1-001" in result[0].story_ids
+        assert "US-F1-001" in result[0].story_ids
         assert result[0].capacity_points == 8
 
 
@@ -333,8 +333,8 @@ class TestAutoSplitBoundary:
         """When all stories are 8pts and velocity=8, each story gets its own sprint."""
         stories = [
             UserStory(
-                id=f"US-E1-{i:03d}",
-                epic_id="E1",
+                id=f"US-F1-{i:03d}",
+                feature_id="F1",
                 persona="user",
                 goal=f"feature {i}",
                 benefit="value",
@@ -354,8 +354,8 @@ class TestAutoSplitBoundary:
         """Stories of mixed sizes should be packed without exceeding velocity."""
         stories = [
             UserStory(
-                id="US-E1-001",
-                epic_id="E1",
+                id="US-F1-001",
+                feature_id="F1",
                 persona="user",
                 goal="g1",
                 benefit="b",
@@ -364,8 +364,8 @@ class TestAutoSplitBoundary:
                 priority=Priority.HIGH,
             ),
             UserStory(
-                id="US-E1-002",
-                epic_id="E1",
+                id="US-F1-002",
+                feature_id="F1",
                 persona="user",
                 goal="g2",
                 benefit="b",
@@ -374,8 +374,8 @@ class TestAutoSplitBoundary:
                 priority=Priority.HIGH,
             ),
             UserStory(
-                id="US-E1-003",
-                epic_id="E1",
+                id="US-F1-003",
+                feature_id="F1",
                 persona="user",
                 goal="g3",
                 benefit="b",
@@ -384,8 +384,8 @@ class TestAutoSplitBoundary:
                 priority=Priority.MEDIUM,
             ),
             UserStory(
-                id="US-E1-004",
-                epic_id="E1",
+                id="US-F1-004",
+                feature_id="F1",
                 persona="user",
                 goal="g4",
                 benefit="b",
@@ -404,8 +404,8 @@ class TestAutoSplitBoundary:
         """Overloaded sprint should be split, creating additional sprints as needed."""
         stories = [
             UserStory(
-                id=f"US-E1-{i:03d}",
-                epic_id="E1",
+                id=f"US-F1-{i:03d}",
+                feature_id="F1",
                 persona="user",
                 goal=f"g{i}",
                 benefit="b",
@@ -434,8 +434,8 @@ class TestAutoSplitBoundary:
         """A single 8pt story with velocity=5 should get its own sprint (not lost)."""
         stories = [
             UserStory(
-                id="US-E1-001",
-                epic_id="E1",
+                id="US-F1-001",
+                feature_id="F1",
                 persona="user",
                 goal="big",
                 benefit="b",
@@ -444,8 +444,8 @@ class TestAutoSplitBoundary:
                 priority=Priority.HIGH,
             ),
             UserStory(
-                id="US-E1-002",
-                epic_id="E1",
+                id="US-F1-002",
+                feature_id="F1",
                 persona="user",
                 goal="small",
                 benefit="b",
@@ -460,15 +460,15 @@ class TestAutoSplitBoundary:
                 name="Sprint 1",
                 goal="Mix",
                 capacity_points=10,
-                story_ids=("US-E1-001", "US-E1-002"),
+                story_ids=("US-F1-001", "US-F1-002"),
             ),
         ]
         result = _validate_sprint_capacity(sprints, stories, velocity=5)
         all_sids = set()
         for sp in result:
             all_sids.update(sp.story_ids)
-        assert all_sids == {"US-E1-001", "US-E1-002"}
-        assert any("US-E1-001" in sp.story_ids for sp in result)
+        assert all_sids == {"US-F1-001", "US-F1-002"}
+        assert any("US-F1-001" in sp.story_ids for sp in result)
 
     def test_story_point_value_enum_max_is_eight(self):
         """StoryPointValue enum should have 8 as the maximum — auto-split is prompt-enforced."""
@@ -489,40 +489,40 @@ class TestFormatSprints:
     def test_returns_non_empty_string(self):
         """Should return a non-empty markdown string."""
         sprints = make_sample_sprints()
-        result = _format_sprints(sprints, make_sample_stories(), make_sample_epics(), "Test Project", 20)
+        result = _format_sprints(sprints, make_sample_stories(), make_sample_features(), "Test Project", 20)
         assert isinstance(result, str)
         assert len(result) > 0
 
     def test_includes_project_name(self):
         """The project name should appear in the header."""
         sprints = make_sample_sprints()
-        result = _format_sprints(sprints, make_sample_stories(), make_sample_epics(), "Widget Builder", 20)
+        result = _format_sprints(sprints, make_sample_stories(), make_sample_features(), "Widget Builder", 20)
         assert "Widget Builder" in result
 
     def test_includes_velocity(self):
         """The velocity should appear in the output."""
         sprints = make_sample_sprints()
-        result = _format_sprints(sprints, make_sample_stories(), make_sample_epics(), "Test", 15)
+        result = _format_sprints(sprints, make_sample_stories(), make_sample_features(), "Test", 15)
         assert "15" in result
 
     def test_includes_sprint_goals(self):
         """Sprint goals should appear in the output."""
         sprints = make_sample_sprints()
-        result = _format_sprints(sprints, make_sample_stories(), make_sample_epics(), "Test", 20)
+        result = _format_sprints(sprints, make_sample_stories(), make_sample_features(), "Test", 20)
         assert "Auth foundation" in result
         assert "Login flow" in result
 
     def test_includes_story_ids(self):
         """Story IDs should appear in the output."""
         sprints = make_sample_sprints()
-        result = _format_sprints(sprints, make_sample_stories(), make_sample_epics(), "Test", 20)
-        assert "US-E1-001" in result
-        assert "US-E1-002" in result
+        result = _format_sprints(sprints, make_sample_stories(), make_sample_features(), "Test", 20)
+        assert "US-F1-001" in result
+        assert "US-F1-002" in result
 
     def test_includes_review_footer(self):
         """The review prompt footer should be present."""
         sprints = make_sample_sprints()
-        result = _format_sprints(sprints, make_sample_stories(), make_sample_epics(), "Test", 20)
+        result = _format_sprints(sprints, make_sample_stories(), make_sample_features(), "Test", 20)
         assert "[Accept / Edit / Reject]" in result
 
 
@@ -535,17 +535,17 @@ class TestSprintPlanner:
     def _make_state(self, **extras: object) -> dict:
         """Build a minimal state for sprint planner tests."""
         analysis = make_dummy_analysis()
-        epics = make_sample_epics()
+        features = make_sample_features()
         stories = make_sample_stories()
         tasks = [
-            Task(id="T-US-E1-001-01", story_id="US-E1-001", title="Impl registration", description="Build it"),
-            Task(id="T-US-E1-002-01", story_id="US-E1-002", title="Impl login", description="Build it"),
+            Task(id="T-US-F1-001-01", story_id="US-F1-001", title="Impl registration", description="Build it"),
+            Task(id="T-US-F1-002-01", story_id="US-F1-002", title="Impl login", description="Build it"),
         ]
         state = {
             "messages": [HumanMessage(content="continue")],
             "questionnaire": QuestionnaireState(completed=True),
             "project_analysis": analysis,
-            "epics": epics,
+            "features": features,
             "stories": stories,
             "tasks": tasks,
             "velocity_per_sprint": 20,
@@ -670,16 +670,16 @@ class TestCapacityWarning:
     def _make_state(self, **extras: object) -> dict:
         """Build a minimal state for capacity warning tests."""
         analysis = make_dummy_analysis()
-        epics = make_sample_epics()
+        features = make_sample_features()
         stories = make_sample_stories()  # 5 + 3 = 8 total points
         tasks = [
-            Task(id="T-US-E1-001-01", story_id="US-E1-001", title="Impl", description="Build"),
+            Task(id="T-US-F1-001-01", story_id="US-F1-001", title="Impl", description="Build"),
         ]
         state = {
             "messages": [HumanMessage(content="continue")],
             "questionnaire": QuestionnaireState(completed=True),
             "project_analysis": analysis,
-            "epics": epics,
+            "features": features,
             "stories": stories,
             "tasks": tasks,
             "velocity_per_sprint": 3,  # Low velocity to trigger overflow (8 pts / 3 = 3 sprints needed)
@@ -889,7 +889,7 @@ class TestMergeSprintsToTarget:
         sprints = []
         sid = 1
         for i in range(n):
-            story_ids = tuple(f"US-E1-{sid + j:03d}" for j in range(stories_per))
+            story_ids = tuple(f"US-F1-{sid + j:03d}" for j in range(stories_per))
             sprints.append(
                 Sprint(
                     id=f"SP-{i + 1}",
@@ -910,7 +910,7 @@ class TestMergeSprintsToTarget:
                 stories.append(
                     UserStory(
                         id=sid,
-                        epic_id="E1",
+                        feature_id="F1",
                         persona="user",
                         goal="do something",
                         benefit="value",

@@ -169,7 +169,7 @@ class TestLengthAttackScenarios:
         """A detailed 3-paragraph project brief is accepted (typical user input)."""
         description = (
             "We are building a full-stack SaaS platform for engineering teams "
-            "to manage sprints, epics, and user stories. The frontend uses React "
+            "to manage sprints, features, and user stories. The frontend uses React "
             "with TypeScript, the backend is FastAPI with PostgreSQL. "
             "We have a team of 6 engineers and are targeting a 12-week delivery "
             "with 2-week sprints. MVP scope is auth, task CRUD, and sprint board. "

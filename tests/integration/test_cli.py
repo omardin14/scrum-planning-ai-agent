@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from scrum_agent import __version__
-from scrum_agent.agent.state import Epic, Priority, ProjectAnalysis, QuestionnaireState
+from scrum_agent.agent.state import Feature, Priority, ProjectAnalysis, QuestionnaireState
 from scrum_agent.cli import (
     DEFAULT_QUESTIONNAIRE_FILENAME,
     _build_sessions_table,
@@ -530,12 +530,12 @@ class TestListSessionsFlag:
         monkeypatch.setattr("scrum_agent.cli._SESSIONS_DB_DIR", tmp_path)
         with SessionStore(db_path) as store:
             store.create_session("new-aaaa1111-2026-03-06", project_name="TestProject")
-            store.update_last_node("new-aaaa1111-2026-03-06", "epic_generator")
+            store.update_last_node("new-aaaa1111-2026-03-06", "feature_generator")
         main(argv=["--list-sessions"])
         output = capsys.readouterr().out
         # Phase 8C: Project column now shows unique display name (slug-date)
         assert "testproject" in output
-        assert "epic_generator" in output
+        assert "feature_generator" in output
         mock_repl.assert_not_called()
 
     @patch("scrum_agent.cli.run_repl")
@@ -703,7 +703,7 @@ class TestResumeLatestPicksMostRecent:
             store.create_session("session-new", project_name="NewProject")
             store.save_state("session-new", {"messages": [], "team_size": 7})
             # Touch session-new so it has the latest last_modified
-            store.update_last_node("session-new", "epic_generator")
+            store.update_last_node("session-new", "feature_generator")
         console = MagicMock()
         state, sid = _resolve_resume(console, "latest")
         assert sid == "session-new"
@@ -746,28 +746,28 @@ class TestResumeSkipsCompletedNodes:
             assumptions=(),
         )
 
-    def test_resume_with_epics_routes_to_story_writer(self, tmp_path, monkeypatch):
-        """Session with questionnaire + analysis + epics → next node is story_writer."""
+    def test_resume_with_features_routes_to_story_writer(self, tmp_path, monkeypatch):
+        """Session with questionnaire + analysis + features → next node is story_writer."""
         monkeypatch.setattr("scrum_agent.cli._SESSIONS_DB_DIR", tmp_path)
         db_path = tmp_path / "sessions.db"
         qs = QuestionnaireState(completed=True)
-        epic = Epic(id="e-1", title="E1", description="D", priority=Priority.HIGH)
+        feature = Feature(id="f-1", title="F1", description="D", priority=Priority.HIGH)
         state_in = {
             "messages": [],
             "questionnaire": qs,
             "project_analysis": self._make_analysis(),
-            "epics": [epic],
+            "features": [feature],
         }
         with SessionStore(db_path) as store:
-            store.create_session("resume-epic-done")
-            store.save_state("resume-epic-done", state_in)
+            store.create_session("resume-feature-done")
+            store.save_state("resume-feature-done", state_in)
         console = MagicMock()
-        state, sid = _resolve_resume(console, "resume-epic-done")
+        state, sid = _resolve_resume(console, "resume-feature-done")
         assert state is not None
         assert _predict_next_node(state) == "story_writer"
 
-    def test_resume_with_analysis_only_routes_to_epic_generator(self, tmp_path, monkeypatch):
-        """Session with questionnaire + analysis (no epics) → next node is epic_generator."""
+    def test_resume_with_analysis_only_routes_to_feature_generator(self, tmp_path, monkeypatch):
+        """Session with questionnaire + analysis (no features) → next node is feature_generator."""
         monkeypatch.setattr("scrum_agent.cli._SESSIONS_DB_DIR", tmp_path)
         db_path = tmp_path / "sessions.db"
         qs = QuestionnaireState(completed=True)
@@ -782,7 +782,7 @@ class TestResumeSkipsCompletedNodes:
         console = MagicMock()
         state, sid = _resolve_resume(console, "resume-analysis-done")
         assert state is not None
-        assert _predict_next_node(state) == "epic_generator"
+        assert _predict_next_node(state) == "feature_generator"
 
     def test_resume_mid_questionnaire_routes_to_intake(self, tmp_path, monkeypatch):
         """Session with incomplete questionnaire → next node is project_intake."""

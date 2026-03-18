@@ -15,6 +15,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from scrum_agent.agent.nodes import (
     _build_answers_block,
     _build_fallback_analysis,
+    _extract_confluence_page_ids,
     _fetch_confluence_context,
     _format_analysis,
     _load_user_context,
@@ -133,8 +134,8 @@ class TestParseAnalysisResponse:
         assert result.sprint_length_weeks == 2  # default
         assert result.target_sprints == 0  # default
 
-    def test_skip_epics_true_when_small_project(self):
-        """skip_epics=true should be kept when project is small (≤2 sprints, ≤3 goals)."""
+    def test_skip_features_true_when_small_project(self):
+        """skip_features=true should be kept when project is small (≤2 sprints, ≤3 goals)."""
         # Build a small project JSON: 1 sprint, 2 goals
         small_json = """{
             "project_name": "Tiny API",
@@ -151,20 +152,20 @@ class TestParseAnalysisResponse:
             "risks": [],
             "out_of_scope": [],
             "assumptions": [],
-            "skip_epics": true
+            "skip_features": true
         }"""
         result = _parse_analysis_response(small_json, self._qs(), 1, 10)
-        assert result.skip_epics is True
+        assert result.skip_features is True
 
-    def test_skip_epics_overridden_when_many_sprints(self):
-        """skip_epics=true should be forced to False when target_sprints > 2."""
-        json_with_skip = VALID_ANALYSIS_JSON.rstrip("}") + ', "skip_epics": true}'
+    def test_skip_features_overridden_when_many_sprints(self):
+        """skip_features=true should be forced to False when target_sprints > 2."""
+        json_with_skip = VALID_ANALYSIS_JSON.rstrip("}") + ', "skip_features": true}'
         result = _parse_analysis_response(json_with_skip, self._qs(), 3, 15)
         # VALID_ANALYSIS_JSON has target_sprints=4, so guardrail overrides
-        assert result.skip_epics is False
+        assert result.skip_features is False
 
-    def test_skip_epics_overridden_when_many_goals(self):
-        """skip_epics=true should be forced to False when goals > 3."""
+    def test_skip_features_overridden_when_many_goals(self):
+        """skip_features=true should be forced to False when goals > 3."""
         many_goals_json = """{
             "project_name": "Big App",
             "project_description": "A complex app",
@@ -180,21 +181,21 @@ class TestParseAnalysisResponse:
             "risks": [],
             "out_of_scope": [],
             "assumptions": [],
-            "skip_epics": true
+            "skip_features": true
         }"""
         result = _parse_analysis_response(many_goals_json, self._qs(), 3, 15)
-        assert result.skip_epics is False
+        assert result.skip_features is False
 
-    def test_skip_epics_false_extracted(self):
-        """skip_epics=false in JSON should be extracted as False."""
-        json_with_skip = VALID_ANALYSIS_JSON.rstrip("}") + ', "skip_epics": false}'
+    def test_skip_features_false_extracted(self):
+        """skip_features=false in JSON should be extracted as False."""
+        json_with_skip = VALID_ANALYSIS_JSON.rstrip("}") + ', "skip_features": false}'
         result = _parse_analysis_response(json_with_skip, self._qs(), 3, 15)
-        assert result.skip_epics is False
+        assert result.skip_features is False
 
-    def test_skip_epics_missing_defaults_false(self):
-        """Missing skip_epics should default to False."""
+    def test_skip_features_missing_defaults_false(self):
+        """Missing skip_features should default to False."""
         result = _parse_analysis_response(VALID_ANALYSIS_JSON, self._qs(), 3, 15)
-        assert result.skip_epics is False
+        assert result.skip_features is False
 
 
 class TestBuildFallbackAnalysis:
@@ -674,6 +675,139 @@ class TestFetchConfluenceContext:
         assert ctx is None
         assert status["status"] == "error"
 
+    def test_fetches_pages_from_scrum_md_urls(self, monkeypatch):
+        """Fetches Confluence pages directly when SCRUM.md contains wiki URLs."""
+        # Search returns nothing, but SCRUM.md has a direct page URL
+        mock_search = MagicMock()
+        mock_search.invoke.return_value = "No Confluence pages found for 'My Project'."
+        monkeypatch.setattr("scrum_agent.tools.confluence.confluence_search_docs", mock_search)
+
+        mock_read = MagicMock()
+        mock_read.invoke.return_value = "=== RunBook: Container Restart ===\nURL: ...\n\nStep 1: Check pods..."
+        monkeypatch.setattr("scrum_agent.tools.confluence.confluence_read_page", mock_read)
+
+        monkeypatch.setenv("JIRA_BASE_URL", "https://example.atlassian.net")
+        monkeypatch.setenv("JIRA_EMAIL", "user@example.com")
+        monkeypatch.setenv("JIRA_API_TOKEN", "token")
+
+        user_context = (
+            "## Key Links\n"
+            "- RunBook: https://example.atlassian.net/wiki/spaces/ISS/pages/1234567890/Container+Restart\n"
+        )
+        qs = self._make_qs("My Project")
+        result, status = _fetch_confluence_context(qs, user_context=user_context)
+        assert result is not None
+        assert "Container Restart" in result
+        assert status["status"] == "success"
+        mock_read.invoke.assert_called_once_with({"page_id": "1234567890"})
+
+    def test_combines_search_and_linked_pages(self, monkeypatch):
+        """Combines keyword search results with directly fetched pages from SCRUM.md URLs."""
+        mock_search = MagicMock()
+        mock_search.invoke.return_value = "Confluence search results for 'My Project':\n\n[ADR-001] ..."
+        monkeypatch.setattr("scrum_agent.tools.confluence.confluence_search_docs", mock_search)
+
+        mock_read = MagicMock()
+        mock_read.invoke.return_value = "=== RunBook ===\nStep 1..."
+        monkeypatch.setattr("scrum_agent.tools.confluence.confluence_read_page", mock_read)
+
+        monkeypatch.setenv("JIRA_BASE_URL", "https://example.atlassian.net")
+        monkeypatch.setenv("JIRA_EMAIL", "user@example.com")
+        monkeypatch.setenv("JIRA_API_TOKEN", "token")
+
+        user_context = "- https://example.atlassian.net/wiki/spaces/ISS/pages/999/RunBook\n"
+        qs = self._make_qs("My Project")
+        result, status = _fetch_confluence_context(qs, user_context=user_context)
+        assert "ADR-001" in result
+        assert "RunBook" in result
+        assert "---" in result  # separator between parts
+        assert "linked page" in status["detail"]
+
+    def test_deduplicates_page_ids(self, monkeypatch):
+        """Does not fetch the same Confluence page ID twice."""
+        mock_search = MagicMock()
+        mock_search.invoke.return_value = "No Confluence pages found."
+        monkeypatch.setattr("scrum_agent.tools.confluence.confluence_search_docs", mock_search)
+
+        mock_read = MagicMock()
+        mock_read.invoke.return_value = "=== Page ===\nContent"
+        monkeypatch.setattr("scrum_agent.tools.confluence.confluence_read_page", mock_read)
+
+        monkeypatch.setenv("JIRA_BASE_URL", "https://example.atlassian.net")
+        monkeypatch.setenv("JIRA_EMAIL", "user@example.com")
+        monkeypatch.setenv("JIRA_API_TOKEN", "token")
+
+        # Same page ID appears twice
+        user_context = (
+            "- https://example.atlassian.net/wiki/spaces/ISS/pages/111/Page1\n"
+            "- https://example.atlassian.net/wiki/spaces/ISS/pages/111/Page1?v=2\n"
+        )
+        qs = self._make_qs("My Project")
+        _fetch_confluence_context(qs, user_context=user_context)
+        assert mock_read.invoke.call_count == 1
+
+    def test_skips_failed_page_fetches_gracefully(self, monkeypatch):
+        """Continues when individual page fetches fail."""
+        mock_search = MagicMock()
+        mock_search.invoke.return_value = "No Confluence pages found."
+        monkeypatch.setattr("scrum_agent.tools.confluence.confluence_search_docs", mock_search)
+
+        mock_read = MagicMock()
+        mock_read.invoke.side_effect = [
+            RuntimeError("Page deleted"),
+            "=== Good Page ===\nContent",
+        ]
+        monkeypatch.setattr("scrum_agent.tools.confluence.confluence_read_page", mock_read)
+
+        monkeypatch.setenv("JIRA_BASE_URL", "https://example.atlassian.net")
+        monkeypatch.setenv("JIRA_EMAIL", "user@example.com")
+        monkeypatch.setenv("JIRA_API_TOKEN", "token")
+
+        user_context = (
+            "- https://example.atlassian.net/wiki/spaces/ISS/pages/111/Bad\n"
+            "- https://example.atlassian.net/wiki/spaces/ISS/pages/222/Good\n"
+        )
+        qs = self._make_qs("My Project")
+        result, status = _fetch_confluence_context(qs, user_context=user_context)
+        assert result is not None
+        assert "Good Page" in result
+        assert status["status"] == "success"
+
+
+class TestExtractConfluencePageIds:
+    """Tests for _extract_confluence_page_ids() helper."""
+
+    def test_extracts_page_id_from_standard_url(self):
+        text = "https://example.atlassian.net/wiki/spaces/ISS/pages/1359905111/Domain+Container"
+        assert _extract_confluence_page_ids(text) == ["1359905111"]
+
+    def test_extracts_multiple_page_ids(self):
+        text = (
+            "- https://x.atlassian.net/wiki/spaces/A/pages/111/Page1\n"
+            "- https://x.atlassian.net/wiki/spaces/B/pages/222/Page2\n"
+        )
+        assert _extract_confluence_page_ids(text) == ["111", "222"]
+
+    def test_handles_urls_with_query_params(self):
+        text = "https://x.atlassian.net/wiki/spaces/ISS/pages/999/Title?atlOrigin=abc123"
+        assert _extract_confluence_page_ids(text) == ["999"]
+
+    def test_returns_empty_for_no_urls(self):
+        assert _extract_confluence_page_ids("No links here") == []
+
+    def test_returns_empty_for_non_confluence_urls(self):
+        assert _extract_confluence_page_ids("https://github.com/org/repo") == []
+
+    def test_handles_real_scrum_md_content(self):
+        """Parses the URL format from a real SCRUM.md file."""
+        text = """## Key Links
+- Run Book 1: https://youlend.atlassian.net/wiki/spaces/ISS/pages/1359905111/Domain+Container+Service+Restart+Critical?atlOrigin=eyJpIjoi
+- Run Book 2: https://youlend.atlassian.net/wiki/spaces/ISS/pages/1359904787/Frequent+Container+Restarts
+- BITS SRE: https://www.datadoghq.com/blog/bits-ai-sre/
+"""
+        ids = _extract_confluence_page_ids(text)
+        assert ids == ["1359905111", "1359904787"]
+
 
 class TestProjectAnalyzerConfluenceContext:
     """Tests that project_analyzer integrates _fetch_confluence_context correctly."""
@@ -702,7 +836,7 @@ class TestProjectAnalyzerConfluenceContext:
         )
         monkeypatch.setattr(
             "scrum_agent.agent.nodes._fetch_confluence_context",
-            lambda _qs: (
+            lambda _qs, **kw: (
                 "Confluence search results for 'My Project':\n\n[ADR-001] ...",
                 {"name": "Confluence", "status": "success", "detail": "test"},
             ),
@@ -725,7 +859,7 @@ class TestProjectAnalyzerConfluenceContext:
         )
         monkeypatch.setattr(
             "scrum_agent.agent.nodes._fetch_confluence_context",
-            lambda _qs: (None, {"name": "Confluence", "status": "skipped", "detail": "test"}),
+            lambda _qs, **kw: (None, {"name": "Confluence", "status": "skipped", "detail": "test"}),
         )
 
         result = project_analyzer(self._make_state())
@@ -926,7 +1060,7 @@ class TestProjectAnalyzerUserContext:
         )
         monkeypatch.setattr(
             "scrum_agent.agent.nodes._fetch_confluence_context",
-            lambda _qs: (None, {"name": "Confluence", "status": "skipped", "detail": "test"}),
+            lambda _qs, **kw: (None, {"name": "Confluence", "status": "skipped", "detail": "test"}),
         )
         monkeypatch.setattr(
             "scrum_agent.agent.nodes._load_user_context",
@@ -957,7 +1091,7 @@ class TestProjectAnalyzerUserContext:
         )
         monkeypatch.setattr(
             "scrum_agent.agent.nodes._fetch_confluence_context",
-            lambda _qs: (None, {"name": "Confluence", "status": "skipped", "detail": "test"}),
+            lambda _qs, **kw: (None, {"name": "Confluence", "status": "skipped", "detail": "test"}),
         )
         monkeypatch.setattr(
             "scrum_agent.agent.nodes._load_user_context",

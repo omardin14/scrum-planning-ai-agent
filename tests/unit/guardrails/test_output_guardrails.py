@@ -17,7 +17,7 @@ from scrum_agent.output_guardrails import (
 
 
 def _story(
-    id: str = "US-E1-001",
+    id: str = "US-F1-001",
     persona: str = "developer",
     goal: str = "deploy the app",
     benefit: str = "users can access it",
@@ -31,7 +31,7 @@ def _story(
         )
     return UserStory(
         id=id,
-        epic_id="E1",
+        feature_id="F1",
         persona=persona,
         goal=goal,
         benefit=benefit,
@@ -41,7 +41,7 @@ def _story(
     )
 
 
-def _sprint(id: str = "S1", name: str = "Sprint 1", story_ids: tuple[str, ...] = ("US-E1-001",)) -> Sprint:
+def _sprint(id: str = "S1", name: str = "Sprint 1", story_ids: tuple[str, ...] = ("US-F1-001",)) -> Sprint:
     return Sprint(id=id, name=name, goal="Deliver features", capacity_points=0, story_ids=story_ids)
 
 
@@ -133,10 +133,10 @@ class TestValidateSprintCapacity:
 
     def test_over_capacity_warns(self):
         stories = [
-            _story(id="US-E1-001", points=StoryPointValue.FIVE),
-            _story(id="US-E1-002", points=StoryPointValue.EIGHT),
+            _story(id="US-F1-001", points=StoryPointValue.FIVE),
+            _story(id="US-F1-002", points=StoryPointValue.EIGHT),
         ]
-        sprints = [_sprint(story_ids=("US-E1-001", "US-E1-002"))]
+        sprints = [_sprint(story_ids=("US-F1-001", "US-F1-002"))]
         warnings = validate_sprint_capacity(sprints, stories, velocity=10)
         assert len(warnings) == 1
         assert "exceeds" in warnings[0]
@@ -167,8 +167,8 @@ class TestValidateScopeVsCapacity:
 
     def test_small_overrun_ignored(self):
         """≤10% overage is tolerated."""
-        stories = [_story(id="US-E1-001", points=StoryPointValue.FIVE)]
-        sprints = [_sprint(story_ids=("US-E1-001",))]
+        stories = [_story(id="US-F1-001", points=StoryPointValue.FIVE)]
+        sprints = [_sprint(story_ids=("US-F1-001",))]
         # 5 pts vs 5 capacity (1 sprint × 5 velocity) = exactly at capacity
         assert validate_scope_vs_capacity(sprints, stories, velocity=5) == []
 

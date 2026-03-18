@@ -1,10 +1,10 @@
-"""Tests for the epic generator prompt template."""
+"""Tests for the feature generator prompt template."""
 
-from scrum_agent.prompts.epic_generator import (
+from scrum_agent.prompts.feature_generator import (
     _ALLOWED_PRIORITIES,
-    MAX_EPICS,
-    MIN_EPICS,
-    get_epic_generator_prompt,
+    MAX_FEATURES,
+    MIN_FEATURES,
+    get_feature_generator_prompt,
 )  # noqa: I001 — _ALLOWED_PRIORITIES is a private constant needed for validation tests
 
 
@@ -23,14 +23,14 @@ def _make_prompt(**overrides: str) -> str:
         "target_sprints": "4",
     }
     defaults.update(overrides)
-    return get_epic_generator_prompt(**defaults)
+    return get_feature_generator_prompt(**defaults)
 
 
-class TestGetEpicGeneratorPrompt:
-    """Tests for get_epic_generator_prompt()."""
+class TestGetFeatureGeneratorPrompt:
+    """Tests for get_feature_generator_prompt()."""
 
     def test_returns_string(self):
-        """get_epic_generator_prompt should return a non-empty string."""
+        """get_feature_generator_prompt should return a non-empty string."""
         result = _make_prompt()
         assert isinstance(result, str)
         assert len(result) > 0
@@ -68,18 +68,18 @@ class TestGetEpicGeneratorPrompt:
         assert "Tight timeline" in result
 
     def test_includes_json_schema(self):
-        """The JSON schema with epic fields should be present."""
+        """The JSON schema with feature fields should be present."""
         result = _make_prompt()
         assert '"id"' in result
         assert '"title"' in result
         assert '"description"' in result
         assert '"priority"' in result
 
-    def test_includes_epic_count_guidance(self):
-        """The prompt should specify the min and max epic count."""
+    def test_includes_feature_count_guidance(self):
+        """The prompt should specify the min and max feature count."""
         result = _make_prompt()
-        assert str(MIN_EPICS) in result
-        assert str(MAX_EPICS) in result
+        assert str(MIN_FEATURES) in result
+        assert str(MAX_FEATURES) in result
 
     def test_includes_priority_values(self):
         """The prompt should list allowed priority values."""
@@ -103,30 +103,30 @@ class TestGetEpicGeneratorPrompt:
         assert "6" in result
 
 
-class TestEpicGeneratorPromptConstants:
+class TestFeatureGeneratorPromptConstants:
     """Tests for prompt constants."""
 
-    def test_min_epics_is_3(self):
-        assert MIN_EPICS == 3
+    def test_min_features_is_3(self):
+        assert MIN_FEATURES == 3
 
-    def test_max_epics_is_6(self):
-        assert MAX_EPICS == 6
+    def test_max_features_is_6(self):
+        assert MAX_FEATURES == 6
 
     def test_allowed_priorities_match_enum(self):
         """Allowed priorities should match the Priority StrEnum values."""
         assert set(_ALLOWED_PRIORITIES) == {"critical", "high", "medium", "low"}
 
 
-class TestEpicGeneratorPromptImports:
+class TestFeatureGeneratorPromptImports:
     """Verify imports from the expected locations."""
 
-    def test_importable_from_epic_generator_module(self):
-        from scrum_agent.prompts.epic_generator import get_epic_generator_prompt as imported_fn
+    def test_importable_from_feature_generator_module(self):
+        from scrum_agent.prompts.feature_generator import get_feature_generator_prompt as imported_fn
 
-        assert imported_fn is get_epic_generator_prompt
+        assert imported_fn is get_feature_generator_prompt
 
 
-class TestEpicGeneratorPromptOutOfScope:
+class TestFeatureGeneratorPromptOutOfScope:
     """Tests for the out_of_scope parameter."""
 
     def test_out_of_scope_section_present_when_provided(self):
@@ -137,9 +137,9 @@ class TestEpicGeneratorPromptOutOfScope:
         assert "CI/CD pipeline setup" in result
 
     def test_out_of_scope_exclusion_rule_present(self):
-        """The prompt should include a rule about not creating epics for out-of-scope items."""
+        """The prompt should include a rule about not creating features for out-of-scope items."""
         result = _make_prompt()
-        assert "Do NOT create epics for items listed under Out of Scope" in result
+        assert "Do NOT create features for items listed under Out of Scope" in result
 
     def test_out_of_scope_defaults_to_empty(self):
         """Out of scope should be present as a section even when empty."""
@@ -147,7 +147,7 @@ class TestEpicGeneratorPromptOutOfScope:
         assert "### Out of Scope" in result
 
 
-class TestEpicGeneratorPromptRepoContext:
+class TestFeatureGeneratorPromptRepoContext:
     """Tests for the repo_context parameter."""
 
     def test_repo_context_section_present_when_provided(self):

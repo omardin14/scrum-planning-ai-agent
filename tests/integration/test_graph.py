@@ -8,7 +8,7 @@ from langgraph.graph.state import CompiledStateGraph
 from scrum_agent.agent.graph import create_graph
 from scrum_agent.agent.state import (
     AcceptanceCriterion,
-    Epic,
+    Feature,
     Priority,
     ProjectAnalysis,
     QuestionnaireState,
@@ -20,7 +20,7 @@ from scrum_agent.agent.state import (
 from scrum_agent.prompts.intake import INTAKE_QUESTIONS
 
 # ── Realistic mock data ────────────────────────────────────────────
-# Used by TestEpicGenerationScenario and TestMultiTurnEpicConversation
+# Used by TestFeatureGenerationScenario and TestMultiTurnFeatureConversation
 # to validate the full pipeline with content resembling real LLM output.
 
 _TODO_APP_DESCRIPTION = (
@@ -29,32 +29,32 @@ _TODO_APP_DESCRIPTION = (
     "responsive dashboard. Tech stack: React frontend, FastAPI backend, PostgreSQL."
 )
 
-_MOCK_EPIC_RESPONSE = """\
-Based on your project description, here is the initial epic decomposition:
+_MOCK_FEATURE_RESPONSE = """\
+Based on your project description, here is the initial feature decomposition:
 
-**Epic 1: User Authentication & Authorization**
+**Feature 1: User Authentication & Authorization**
 Priority: High
 Scope: Registration, login, logout, password reset, JWT token management, role-based access.
 
-**Epic 2: Task Management (CRUD)**
+**Feature 2: Task Management (CRUD)**
 Priority: High
 Scope: Create, read, update, and delete tasks. Assign due dates, \
 set priority levels (Low, Medium, High, Critical), mark tasks as complete.
 
-**Epic 3: Dashboard & Reporting**
+**Feature 3: Dashboard & Reporting**
 Priority: Medium
 Scope: Responsive dashboard showing task summary, overdue items, priority breakdown, and completion trends.
 
-**Epic 4: Infrastructure & DevOps**
+**Feature 4: Infrastructure & DevOps**
 Priority: High
 Scope: Project scaffolding (React + FastAPI + PostgreSQL), CI/CD pipeline, \
 database migrations, deployment configuration.
 
-Would you like me to proceed with breaking these epics into user stories, \
-or would you like to adjust any of the epics first?"""
+Would you like me to proceed with breaking these features into user stories, \
+or would you like to adjust any of the features first?"""
 
 _MOCK_CLARIFICATION = (
-    "Before I decompose this into epics, I have a few clarifying questions:\n\n"
+    "Before I decompose this into features, I have a few clarifying questions:\n\n"
     "1. How many users do you expect to support initially?\n"
     "2. Do you need real-time updates (WebSockets) or is polling acceptable?\n"
     "3. Are there any existing authentication providers you'd like to integrate with (e.g. OAuth, SSO)?"
@@ -87,10 +87,10 @@ class TestCreateGraphCompilation:
         graph = create_graph()
         assert "project_analyzer" in graph.nodes
 
-    def test_has_epic_generator_node(self):
-        """The compiled graph must contain an 'epic_generator' node."""
+    def test_has_feature_generator_node(self):
+        """The compiled graph must contain a 'feature_generator' node."""
         graph = create_graph()
-        assert "epic_generator" in graph.nodes
+        assert "feature_generator" in graph.nodes
 
     def test_has_story_writer_node(self):
         """The compiled graph must contain a 'story_writer' node."""
@@ -139,9 +139,9 @@ class TestCreateGraphCompilation:
 class TestCreateGraphInvocation:
     """Tests that the compiled graph runs correctly (monkeypatched LLM).
 
-    These tests pass a completed questionnaire + project_analysis + epics
+    These tests pass a completed questionnaire + project_analysis + features
     so the graph routes to the "agent" node (the LLM path), not the intake,
-    analyzer, or epic_generator nodes.
+    analyzer, or feature_generator nodes.
     """
 
     def _completed_questionnaire(self) -> QuestionnaireState:
@@ -181,7 +181,7 @@ class TestCreateGraphInvocation:
                 "messages": [HumanMessage(content="Hello")],
                 "questionnaire": self._completed_questionnaire(),
                 "project_analysis": self._dummy_analysis(),
-                "epics": _dummy_epics(),
+                "features": _dummy_features(),
                 "stories": _dummy_stories(),
                 "tasks": _dummy_tasks(),
                 "sprints": _dummy_sprints(),
@@ -207,7 +207,7 @@ class TestCreateGraphInvocation:
                 "messages": [HumanMessage(content="Plan my project")],
                 "questionnaire": self._completed_questionnaire(),
                 "project_analysis": self._dummy_analysis(),
-                "epics": _dummy_epics(),
+                "features": _dummy_features(),
                 "stories": _dummy_stories(),
                 "tasks": _dummy_tasks(),
                 "sprints": _dummy_sprints(),
@@ -235,7 +235,7 @@ class TestCreateGraphInvocation:
                 "messages": [msg1, msg2, msg3],
                 "questionnaire": self._completed_questionnaire(),
                 "project_analysis": self._dummy_analysis(),
-                "epics": _dummy_epics(),
+                "features": _dummy_features(),
                 "stories": _dummy_stories(),
                 "tasks": _dummy_tasks(),
                 "sprints": _dummy_sprints(),
@@ -269,9 +269,9 @@ class TestCreateGraphImports:
         assert imported_fn is create_graph
 
 
-# ── Epic generation scenario tests ─────────────────────────────────
+# ── Feature generation scenario tests ─────────────────────────────────
 # These tests validate the full pipeline with a realistic scenario:
-# project description → system prompt injection → LLM → structured epic output.
+# project description → system prompt injection → LLM → structured feature output.
 # See README: "The ReAct Loop" — this tests the Thought step with realistic content.
 
 
@@ -295,17 +295,17 @@ def _dummy_analysis() -> ProjectAnalysis:
     )
 
 
-def _dummy_epics() -> list[Epic]:
-    """Return a minimal list of epics for routing past the epic_generator in tests."""
-    return [Epic(id="E1", title="Core Features", description="Core project features", priority=Priority.HIGH)]
+def _dummy_features() -> list[Feature]:
+    """Return a minimal list of features for routing past the feature_generator in tests."""
+    return [Feature(id="F1", title="Core Features", description="Core project features", priority=Priority.HIGH)]
 
 
 def _dummy_stories() -> list[UserStory]:
     """Return a minimal list of stories for routing past the story_writer in tests."""
     return [
         UserStory(
-            id="US-E1-001",
-            epic_id="E1",
+            id="US-F1-001",
+            feature_id="F1",
             persona="user",
             goal="do something",
             benefit="value is delivered",
@@ -318,24 +318,24 @@ def _dummy_stories() -> list[UserStory]:
 
 def _dummy_tasks() -> list[Task]:
     """Return a minimal list of tasks for routing past the task_decomposer in tests."""
-    return [Task(id="T-US-E1-001-01", story_id="US-E1-001", title="Implement feature", description="Build it")]
+    return [Task(id="T-US-E1-001-01", story_id="US-F1-001", title="Implement feature", description="Build it")]
 
 
 def _dummy_sprints() -> list[Sprint]:
     """Return a minimal list of sprints for routing past the sprint_planner in tests."""
-    return [Sprint(id="SP-1", name="Sprint 1", goal="Core features", capacity_points=3, story_ids=("US-E1-001",))]
+    return [Sprint(id="SP-1", name="Sprint 1", goal="Core features", capacity_points=3, story_ids=("US-F1-001",))]
 
 
-class TestEpicGenerationScenario:
-    """Tests that a project description flows through the graph and produces epic output.
+class TestFeatureGenerationScenario:
+    """Tests that a project description flows through the graph and produces feature output.
 
-    All tests pass a completed questionnaire + project_analysis + epics
+    All tests pass a completed questionnaire + project_analysis + features
     so the graph routes to the agent node.
     """
 
-    def _invoke_with_mock_epics(self, monkeypatch):
-        """Helper: monkeypatch the LLM to return _MOCK_EPIC_RESPONSE, invoke the graph."""
-        fake_response = AIMessage(content=_MOCK_EPIC_RESPONSE)
+    def _invoke_with_mock_features(self, monkeypatch):
+        """Helper: monkeypatch the LLM to return _MOCK_FEATURE_RESPONSE, invoke the graph."""
+        fake_response = AIMessage(content=_MOCK_FEATURE_RESPONSE)
         mock_llm = MagicMock()
         mock_llm.bind_tools.return_value = mock_llm
         mock_llm.invoke.return_value = fake_response
@@ -347,7 +347,7 @@ class TestEpicGenerationScenario:
                 "messages": [HumanMessage(content=_TODO_APP_DESCRIPTION)],
                 "questionnaire": QuestionnaireState(completed=True),
                 "project_analysis": _dummy_analysis(),
-                "epics": _dummy_epics(),
+                "features": _dummy_features(),
                 "stories": _dummy_stories(),
                 "tasks": _dummy_tasks(),
                 "sprints": _dummy_sprints(),
@@ -355,38 +355,38 @@ class TestEpicGenerationScenario:
         )
         return result, mock_llm
 
-    def test_project_description_produces_epic_response(self, monkeypatch):
-        """The graph should return the full epic decomposition content from the LLM."""
-        result, _ = self._invoke_with_mock_epics(monkeypatch)
+    def test_project_description_produces_feature_response(self, monkeypatch):
+        """The graph should return the full feature decomposition content from the LLM."""
+        result, _ = self._invoke_with_mock_features(monkeypatch)
 
         last_message = result["messages"][-1]
         assert isinstance(last_message, AIMessage)
-        assert last_message.content == _MOCK_EPIC_RESPONSE
+        assert last_message.content == _MOCK_FEATURE_RESPONSE
 
-    def test_epic_response_contains_structured_epics(self, monkeypatch):
-        """The mock response should contain numbered epics with priority markers."""
-        result, _ = self._invoke_with_mock_epics(monkeypatch)
+    def test_feature_response_contains_structured_features(self, monkeypatch):
+        """The mock response should contain numbered features with priority markers."""
+        result, _ = self._invoke_with_mock_features(monkeypatch)
 
         content = result["messages"][-1].content
         # Verify the structured format survived the full graph traversal
-        assert "Epic 1:" in content
-        assert "Epic 2:" in content
-        assert "Epic 3:" in content
-        assert "Epic 4:" in content
+        assert "Feature 1:" in content
+        assert "Feature 2:" in content
+        assert "Feature 3:" in content
+        assert "Feature 4:" in content
         assert "Priority:" in content
 
     def test_project_description_preserved_in_output_state(self, monkeypatch):
         """The original HumanMessage should be first in state, with exactly 2 messages total."""
-        result, _ = self._invoke_with_mock_epics(monkeypatch)
+        result, _ = self._invoke_with_mock_features(monkeypatch)
 
         assert len(result["messages"]) == 2
         assert isinstance(result["messages"][0], HumanMessage)
         assert result["messages"][0].content == _TODO_APP_DESCRIPTION
         assert isinstance(result["messages"][1], AIMessage)
 
-    def test_system_prompt_injected_for_epic_generation(self, monkeypatch):
+    def test_system_prompt_injected_for_feature_generation(self, monkeypatch):
         """call_model should prepend a SystemMessage containing 'Scrum Master' to the LLM call."""
-        _, mock_llm = self._invoke_with_mock_epics(monkeypatch)
+        _, mock_llm = self._invoke_with_mock_features(monkeypatch)
 
         # call_model builds [SystemMessage, *state["messages"]] and passes it to llm.invoke()
         call_args = mock_llm.invoke.call_args
@@ -402,7 +402,7 @@ class TestEpicGenerationScenario:
 
     def test_single_llm_call_no_tool_loop(self, monkeypatch):
         """Without tool_calls in the response, the LLM should be called exactly once."""
-        _, mock_llm = self._invoke_with_mock_epics(monkeypatch)
+        _, mock_llm = self._invoke_with_mock_features(monkeypatch)
 
         assert mock_llm.invoke.call_count == 1
 
@@ -420,7 +420,7 @@ class TestEpicGenerationScenario:
                 "messages": [HumanMessage(content="")],
                 "questionnaire": QuestionnaireState(completed=True),
                 "project_analysis": _dummy_analysis(),
-                "epics": _dummy_epics(),
+                "features": _dummy_features(),
                 "stories": _dummy_stories(),
                 "tasks": _dummy_tasks(),
                 "sprints": _dummy_sprints(),
@@ -435,35 +435,35 @@ class TestEpicGenerationScenario:
 # ── Multi-turn conversation tests ──────────────────────────────────
 # Validates that message history accumulates correctly across multiple
 # stateless graph invocations (no checkpointer), simulating clarification
-# before epic generation.
+# before feature generation.
 
 
-class TestMultiTurnEpicConversation:
-    """Tests multi-turn conversations where the agent asks clarifications before generating epics.
+class TestMultiTurnFeatureConversation:
+    """Tests multi-turn conversations where the agent asks clarifications before generating features.
 
-    All tests pass a completed questionnaire + project_analysis + epics
+    All tests pass a completed questionnaire + project_analysis + features
     so the graph routes to the agent node.
     """
 
-    def test_clarification_then_epics(self, monkeypatch):
-        """Two sequential invocations: first returns a question, second returns epics.
+    def test_clarification_then_features(self, monkeypatch):
+        """Two sequential invocations: first returns a question, second returns features.
 
         This simulates the real flow where the Scrum Master asks clarifying
-        questions before decomposing into epics. Without a checkpointer, the
+        questions before decomposing into features. Without a checkpointer, the
         caller must pass accumulated history into the second invocation.
         """
         clarification_response = AIMessage(content=_MOCK_CLARIFICATION)
-        epic_response = AIMessage(content=_MOCK_EPIC_RESPONSE)
+        feature_response = AIMessage(content=_MOCK_FEATURE_RESPONSE)
 
         mock_llm = MagicMock()
         mock_llm.bind_tools.return_value = mock_llm
-        # First call → clarifying question, second call → epic decomposition
-        mock_llm.invoke.side_effect = [clarification_response, epic_response]
+        # First call → clarifying question, second call → feature decomposition
+        mock_llm.invoke.side_effect = [clarification_response, feature_response]
         monkeypatch.setattr("scrum_agent.agent.nodes.get_llm", lambda: mock_llm)
 
         completed_qs = QuestionnaireState(completed=True)
         analysis = _dummy_analysis()
-        epics = _dummy_epics()
+        features = _dummy_features()
         tasks = _dummy_tasks()
         graph = create_graph()
 
@@ -475,7 +475,7 @@ class TestMultiTurnEpicConversation:
                 "messages": [HumanMessage(content=_TODO_APP_DESCRIPTION)],
                 "questionnaire": completed_qs,
                 "project_analysis": analysis,
-                "epics": epics,
+                "features": features,
                 "stories": _dummy_stories(),
                 "tasks": tasks,
                 "sprints": sprints,
@@ -495,7 +495,7 @@ class TestMultiTurnEpicConversation:
                 "messages": accumulated,
                 "questionnaire": completed_qs,
                 "project_analysis": analysis,
-                "epics": epics,
+                "features": features,
                 "stories": _dummy_stories(),
                 "tasks": tasks,
                 "sprints": sprints,
@@ -507,7 +507,7 @@ class TestMultiTurnEpicConversation:
         assert turn2["messages"][0].content == _TODO_APP_DESCRIPTION
         assert turn2["messages"][1].content == _MOCK_CLARIFICATION
         assert turn2["messages"][2].content == "About 100 users initially. No WebSockets needed. Use OAuth with Google."
-        assert turn2["messages"][-1].content == _MOCK_EPIC_RESPONSE
+        assert turn2["messages"][-1].content == _MOCK_FEATURE_RESPONSE
 
         # Both turns should have called the LLM exactly once each
         assert mock_llm.invoke.call_count == 2
@@ -567,9 +567,9 @@ class TestIntakeRouting:
         assert "project_analysis" in result
         assert isinstance(result["project_analysis"], ProjectAnalysis)
 
-    def test_routes_to_epic_generator_with_analysis_no_epics(self, monkeypatch):
-        """With completed questionnaire + analysis but no epics, graph routes to epic_generator."""
-        # The epic_generator node calls get_llm(temperature=0.0), so we use **kw
+    def test_routes_to_feature_generator_with_analysis_no_features(self, monkeypatch):
+        """With completed questionnaire + analysis but no features, graph routes to feature_generator."""
+        # The feature_generator node calls get_llm(temperature=0.0), so we use **kw
         fake_response = MagicMock()
         fake_response.content = '[{"id": "E1", "title": "Core", "description": "Core features", "priority": "high"}]'
         mock_llm = MagicMock()
@@ -586,16 +586,16 @@ class TestIntakeRouting:
             }
         )
 
-        # The epic_generator should have produced epics
-        assert "epics" in result
-        assert len(result["epics"]) >= 1
+        # The feature_generator should have produced features
+        assert "features" in result
+        assert len(result["features"]) >= 1
 
     def test_routes_to_task_decomposer_with_stories_no_tasks(self, monkeypatch):
-        """With questionnaire + analysis + epics + stories but no tasks, routes to task_decomposer."""
+        """With questionnaire + analysis + features + stories but no tasks, routes to task_decomposer."""
         # The task_decomposer node calls get_llm(temperature=0.0), so we use **kw
         fake_response = MagicMock()
         fake_response.content = (
-            '[{"id": "T-US-E1-001-01", "story_id": "US-E1-001", '
+            '[{"id": "T-US-E1-001-01", "story_id": "US-F1-001", '
             '"title": "Implement feature", "description": "Build it"}]'
         )
         mock_llm = MagicMock()
@@ -609,7 +609,7 @@ class TestIntakeRouting:
                 "messages": [HumanMessage(content="continue")],
                 "questionnaire": QuestionnaireState(completed=True),
                 "project_analysis": _dummy_analysis(),
-                "epics": _dummy_epics(),
+                "features": _dummy_features(),
                 "stories": _dummy_stories(),
             }
         )
@@ -619,7 +619,7 @@ class TestIntakeRouting:
         assert len(result["tasks"]) >= 1
 
     def test_routes_to_sprint_planner_with_tasks_no_sprints(self, monkeypatch):
-        """With questionnaire + analysis + epics + stories + tasks but no sprints, routes directly to sprint_planner.
+        """With questionnaire + analysis + features + stories + tasks but no sprints, routes directly to sprint_planner.
 
         Sprint selection and capacity check are now handled during intake.
         route_entry goes directly from tasks → sprint_planner.
@@ -628,7 +628,7 @@ class TestIntakeRouting:
         fake_response = MagicMock()
         fake_response.content = (
             '[{"id": "SP-1", "name": "Sprint 1", "goal": "Core features", '
-            '"capacity_points": 3, "story_ids": ["US-E1-001"]}]'
+            '"capacity_points": 3, "story_ids": ["US-F1-001"]}]'
         )
         mock_llm = MagicMock()
         mock_llm.bind_tools.return_value = mock_llm
@@ -640,7 +640,7 @@ class TestIntakeRouting:
             "messages": [HumanMessage(content="continue")],
             "questionnaire": QuestionnaireState(completed=True),
             "project_analysis": _dummy_analysis(),
-            "epics": _dummy_epics(),
+            "features": _dummy_features(),
             "stories": _dummy_stories(),
             "tasks": _dummy_tasks(),
             "starting_sprint_number": -1,
@@ -657,8 +657,8 @@ class TestIntakeRouting:
         assert "sprints" in result
         assert len(result["sprints"]) >= 1
 
-    def test_routes_to_agent_with_epics_and_stories_and_tasks(self, monkeypatch):
-        """With completed questionnaire + analysis + epics + stories + tasks + sprints, graph routes to agent."""
+    def test_routes_to_agent_with_features_and_stories_and_tasks(self, monkeypatch):
+        """With completed questionnaire + analysis + features + stories + tasks + sprints, graph routes to agent."""
         fake_response = AIMessage(content="Let me generate your Scrum plan.")
         mock_llm = MagicMock()
         mock_llm.bind_tools.return_value = mock_llm
@@ -671,7 +671,7 @@ class TestIntakeRouting:
                 "messages": [HumanMessage(content="Generate stories")],
                 "questionnaire": QuestionnaireState(completed=True),
                 "project_analysis": _dummy_analysis(),
-                "epics": _dummy_epics(),
+                "features": _dummy_features(),
                 "stories": _dummy_stories(),
                 "tasks": _dummy_tasks(),
                 "sprints": _dummy_sprints(),
@@ -682,12 +682,12 @@ class TestIntakeRouting:
         assert mock_llm.invoke.call_count == 1
         assert result["messages"][-1].content == "Let me generate your Scrum plan."
 
-    def test_routes_to_story_writer_with_epics_no_stories(self, monkeypatch):
-        """With completed questionnaire + analysis + epics but no stories, routes to story_writer."""
+    def test_routes_to_story_writer_with_features_no_stories(self, monkeypatch):
+        """With completed questionnaire + analysis + features but no stories, routes to story_writer."""
         # The story_writer node calls get_llm(temperature=0.0), so we use **kw
         fake_response = MagicMock()
         fake_response.content = (
-            '[{"id": "US-E1-001", "epic_id": "E1", "persona": "user", "goal": "test", '
+            '[{"id": "US-F1-001", "feature_id": "F1", "persona": "user", "goal": "test", '
             '"benefit": "value", "acceptance_criteria": [{"given": "g", "when": "w", "then": "t"}], '
             '"story_points": 3, "priority": "high"}]'
         )
@@ -702,7 +702,7 @@ class TestIntakeRouting:
                 "messages": [HumanMessage(content="continue")],
                 "questionnaire": QuestionnaireState(completed=True),
                 "project_analysis": _dummy_analysis(),
-                "epics": _dummy_epics(),
+                "features": _dummy_features(),
             }
         )
 

@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 # See README: "Guardrails" — human-in-the-loop pattern
 #
-# After each generation node (epic_generator, story_writer, task_decomposer,
+# After each generation node (feature_generator, story_writer, task_decomposer,
 # sprint_planner), the REPL intercepts the next user input for the
 # [Accept / Edit / Reject] review flow. These constants map node names to
 # their artifact keys in graph_state and define the pipeline order for
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 _REVIEW_ARTIFACT_KEYS: dict[str, str] = {
     "project_analyzer": "project_analysis",
-    "epic_generator": "epics",
+    "feature_generator": "features",
     "story_writer": "stories",
     "task_decomposer": "tasks",
     "sprint_planner": "sprints",
@@ -25,7 +25,7 @@ _REVIEW_ARTIFACT_KEYS: dict[str, str] = {
 # Pipeline order — used to determine which artifacts are downstream of a given node.
 _PIPELINE_ORDER: tuple[str, ...] = (
     "project_analyzer",
-    "epic_generator",
+    "feature_generator",
     "story_writer",
     "task_decomposer",
     "sprint_planner",
@@ -53,8 +53,8 @@ def _clear_downstream_artifacts(graph_state: dict, node_name: str) -> None:
 
     # See README: "Guardrails" — human-in-the-loop pattern
     #
-    # When the user rejects epics, stories/tasks/sprints derived from those
-    # epics are stale and must be cleared. This function clears the artifact
+    # When the user rejects features, stories/tasks/sprints derived from those
+    # features are stale and must be cleared. This function clears the artifact
     # key for the given node and all downstream nodes in the pipeline.
     #
     # Mutates graph_state in place — the REPL operates between graph.invoke()

@@ -305,26 +305,30 @@ def _build_project_export_success_screen(
     *,
     width: int = 80,
     height: int = 24,
+    subtitle: str = "Plan exported",
+    hint: str = "Press any key to continue.",
 ) -> Panel:
-    """Build the project export success screen.
+    """Build the project export success/status screen.
 
-    Shown after exporting a project's plan as Markdown and HTML.
-    Displays confirmation, file paths, and a hint to continue.
+    Shown after exporting a project's plan as Markdown and HTML,
+    or during/after Jira sync operations. subtitle and hint can
+    be customised for different contexts (e.g. loading states).
     """
     title = planning_title()
 
     body: list = [
-        Text(_PAD + "Plan exported", style="bold bright_green", justify="left"),
+        Text(_PAD + subtitle, style="bold bright_green", justify="left"),
         Text(""),
     ]
     for line in file_path.splitlines():
         body.append(Text(_PAD + f"  {line}", style="white", justify="left"))
-    body.extend(
-        [
-            Text(""),
-            Text(_PAD + "Press any key to continue.", style="dim", justify="left"),
-        ]
-    )
+    if hint:
+        body.extend(
+            [
+                Text(""),
+                Text(_PAD + hint, style="dim", justify="left"),
+            ]
+        )
     body_h = 3 + len(file_path.splitlines()) + 2
 
     inner_h = height - 4

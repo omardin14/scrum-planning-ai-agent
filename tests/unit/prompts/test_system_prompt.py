@@ -40,7 +40,7 @@ class TestGetSystemPrompt:
 
     def test_contains_issue_hierarchy(self):
         prompt = get_system_prompt()
-        assert "Epic" in prompt
+        assert "Feature" in prompt
         assert "User Story" in prompt
         assert "Sub-Task" in prompt
         assert "Spike" in prompt

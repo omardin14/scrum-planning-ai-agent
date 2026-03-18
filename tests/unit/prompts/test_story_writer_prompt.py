@@ -4,9 +4,9 @@ from scrum_agent.prompts.story_writer import (
     _ALLOWED_DISCIPLINES,
     _ALLOWED_PRIORITIES,
     _ALLOWED_STORY_POINTS,
-    MAX_STORIES_PER_EPIC,
+    MAX_STORIES_PER_FEATURE,
     MAX_STORY_POINTS,
-    MIN_STORIES_PER_EPIC,
+    MIN_STORIES_PER_FEATURE,
     get_story_writer_prompt,
 )
 
@@ -21,10 +21,10 @@ def _make_prompt(**overrides: str) -> str:
         "end_users": "- developers\n- project managers",
         "tech_stack": "- React\n- FastAPI\n- PostgreSQL",
         "constraints": "- Must use AWS",
-        "epics_block": (
-            "**E1: User Authentication** (Priority: high)\n"
+        "features_block": (
+            "**F1: User Authentication** (Priority: high)\n"
             "  Registration, login, JWT\n\n"
-            "**E2: Task Management** (Priority: high)\n"
+            "**F2: Task Management** (Priority: high)\n"
             "  CRUD operations for tasks\n"
         ),
     }
@@ -79,17 +79,17 @@ class TestGetStoryWriterPrompt:
         result = _make_prompt(constraints="- Budget limit\n- Deadline Q2")
         assert "Budget limit" in result
 
-    def test_includes_epics_block(self):
-        """The epics block should appear in the prompt."""
-        result = _make_prompt(epics_block="**E1: Auth** (Priority: high)\n  Login and registration")
-        assert "E1: Auth" in result
+    def test_includes_features_block(self):
+        """The features block should appear in the prompt."""
+        result = _make_prompt(features_block="**F1: Auth** (Priority: high)\n  Login and registration")
+        assert "F1: Auth" in result
         assert "Login and registration" in result
 
     def test_includes_json_schema_with_all_fields(self):
         """The JSON schema should include all UserStory fields."""
         result = _make_prompt()
         assert '"id"' in result
-        assert '"epic_id"' in result
+        assert '"feature_id"' in result
         assert '"persona"' in result
         assert '"goal"' in result
         assert '"benefit"' in result
@@ -105,10 +105,10 @@ class TestGetStoryWriterPrompt:
         assert '"then"' in result
 
     def test_includes_story_count_guidance(self):
-        """The prompt should specify the min and max story count per epic."""
+        """The prompt should specify the min and max story count per feature."""
         result = _make_prompt()
-        assert str(MIN_STORIES_PER_EPIC) in result
-        assert str(MAX_STORIES_PER_EPIC) in result
+        assert str(MIN_STORIES_PER_FEATURE) in result
+        assert str(MAX_STORIES_PER_FEATURE) in result
 
     def test_includes_fibonacci_values(self):
         """The prompt should list allowed Fibonacci story point values."""
@@ -175,11 +175,11 @@ class TestStoryWriterPromptOutOfScope:
 class TestStoryWriterPromptConstants:
     """Tests for prompt constants."""
 
-    def test_min_stories_per_epic_is_2(self):
-        assert MIN_STORIES_PER_EPIC == 2
+    def test_min_stories_per_feature_is_1(self):
+        assert MIN_STORIES_PER_FEATURE == 1
 
-    def test_max_stories_per_epic_is_5(self):
-        assert MAX_STORIES_PER_EPIC == 5
+    def test_max_stories_per_feature_is_5(self):
+        assert MAX_STORIES_PER_FEATURE == 5
 
     def test_max_story_points_is_8(self):
         assert MAX_STORY_POINTS == 8

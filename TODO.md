@@ -806,75 +806,73 @@ _Auto-configure a Jira project to match the agent's output format._
 
 #### "Create in Jira" option
 _Push artifacts to Jira. Two modes: inline (during pipeline) and selective (post-plan menu)._
+- [x] Add `jira_epic_key`, `jira_task_keys`, `jira_sprint_keys` to ScrumState
+- [x] Add `create_subtask()` and `add_issues_to_sprint()` helpers to `tools/jira.py`
+- [x] Create `jira_sync.py` — batch sync orchestration with idempotency
+- [x] Update persistence for new state fields (serialization + deserialization)
+- [x] Add "Jira" button to TUI pipeline review (stories, tasks, sprints stages)
+- [x] Confirmation screen before Jira creation (shows what will be created/skipped)
+- [x] Progress screen during Jira creation (animated, per-item status)
+- [x] Wire project list Jira export button (full sync: Epic + Stories + Tasks + Sprints)
+- [x] Jira button disabled/dimmed when JIRA_API_TOKEN not configured
+- [x] Features → Jira Labels (not separate issues)
+- [x] Stories: create Epic + Stories linked to Epic + feature labels
+- [x] Tasks: create Sub-tasks linked to parent Stories + task labels
+- [x] Sprints: create Sprints + assign stories to sprints
+- [x] Idempotency: check `jira_*_keys` before creating, skip existing
+- [x] Cascade: Tasks stage creates Stories if not done; Sprints stage creates Stories if not done
+- [x] Tests for jira_sync module (unit + idempotency + error handling)
+- [x] Tests for new state fields and persistence round-trip
+- [ ] Manual test with real Jira: create stories → verify Epic + Stories with correct labels
+- [ ] Manual test: create tasks → verify Sub-tasks linked to Stories
+- [ ] Manual test: create sprints → verify Sprints created with stories assigned
+- [ ] Manual test: re-run same stage → verify idempotency (skips existing)
 
-**Inline — during pipeline review checkpoints (epic, story, task, sprint):**
-- [ ] Add "Create in Jira" as option [4] in review checkpoint menu (Accept / Edit / Export / Create in Jira)
-- [ ] Disabled state — greyed out / unselectable when `JIRA_BASE_URL` not configured; show `(Jira not configured)` hint
-- [ ] Creates only that phase's artifacts directly — no sub-menu (e.g. at epic review → creates epics only)
-- [ ] Confirmation gate — "This will create N epics in Jira. Proceed? [Y/n]"
-- [ ] After creating, continue pipeline as normal (same as Accept)
 
-**Selective — post-plan menu only:**
-- [ ] Sub-menu on selection — "What would you like to create in Jira?":
-  - `[1] Everything` — create all resource types in dependency order
-  - `[2] Epics`
-  - `[3] User stories`
-  - `[4] Tasks (sub-tasks)`
-  - `[5] Sprints`
-  - `[6] Back`
-- [ ] Track creation state per resource type in `ScrumState` (e.g. `jira_created: dict[str, bool]`)
-- [ ] Disable already-created resource types in sub-menu — greyed out with `(already created)` hint
-- [ ] Disable top-level "Create in Jira" when all types created — show `(all created ✓)`
-- [ ] After "Refine plan" regenerates artifacts, reset creation state for affected types (edited epics → reset epics, stories, tasks, sprints)
+### 13A½: OpenClaw Integration
 
-**Creation logic (shared by both modes):**
-- [ ] Create epics as Jira epics with title, description, priority
-- [ ] Create user stories as Jira stories linked to their parent epic, with AC in description
-- [ ] Create tasks as Jira sub-tasks linked to their parent story
-- [ ] Create sprints on the board and assign stories to the correct sprint
-- [ ] Enforce creation order — stories require epics to exist first; tasks require stories; sprints require stories assigned
-- [ ] Progress feedback — show a progress bar / spinner as each resource is created
-- [ ] Error handling — if a create fails mid-way, report what was created and what failed (no silent partial creates)
-- [ ] Idempotency guard — warn if artifacts appear to already exist in Jira (e.g. duplicate epic titles on the same board)
+_Leverage [OpenClaw](https://openclaw.ai/) to expose the scrum agent beyond the terminal — multi-channel access, workflow automation, and always-on capabilities._
 
-#### Post-plan menu & refinement loop
-_After the sprint plan is ready, replace the open-ended "keep chatting" with a structured menu.
-The user picks what to do next; "Refine" leads to a sub-menu of which phase to edit, then loops
-back to the menu when done._
+#### Skill: Scrum Planner (priority: high)
+- [ ] Package scrum-agent as an OpenClaw AgentSkill (`skills/scrum-planner/SKILL.md`)
+- [ ] Expose CLI in non-interactive mode for skill invocation
+- [ ] Enable sprint planning from Slack, Discord, WhatsApp, Teams via OpenClaw channels
+- [ ] Format agent output for chat-friendly rendering (markdown cards, summaries)
 
-**Post-plan menu:**
-- [ ] Show a numbered menu after sprint plan acceptance:
-  - `[1] Create in Jira` — push artifacts (ties into "Create in Jira" feature above)
-  - `[2] Export plan` — save as HTML + Markdown (existing export flow)
-  - `[3] Analyse plan` — LLM review of the full plan for gaps, risks, and improvements (see below)
-  - `[4] Refine plan` — structured edit loop (see below)
-  - `[5] Ask questions` — read-only Q&A about the plan (current ReAct chat)
-  - `[6] Start new project` — reset session
-- [ ] Disable `[1] Create in Jira` when Jira not configured (same disabled style as review option)
-- [ ] After completing any action (export, Jira create, Q&A), return to this menu
+#### Webhook-Triggered Planning (priority: high)
+- [ ] Configure OpenClaw webhook endpoint to trigger planning on Jira epic creation
+- [ ] GitHub webhook: auto-generate project plan on new repo/milestone creation
+- [ ] Slack slash command (`/plan-sprint`) routed via OpenClaw webhook
 
-**Analyse plan (`[3]`):**
-- [ ] Single LLM call with all artifacts (analysis, epics, stories, tasks, sprints) as context
-- [ ] Produce a structured report:
-  - **Coverage gaps** — requirements from intake that aren't addressed by any story
-  - **Risk flags** — overloaded sprints, single-person dependencies, missing testing stories
-  - **Missing non-functionals** — no stories for security, observability, CI/CD, documentation
-  - **Story quality** — vague acceptance criteria, missing edge cases, stories too large (8+ points)
-  - **Sprint balance** — uneven load distribution, back-loaded critical path items
-  - **Recommendations** — specific suggestions (e.g. "Add a spike for auth provider evaluation in Sprint 1")
-- [ ] Display report as a Rich panel (not as chat — structured output like the artifact reviews)
-- [ ] After viewing, return to post-plan menu — user can then choose Refine to act on findings
+#### Conversational Intake via Chat (priority: high)
+- [ ] Wrap 30-question intake questionnaire as an OpenClaw conversational flow
+- [ ] Support async answering — users respond over hours/days in Slack/WhatsApp
+- [ ] Maintain questionnaire state across messages via OpenClaw session persistence
+- [ ] Trigger LLM pipeline once all questions answered, return plan inline
 
-**Refinement sub-menu (`[4] Refine plan`):**
-- [ ] Show "What would you like to refine?" with options:
-  - `[1] Questionnaire answers` — re-open intake summary with edit flow, then re-run analyzer → epic → story → task → sprint pipeline
-  - `[2] Epics` — jump to epic review checkpoint (accept/edit), then re-run story → task → sprint
-  - `[3] User stories` — jump to story review checkpoint, then re-run task → sprint
-  - `[4] Tasks` — jump to task review checkpoint, then re-run sprint
-  - `[5] Sprint plan` — jump to sprint review checkpoint only
-  - `[6] Back` — return to post-plan menu
-- [ ] Cascade regeneration — editing an upstream phase clears and regenerates all downstream artifacts (existing `_clear_downstream_artifacts` logic)
-- [ ] After refinement completes (final sprint plan accepted), return to post-plan menu
+#### Lobster Workflow Pipeline (priority: medium)
+- [ ] Define `.lobster` workflow: intake → analysis → features → stories → tasks → sprints → Jira export
+- [ ] Map existing accept/edit/reject gates to Lobster approval checkpoints with resume tokens
+- [ ] Add crash-safe resume — pipeline restarts from last approved step
+
+#### Always-On Standup Bot (priority: medium)
+- [ ] OpenClaw cron job: daily standup at configurable time
+- [ ] Fetch active sprint from Jira (reuse `jira_read_board` / `jira_fetch_active_sprint` tools)
+- [ ] Generate standup summary (done yesterday, planned today, blockers)
+- [ ] Post to team Slack/Discord channel, collect responses
+
+#### Multi-Agent Scrum Team (priority: low — exploratory)
+- [ ] Scrum Master agent — runs full planning pipeline, facilitates ceremonies
+- [ ] Tech Lead agent — reviews stories for technical feasibility
+- [ ] QA agent — reviews acceptance criteria, suggests missing test scenarios
+- [ ] Product Owner agent — prioritises backlog, validates business alignment
+- [ ] Route different Slack channels to different agents via OpenClaw multi-agent routing
+
+#### HTML Report Delivery (priority: low)
+- [ ] Post sprint plan summary + HTML export to team channel after planning completes
+- [ ] Explore OpenClaw Canvas for interactive live view of generated plans
+
+---
 
 ### 13B: Production Infrastructure
 - [ ] Containerised deployment (Docker / Docker Compose)
@@ -898,6 +896,9 @@ back to the menu when done._
 - [ ] Write deployment instructions (Docker, local, cloud)
 - [ ] `.env.example` review — ensure all options are documented
 - [ ] Tag v1.0.0 release
+
+
+
 
 ---
 

@@ -20,7 +20,7 @@ from langgraph.graph.message import add_messages
 
 
 class Priority(StrEnum):
-    """Priority levels for epics and stories."""
+    """Priority levels for features and stories."""
 
     CRITICAL = "critical"
     HIGH = "high"
@@ -135,8 +135,8 @@ class AcceptanceCriterion:
 
 
 @dataclass(frozen=True)
-class Epic:
-    """A high-level epic grouping related user stories."""
+class Feature:
+    """A high-level feature grouping related user stories."""
 
     id: str
     title: str
@@ -164,7 +164,7 @@ class UserStory:
     """A user story following the persona/goal/benefit template."""
 
     id: str
-    epic_id: str
+    feature_id: str
     persona: str
     goal: str
     benefit: str
@@ -183,6 +183,10 @@ class UserStory:
     # True = applies to this story, False = not applicable (shown with strikethrough).
     # Default all-True so existing tests and fallback stories work without changes.
     dod_applicable: tuple[bool, ...] = (True, True, True, True, True, True, True)
+    # LLM's reasoning for the story point estimate — explains what complexity,
+    # uncertainty, or effort factors led to the assigned value. Used to calibrate
+    # the AI's estimation against engineer expectations over time.
+    points_rationale: str = ""
 
     @property
     def text(self) -> str:
@@ -255,10 +259,10 @@ class ProjectAnalysis:
     """Structured synthesis of all 30 intake answers.
 
     Produced once by the project_analyzer node after the user confirms the
-    questionnaire. Downstream nodes (epic_generator, story_writer, sprint_planner)
+    questionnaire. Downstream nodes (feature_generator, story_writer, sprint_planner)
     read this instead of re-parsing raw conversation history.
 
-    Frozen (immutable) — same pattern as Epic, UserStory, Task, Sprint.
+    Frozen (immutable) — same pattern as Feature, UserStory, Task, Sprint.
     Uses tuple[str, ...] for list fields (same pattern as Sprint.story_ids).
     """
 
@@ -276,11 +280,11 @@ class ProjectAnalysis:
     risks: tuple[str, ...]
     out_of_scope: tuple[str, ...]
     assumptions: tuple[str, ...]  # Defaults/skipped answers flagged
-    # When True, the project is small enough for a single epic instead of 3-6.
+    # When True, the project is small enough for a single feature instead of 3-6.
     # The analyzer LLM sets this based on project scope (guideline: target_sprints ≤ 2
     # AND goals ≤ 3). Default False so existing projects are unaffected.
-    # See README: "Scrum Standards" — epic generation
-    skip_epics: bool = False
+    # See README: "Scrum Standards" — feature generation
+    skip_features: bool = False
     scrum_md_contributions: tuple[str, ...] = ()  # JSON field names enriched by SCRUM.md
     # Deterministic quality rating for the user's intake input. Computed by
     # compute_prompt_quality() in nodes.py from QuestionnaireState tracking sets.
@@ -446,7 +450,7 @@ def _merge_dicts(a: dict, b: dict) -> dict:
     Used as the reducer for Jira key-mapping dicts in ScrumState so that each
     node can return only the new mappings it created (a partial dict) and
     LangGraph merges them into the running total — the same append-semantics
-    pattern that operator.add provides for list fields like `epics` and `stories`.
+    pattern that operator.add provides for list fields like `features` and `stories`.
     # See README: "Memory & State" — reducers, Annotated fields
     """
     return {**a, **b}
@@ -481,7 +485,7 @@ class ScrumState(_RequiredState, total=False):
     project_analysis: ProjectAnalysis
 
     # Artifacts (append-semantics via operator.add)
-    epics: Annotated[list[Epic], operator.add]
+    features: Annotated[list[Feature], operator.add]
     stories: Annotated[list[UserStory], operator.add]
     tasks: Annotated[list[Task], operator.add]
     sprints: Annotated[list[Sprint], operator.add]
@@ -572,7 +576,7 @@ class ScrumState(_RequiredState, total=False):
     # Review loop
     # See README: "Guardrails" — human-in-the-loop pattern
     # pending_review holds the name of the generation node awaiting user review
-    # (e.g. "epic_generator"). When set, the REPL intercepts user input and
+    # (e.g. "feature_generator"). When set, the REPL intercepts user input and
     # routes it through the [Accept / Edit / Reject] flow instead of invoking
     # the graph. Cleared after the user makes a decision.
     pending_review: str
@@ -589,9 +593,16 @@ class ScrumState(_RequiredState, total=False):
     context_sources: list[dict]
 
     # Jira key mappings — populated after jira_create_epic / jira_create_story calls.
-    # Maps internal artifact IDs (e.g. "epic-1") → Jira ticket keys (e.g. "PROJ-5").
+    # jira_feature_keys: maps internal feature IDs → Jira Epic keys (e.g. "PROJ-5").
+    # jira_story_keys: maps internal story IDs → Jira story keys.
+    # jira_task_keys: maps internal task IDs → Jira sub-task keys.
+    # jira_sprint_keys: maps internal sprint IDs → Jira sprint IDs.
+    # jira_epic_key: single project-level Epic key (e.g. "PROJ-42").
     # The _merge_dicts reducer appends new entries without overwriting existing ones,
     # so each node/tool call can return only the mappings it just created.
     # See README: "Tools" — tool types, write tools, human-in-the-loop pattern
-    jira_epic_keys: Annotated[dict[str, str], _merge_dicts]
+    jira_feature_keys: Annotated[dict[str, str], _merge_dicts]
     jira_story_keys: Annotated[dict[str, str], _merge_dicts]
+    jira_task_keys: Annotated[dict[str, str], _merge_dicts]
+    jira_sprint_keys: Annotated[dict[str, str], _merge_dicts]
+    jira_epic_key: str

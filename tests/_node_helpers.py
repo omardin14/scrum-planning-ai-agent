@@ -8,7 +8,7 @@ from scrum_agent.agent.state import (
     TOTAL_QUESTIONS,
     AcceptanceCriterion,
     Discipline,
-    Epic,
+    Feature,
     Priority,
     ProjectAnalysis,
     QuestionnaireState,
@@ -52,12 +52,12 @@ def make_dummy_analysis(**overrides: object) -> ProjectAnalysis:
     return ProjectAnalysis(**defaults)
 
 
-def make_sample_epics() -> list[Epic]:
-    """Create a sample list of epics for story writer tests."""
+def make_sample_features() -> list[Feature]:
+    """Create a sample list of features for story writer tests."""
     return [
-        Epic(id="E1", title="User Authentication", description="Registration, login, JWT", priority=Priority.HIGH),
-        Epic(id="E2", title="Task Management", description="CRUD operations for tasks", priority=Priority.HIGH),
-        Epic(id="E3", title="Dashboard", description="Responsive dashboard", priority=Priority.MEDIUM),
+        Feature(id="F1", title="User Authentication", description="Registration, login, JWT", priority=Priority.HIGH),
+        Feature(id="F2", title="Task Management", description="CRUD operations for tasks", priority=Priority.HIGH),
+        Feature(id="F3", title="Dashboard", description="Responsive dashboard", priority=Priority.MEDIUM),
     ]
 
 
@@ -65,8 +65,8 @@ def make_sample_stories() -> list[UserStory]:
     """Create a sample list of stories for task decomposer tests."""
     return [
         UserStory(
-            id="US-E1-001",
-            epic_id="E1",
+            id="US-F1-001",
+            feature_id="F1",
             persona="end user",
             goal="register an account",
             benefit="I can access the application",
@@ -78,8 +78,8 @@ def make_sample_stories() -> list[UserStory]:
             title="User Registration",
         ),
         UserStory(
-            id="US-E1-002",
-            epic_id="E1",
+            id="US-F1-002",
+            feature_id="F1",
             persona="end user",
             goal="log in to my account",
             benefit="I can access my data",
@@ -96,8 +96,8 @@ def make_sample_stories() -> list[UserStory]:
 def make_sample_sprints() -> list[Sprint]:
     """Create a sample list of sprints for tests."""
     return [
-        Sprint(id="SP-1", name="Sprint 1", goal="Auth foundation", capacity_points=5, story_ids=("US-E1-001",)),
-        Sprint(id="SP-2", name="Sprint 2", goal="Login flow", capacity_points=3, story_ids=("US-E1-002",)),
+        Sprint(id="SP-1", name="Sprint 1", goal="Auth foundation", capacity_points=5, story_ids=("US-F1-001",)),
+        Sprint(id="SP-2", name="Sprint 2", goal="Login flow", capacity_points=3, story_ids=("US-F1-002",)),
     ]
 
 
@@ -111,8 +111,8 @@ def make_story_for_inference(
     if acs is None:
         acs = (AcceptanceCriterion(given="context", when="action", then="outcome"),)
     return UserStory(
-        id="US-E1-001",
-        epic_id="E1",
+        id="US-F1-001",
+        feature_id="F1",
         persona=persona,
         goal=goal,
         benefit=benefit,
@@ -123,8 +123,8 @@ def make_story_for_inference(
 
 
 def make_valid_story(
-    story_id: str = "US-E1-001",
-    epic_id: str = "E1",
+    story_id: str = "US-F1-001",
+    feature_id: str = "F1",
     num_acs: int = 3,
     discipline: Discipline = Discipline.BACKEND,
 ) -> UserStory:
@@ -135,7 +135,7 @@ def make_valid_story(
     )
     return UserStory(
         id=story_id,
-        epic_id=epic_id,
+        feature_id=feature_id,
         persona="developer",
         goal="implement the feature",
         benefit="value is delivered",
@@ -168,19 +168,19 @@ VALID_ANALYSIS_JSON = """\
   "assumptions": ["Default velocity assumed"]
 }"""
 
-VALID_EPICS_JSON = """\
+VALID_FEATURES_JSON = """\
 [
-  {"id": "E1", "title": "User Authentication", "description": "Registration, login, JWT", "priority": "high"},
-  {"id": "E2", "title": "Task Management", "description": "CRUD operations for tasks", "priority": "high"},
-  {"id": "E3", "title": "Dashboard", "description": "Responsive dashboard", "priority": "medium"},
-  {"id": "E4", "title": "Infrastructure", "description": "CI/CD and deployment", "priority": "high"}
+  {"id": "F1", "title": "User Authentication", "description": "Registration, login, JWT", "priority": "high"},
+  {"id": "F2", "title": "Task Management", "description": "CRUD operations for tasks", "priority": "high"},
+  {"id": "F3", "title": "Dashboard", "description": "Responsive dashboard", "priority": "medium"},
+  {"id": "F4", "title": "Infrastructure", "description": "CI/CD and deployment", "priority": "high"}
 ]"""
 
 VALID_STORIES_JSON = """\
 [
   {
-    "id": "US-E1-001",
-    "epic_id": "E1",
+    "id": "US-F1-001",
+    "feature_id": "F1",
     "persona": "end user",
     "goal": "register an account",
     "benefit": "I can access the application",
@@ -193,8 +193,8 @@ VALID_STORIES_JSON = """\
     "priority": "high"
   },
   {
-    "id": "US-E1-002",
-    "epic_id": "E1",
+    "id": "US-F1-002",
+    "feature_id": "F1",
     "persona": "end user",
     "goal": "log in to my account",
     "benefit": "I can access my data",
@@ -207,8 +207,8 @@ VALID_STORIES_JSON = """\
     "priority": "high"
   },
   {
-    "id": "US-E2-001",
-    "epic_id": "E2",
+    "id": "US-F2-001",
+    "feature_id": "F2",
     "persona": "end user",
     "goal": "create a new task",
     "benefit": "I can track my work",
@@ -225,8 +225,8 @@ VALID_STORIES_JSON = """\
 VALID_TASKS_JSON = """\
 [
   {
-    "id": "T-US-E1-001-01",
-    "story_id": "US-E1-001",
+    "id": "T-US-F1-001-01",
+    "story_id": "US-F1-001",
     "title": "Create user registration API endpoint",
     "description": "Build POST /api/auth/register endpoint with email/password validation",
     "label": "Code",
@@ -234,8 +234,8 @@ VALID_TASKS_JSON = """\
     "ai_prompt": "You are a backend engineer on Todo App (FastAPI). Create POST /register with validation."
   },
   {
-    "id": "T-US-E1-001-02",
-    "story_id": "US-E1-001",
+    "id": "T-US-F1-001-02",
+    "story_id": "US-F1-001",
     "title": "Write tests for registration endpoint",
     "description": "Unit and integration tests for the registration flow",
     "label": "Testing",
@@ -243,8 +243,8 @@ VALID_TASKS_JSON = """\
     "ai_prompt": "You are a QA engineer on Todo App (pytest). Write tests for POST /register: valid, duplicate."
   },
   {
-    "id": "T-US-E1-002-01",
-    "story_id": "US-E1-002",
+    "id": "T-US-F1-002-01",
+    "story_id": "US-F1-002",
     "title": "Create login API endpoint",
     "description": "Build POST /api/auth/login endpoint with JWT token generation",
     "label": "Code",
@@ -252,8 +252,8 @@ VALID_TASKS_JSON = """\
     "ai_prompt": "You are a backend engineer on Todo App (FastAPI). Implement POST /login with JWT token generation."
   },
   {
-    "id": "T-US-E1-002-02",
-    "story_id": "US-E1-002",
+    "id": "T-US-F1-002-02",
+    "story_id": "US-F1-002",
     "title": "Write tests for login endpoint",
     "description": "Unit and integration tests for the login flow",
     "label": "Testing",
@@ -269,13 +269,13 @@ VALID_SPRINTS_JSON = """\
     "name": "Sprint 1",
     "goal": "Establish authentication foundation",
     "capacity_points": 5,
-    "story_ids": ["US-E1-001"]
+    "story_ids": ["US-F1-001"]
   },
   {
     "id": "SP-2",
     "name": "Sprint 2",
     "goal": "Implement login functionality",
     "capacity_points": 3,
-    "story_ids": ["US-E1-002"]
+    "story_ids": ["US-F1-002"]
   }
 ]"""

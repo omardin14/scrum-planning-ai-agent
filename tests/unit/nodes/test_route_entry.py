@@ -3,7 +3,7 @@
 from scrum_agent.agent.nodes import route_entry
 from scrum_agent.agent.state import (
     AcceptanceCriterion,
-    Epic,
+    Feature,
     Priority,
     ProjectAnalysis,
     QuestionnaireState,
@@ -35,8 +35,8 @@ class TestRouteEntry:
         state = {"messages": [], "questionnaire": qs}
         assert route_entry(state) == "project_analyzer"
 
-    def test_routes_to_epic_generator_when_no_epics(self):
-        """Analysis present but no epics -> route to 'epic_generator'."""
+    def test_routes_to_feature_generator_when_no_features(self):
+        """Analysis present but no features -> route to 'feature_generator'."""
         qs = QuestionnaireState(completed=True)
         analysis = ProjectAnalysis(
             project_name="Test",
@@ -55,61 +55,61 @@ class TestRouteEntry:
             assumptions=(),
         )
         state = {"messages": [], "questionnaire": qs, "project_analysis": analysis}
-        assert route_entry(state) == "epic_generator"
+        assert route_entry(state) == "feature_generator"
 
-    def test_routes_to_epic_generator_when_epics_empty_list(self):
-        """Analysis present but epics is empty list -> route to 'epic_generator'."""
+    def test_routes_to_feature_generator_when_features_empty_list(self):
+        """Analysis present but features is empty list -> route to 'feature_generator'."""
         qs = QuestionnaireState(completed=True)
         analysis = make_dummy_analysis()
-        state = {"messages": [], "questionnaire": qs, "project_analysis": analysis, "epics": []}
-        assert route_entry(state) == "epic_generator"
+        state = {"messages": [], "questionnaire": qs, "project_analysis": analysis, "features": []}
+        assert route_entry(state) == "feature_generator"
 
-    def test_routes_to_epic_skip_when_skip_epics_true(self):
-        """Analysis with skip_epics=True and no epics -> route to 'epic_skip'."""
+    def test_routes_to_feature_skip_when_skip_features_true(self):
+        """Analysis with skip_features=True and no features -> route to 'feature_skip'."""
         qs = QuestionnaireState(completed=True)
-        analysis = make_dummy_analysis(skip_epics=True, target_sprints=1, goals=("Build API",))
+        analysis = make_dummy_analysis(skip_features=True, target_sprints=1, goals=("Build API",))
         state = {"messages": [], "questionnaire": qs, "project_analysis": analysis}
-        assert route_entry(state) == "epic_skip"
+        assert route_entry(state) == "feature_skip"
 
-    def test_routes_to_epic_skip_when_skip_epics_true_empty_list(self):
-        """Analysis with skip_epics=True and empty epics list -> route to 'epic_skip'."""
+    def test_routes_to_feature_skip_when_skip_features_true_empty_list(self):
+        """Analysis with skip_features=True and empty features list -> route to 'feature_skip'."""
         qs = QuestionnaireState(completed=True)
-        analysis = make_dummy_analysis(skip_epics=True)
-        state = {"messages": [], "questionnaire": qs, "project_analysis": analysis, "epics": []}
-        assert route_entry(state) == "epic_skip"
+        analysis = make_dummy_analysis(skip_features=True)
+        state = {"messages": [], "questionnaire": qs, "project_analysis": analysis, "features": []}
+        assert route_entry(state) == "feature_skip"
 
-    def test_routes_to_epic_generator_when_skip_epics_false(self):
-        """Analysis with skip_epics=False (default) and no epics -> route to 'epic_generator'."""
+    def test_routes_to_feature_generator_when_skip_features_false(self):
+        """Analysis with skip_features=False (default) and no features -> route to 'feature_generator'."""
         qs = QuestionnaireState(completed=True)
-        analysis = make_dummy_analysis(skip_epics=False)
+        analysis = make_dummy_analysis(skip_features=False)
         state = {"messages": [], "questionnaire": qs, "project_analysis": analysis}
-        assert route_entry(state) == "epic_generator"
+        assert route_entry(state) == "feature_generator"
 
     def test_routes_to_story_writer_when_no_stories(self):
-        """Questionnaire + analysis + epics but no stories -> route to 'story_writer'."""
+        """Questionnaire + analysis + features but no stories -> route to 'story_writer'."""
         qs = QuestionnaireState(completed=True)
         analysis = make_dummy_analysis()
-        epics = [Epic(id="E1", title="Core", description="Core features", priority=Priority.HIGH)]
-        state = {"messages": [], "questionnaire": qs, "project_analysis": analysis, "epics": epics}
+        features = [Feature(id="F1", title="Core", description="Core features", priority=Priority.HIGH)]
+        state = {"messages": [], "questionnaire": qs, "project_analysis": analysis, "features": features}
         assert route_entry(state) == "story_writer"
 
     def test_routes_to_story_writer_when_stories_empty_list(self):
-        """Questionnaire + analysis + epics + empty stories list -> route to 'story_writer'."""
+        """Questionnaire + analysis + features + empty stories list -> route to 'story_writer'."""
         qs = QuestionnaireState(completed=True)
         analysis = make_dummy_analysis()
-        epics = [Epic(id="E1", title="Core", description="Core features", priority=Priority.HIGH)]
-        state = {"messages": [], "questionnaire": qs, "project_analysis": analysis, "epics": epics, "stories": []}
+        features = [Feature(id="F1", title="Core", description="Core features", priority=Priority.HIGH)]
+        state = {"messages": [], "questionnaire": qs, "project_analysis": analysis, "features": features, "stories": []}
         assert route_entry(state) == "story_writer"
 
     def test_routes_to_task_decomposer_when_stories_no_tasks(self):
-        """Questionnaire + analysis + epics + stories but no tasks -> route to 'task_decomposer'."""
+        """Questionnaire + analysis + features + stories but no tasks -> route to 'task_decomposer'."""
         qs = QuestionnaireState(completed=True)
         analysis = make_dummy_analysis()
-        epics = [Epic(id="E1", title="Core", description="Core features", priority=Priority.HIGH)]
+        features = [Feature(id="F1", title="Core", description="Core features", priority=Priority.HIGH)]
         stories = [
             UserStory(
-                id="US-E1-001",
-                epic_id="E1",
+                id="US-F1-001",
+                feature_id="F1",
                 persona="user",
                 goal="do something",
                 benefit="value",
@@ -122,20 +122,20 @@ class TestRouteEntry:
             "messages": [],
             "questionnaire": qs,
             "project_analysis": analysis,
-            "epics": epics,
+            "features": features,
             "stories": stories,
         }
         assert route_entry(state) == "task_decomposer"
 
     def test_routes_to_task_decomposer_when_tasks_empty_list(self):
-        """Questionnaire + analysis + epics + stories + empty tasks -> route to 'task_decomposer'."""
+        """Questionnaire + analysis + features + stories + empty tasks -> route to 'task_decomposer'."""
         qs = QuestionnaireState(completed=True)
         analysis = make_dummy_analysis()
-        epics = [Epic(id="E1", title="Core", description="Core features", priority=Priority.HIGH)]
+        features = [Feature(id="F1", title="Core", description="Core features", priority=Priority.HIGH)]
         stories = [
             UserStory(
-                id="US-E1-001",
-                epic_id="E1",
+                id="US-F1-001",
+                feature_id="F1",
                 persona="user",
                 goal="do something",
                 benefit="value",
@@ -148,7 +148,7 @@ class TestRouteEntry:
             "messages": [],
             "questionnaire": qs,
             "project_analysis": analysis,
-            "epics": epics,
+            "features": features,
             "stories": stories,
             "tasks": [],
         }
@@ -158,11 +158,11 @@ class TestRouteEntry:
         """Tasks present, no sprints -> route to 'sprint_planner'."""
         qs = QuestionnaireState(completed=True)
         analysis = make_dummy_analysis()
-        epics = [Epic(id="E1", title="Core", description="Core features", priority=Priority.HIGH)]
+        features = [Feature(id="F1", title="Core", description="Core features", priority=Priority.HIGH)]
         stories = [
             UserStory(
-                id="US-E1-001",
-                epic_id="E1",
+                id="US-F1-001",
+                feature_id="F1",
                 persona="user",
                 goal="do something",
                 benefit="value",
@@ -171,12 +171,12 @@ class TestRouteEntry:
                 priority=Priority.HIGH,
             )
         ]
-        tasks = [Task(id="T-US-E1-001-01", story_id="US-E1-001", title="Implement feature", description="Build it")]
+        tasks = [Task(id="T-US-F1-001-01", story_id="US-F1-001", title="Implement feature", description="Build it")]
         state = {
             "messages": [],
             "questionnaire": qs,
             "project_analysis": analysis,
-            "epics": epics,
+            "features": features,
             "stories": stories,
             "tasks": tasks,
         }
@@ -186,11 +186,11 @@ class TestRouteEntry:
         """Tasks + empty sprints -> route to 'sprint_planner'."""
         qs = QuestionnaireState(completed=True)
         analysis = make_dummy_analysis()
-        epics = [Epic(id="E1", title="Core", description="Core features", priority=Priority.HIGH)]
+        features = [Feature(id="F1", title="Core", description="Core features", priority=Priority.HIGH)]
         stories = [
             UserStory(
-                id="US-E1-001",
-                epic_id="E1",
+                id="US-F1-001",
+                feature_id="F1",
                 persona="user",
                 goal="do something",
                 benefit="value",
@@ -199,12 +199,12 @@ class TestRouteEntry:
                 priority=Priority.HIGH,
             )
         ]
-        tasks = [Task(id="T-US-E1-001-01", story_id="US-E1-001", title="Implement feature", description="Build it")]
+        tasks = [Task(id="T-US-F1-001-01", story_id="US-F1-001", title="Implement feature", description="Build it")]
         state = {
             "messages": [],
             "questionnaire": qs,
             "project_analysis": analysis,
-            "epics": epics,
+            "features": features,
             "stories": stories,
             "tasks": tasks,
             "sprints": [],
@@ -215,11 +215,11 @@ class TestRouteEntry:
         """Tasks + no sprints + starting_sprint_number set -> route to 'sprint_planner'."""
         qs = QuestionnaireState(completed=True)
         analysis = make_dummy_analysis()
-        epics = [Epic(id="E1", title="Core", description="Core features", priority=Priority.HIGH)]
+        features = [Feature(id="F1", title="Core", description="Core features", priority=Priority.HIGH)]
         stories = [
             UserStory(
-                id="US-E1-001",
-                epic_id="E1",
+                id="US-F1-001",
+                feature_id="F1",
                 persona="user",
                 goal="do something",
                 benefit="value",
@@ -228,12 +228,12 @@ class TestRouteEntry:
                 priority=Priority.HIGH,
             )
         ]
-        tasks = [Task(id="T-US-E1-001-01", story_id="US-E1-001", title="Implement feature", description="Build it")]
+        tasks = [Task(id="T-US-F1-001-01", story_id="US-F1-001", title="Implement feature", description="Build it")]
         state = {
             "messages": [],
             "questionnaire": qs,
             "project_analysis": analysis,
-            "epics": epics,
+            "features": features,
             "stories": stories,
             "tasks": tasks,
             "starting_sprint_number": 105,
@@ -241,14 +241,14 @@ class TestRouteEntry:
         assert route_entry(state) == "sprint_planner"
 
     def test_routes_to_agent_when_sprints_present(self):
-        """Questionnaire + analysis + epics + stories + tasks + sprints -> route to 'agent'."""
+        """Questionnaire + analysis + features + stories + tasks + sprints -> route to 'agent'."""
         qs = QuestionnaireState(completed=True)
         analysis = make_dummy_analysis()
-        epics = [Epic(id="E1", title="Core", description="Core features", priority=Priority.HIGH)]
+        features = [Feature(id="F1", title="Core", description="Core features", priority=Priority.HIGH)]
         stories = [
             UserStory(
-                id="US-E1-001",
-                epic_id="E1",
+                id="US-F1-001",
+                feature_id="F1",
                 persona="user",
                 goal="do something",
                 benefit="value",
@@ -257,15 +257,15 @@ class TestRouteEntry:
                 priority=Priority.HIGH,
             )
         ]
-        tasks = [Task(id="T-US-E1-001-01", story_id="US-E1-001", title="Implement feature", description="Build it")]
+        tasks = [Task(id="T-US-F1-001-01", story_id="US-F1-001", title="Implement feature", description="Build it")]
         sprints = [
-            Sprint(id="SP-1", name="Sprint 1", goal="Core features", capacity_points=3, story_ids=("US-E1-001",))
+            Sprint(id="SP-1", name="Sprint 1", goal="Core features", capacity_points=3, story_ids=("US-F1-001",))
         ]
         state = {
             "messages": [],
             "questionnaire": qs,
             "project_analysis": analysis,
-            "epics": epics,
+            "features": features,
             "stories": stories,
             "tasks": tasks,
             "sprints": sprints,

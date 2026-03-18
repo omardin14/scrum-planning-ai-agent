@@ -395,54 +395,54 @@ def _build_analysis_section(graph_state: dict) -> str:
 """
 
 
-def _build_epics_section(graph_state: dict) -> str:
-    """Render epic list as an HTML section."""
-    epics = graph_state.get("epics", [])
-    if not epics:
+def _build_features_section(graph_state: dict) -> str:
+    """Render feature list as an HTML section."""
+    features = graph_state.get("features", [])
+    if not features:
         return ""
 
     cards = []
-    for epic in epics:
-        priority = epic.priority.value if hasattr(epic.priority, "value") else str(epic.priority)
+    for feature in features:
+        priority = feature.priority.value if hasattr(feature.priority, "value") else str(feature.priority)
         cards.append(f"""
   <div class="card">
     <div class="card-header">
       <div>
-        <span class="card-id">{_e(epic.id)}</span>
-        <span class="card-title">{_e(epic.title)}</span>
+        <span class="card-id">{_e(feature.id)}</span>
+        <span class="card-title">{_e(feature.title)}</span>
       </div>
       {_priority_badge(priority)}
     </div>
-    <div class="card-desc">{_e(epic.description)}</div>
+    <div class="card-desc">{_e(feature.description)}</div>
   </div>""")
 
     return f"""
-<section id="epics">
-  <h2>Epics</h2>
+<section id="features">
+  <h2>Features</h2>
   {"".join(cards)}
 </section>
 """
 
 
 def _build_stories_section(graph_state: dict) -> str:
-    """Render user stories grouped by epic as an HTML section."""
+    """Render user stories grouped by feature as an HTML section."""
     stories = graph_state.get("stories", [])
     if not stories:
         return ""
 
-    epics = graph_state.get("epics", [])
-    epic_titles = {e.id: e.title for e in epics}
+    features = graph_state.get("features", [])
+    feature_titles = {e.id: e.title for e in features}
 
-    # Group by epic
-    by_epic: dict[str, list] = {}
+    # Group by feature
+    by_feature: dict[str, list] = {}
     for story in stories:
-        by_epic.setdefault(story.epic_id, []).append(story)
+        by_feature.setdefault(story.feature_id, []).append(story)
 
     sections: list[str] = []
-    for epic_id, epic_stories in by_epic.items():
-        epic_label = f"{epic_id}: {epic_titles.get(epic_id, epic_id)}"
+    for feature_id, feature_stories in by_feature.items():
+        feature_label = f"{feature_id}: {feature_titles.get(feature_id, feature_id)}"
         cards = []
-        for story in epic_stories:
+        for story in feature_stories:
             priority = story.priority.value if hasattr(story.priority, "value") else str(story.priority)
             discipline = story.discipline.value if hasattr(story.discipline, "value") else str(story.discipline)
             pts = story.story_points.value if hasattr(story.story_points, "value") else int(story.story_points)
@@ -459,6 +459,36 @@ def _build_stories_section(graph_state: dict) -> str:
                 )
                 ac_items = f'<ul class="ac-list">{lis}</ul>'
 
+            rationale_html = ""
+            if story.points_rationale:
+                rationale_html = (
+                    f'<div class="card-desc" style="margin-top:0.5rem;font-style:italic;">'
+                    f'<strong>Points rationale:</strong> {_e(story.points_rationale)}</div>'
+                )
+
+            # User story description ("As a X, I want to Y, so that Z")
+            desc_html = (
+                f'<div class="card-desc" style="margin-top:0.5rem;font-style:italic;color:var(--text-muted);">'
+                f'{_e(story.text)}</div>'
+            )
+
+            # Definition of Done flags
+            from scrum_agent.agent.state import DOD_ITEMS
+
+            dod_html = ""
+            dod_flags = story.dod_applicable
+            if len(dod_flags) == len(DOD_ITEMS):
+                dod_items_html = "".join(
+                    f'<li style="{"text-decoration:line-through;opacity:0.5;" if not applicable else ""}">'
+                    f'{"✓" if applicable else "✗"} {_e(item)}</li>'
+                    for item, applicable in zip(DOD_ITEMS, dod_flags)
+                )
+                dod_html = (
+                    f'<div style="margin-top:0.5rem;">'
+                    f'<strong style="font-size:0.75rem;color:var(--text-muted);">Definition of Done:</strong>'
+                    f'<ul class="ac-list" style="font-size:0.8rem;">{dod_items_html}</ul></div>'
+                )
+
             cards.append(f"""
     <div class="card story-card {_e(priority)}">
       <div class="card-header">
@@ -468,11 +498,14 @@ def _build_stories_section(graph_state: dict) -> str:
         </div>
         {_priority_badge(priority)}
       </div>
+      {desc_html}
       <div class="card-meta">
         {_badge(f"{pts} pts", "badge-pts")}
         {_discipline_badge(discipline)}
       </div>
+      {rationale_html}
       {ac_items}
+      {dod_html}
     </div>""")
 
         label_style = (
@@ -481,7 +514,7 @@ def _build_stories_section(graph_state: dict) -> str:
         )
         sections.append(f"""
   <div style="margin-bottom:1.5rem;">
-    <div style="{label_style}">{_e(epic_label)}</div>
+    <div style="{label_style}">{_e(feature_label)}</div>
     {"".join(cards)}
   </div>""")
 
@@ -607,8 +640,8 @@ def _build_nav(graph_state: dict) -> str:
         links.append('<a href="#questionnaire">Questionnaire</a>')
     if graph_state.get("project_analysis"):
         links.append('<a href="#analysis">Analysis</a>')
-    if graph_state.get("epics"):
-        links.append('<a href="#epics">Epics</a>')
+    if graph_state.get("features"):
+        links.append('<a href="#features">Features</a>')
     if graph_state.get("stories"):
         links.append('<a href="#stories">Stories</a>')
     if graph_state.get("tasks"):
@@ -627,7 +660,7 @@ def _build_header(graph_state: dict, stage_label: str) -> str:
     stages_done = []
     for key, label in [
         ("project_analysis", "Analysis"),
-        ("epics", "Epics"),
+        ("features", "Features"),
         ("stories", "Stories"),
         ("tasks", "Tasks"),
         ("sprints", "Sprints"),
@@ -657,7 +690,7 @@ def _build_header(graph_state: dict, stage_label: str) -> str:
 #: Human-readable label for each pipeline node
 _STAGE_LABELS: dict[str, str] = {
     "project_analyzer": "Project Analysis",
-    "epic_generator": "Epics",
+    "feature_generator": "Features",
     "story_writer": "User Stories",
     "task_decomposer": "Tasks",
     "sprint_planner": "Sprint Plan",
@@ -686,7 +719,7 @@ def build_export_html(graph_state: dict, stage: str = "complete") -> str:
     sections = [
         _build_questionnaire_section(graph_state),
         _build_analysis_section(graph_state),
-        _build_epics_section(graph_state),
+        _build_features_section(graph_state),
         _build_stories_section(graph_state),
         _build_tasks_section(graph_state),
         _build_sprints_section(graph_state),
@@ -731,7 +764,7 @@ def export_plan_html(graph_state: dict, stage: str = "complete", path: Path | No
     output_path = path or Path("scrum-plan.html")
     output_path.write_text(build_export_html(graph_state, stage=stage), encoding="utf-8")
     sections = sum(
-        1 for k in ("questionnaire", "project_analysis", "epics", "stories", "tasks", "sprints") if graph_state.get(k)
+        1 for k in ("questionnaire", "project_analysis", "features", "stories", "tasks", "sprints") if graph_state.get(k)
     )
     logger.info("HTML exported to %s (%d section(s), stage=%s)", output_path, sections, stage)
     return output_path

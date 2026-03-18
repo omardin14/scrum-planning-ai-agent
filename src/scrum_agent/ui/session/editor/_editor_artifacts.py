@@ -12,11 +12,11 @@ import re
 from rich.console import Console
 from rich.live import Live
 
-from scrum_agent.agent.state import Epic, Priority, ProjectAnalysis, Sprint, Task
+from scrum_agent.agent.state import Feature, Priority, ProjectAnalysis, Sprint, Task
 from scrum_agent.ui.session.editor._editor_core import edit_buffer_loop, render_editor_panel
 
 # ---------------------------------------------------------------------------
-# Valid priority values (shared by epic + story editors)
+# Valid priority values (shared by feature + story editors)
 # ---------------------------------------------------------------------------
 
 _VALID_PRIORITIES = {p.value for p in Priority}
@@ -351,38 +351,38 @@ def edit_analysis(
 
 
 # ---------------------------------------------------------------------------
-# Epic editor
+# Feature editor
 # ---------------------------------------------------------------------------
 
 
-def _epics_to_text(epics: list[Epic]) -> str:
-    """Convert a list of Epics to structured editable text."""
+def _features_to_text(features: list[Feature]) -> str:
+    """Convert a list of Features to structured editable text."""
     w = 13  # len("Description: ")
     lines: list[str] = []
-    for i, epic in enumerate(epics):
+    for i, feature in enumerate(features):
         if i > 0:
             lines.append("")
-        lines.append(f"\u2500\u2500 {epic.id} \u2500\u2500")
+        lines.append(f"\u2500\u2500 {feature.id} \u2500\u2500")
         lines.append("")
-        lines.append(f"{'Title:':<{w}}{epic.title}")
+        lines.append(f"{'Title:':<{w}}{feature.title}")
         lines.append("")
-        lines.append(f"{'Description:':<{w}}{epic.description}")
+        lines.append(f"{'Description:':<{w}}{feature.description}")
         lines.append("")
-        lines.append(f"{'Priority:':<{w}}{epic.priority.value}")
+        lines.append(f"{'Priority:':<{w}}{feature.priority.value}")
     return "\n".join(lines)
 
 
-def _parse_edited_epics(text: str, originals: list[Epic]) -> list[Epic]:
-    """Parse structured editor text back into a list of Epics."""
+def _parse_edited_features(text: str, originals: list[Feature]) -> list[Feature]:
+    """Parse structured editor text back into a list of Features."""
     blocks = _split_section_blocks(text)
-    results: list[Epic] = []
+    results: list[Feature] = []
     for idx, original in enumerate(originals):
         if idx < len(blocks):
             fields = _extract_fields(blocks[idx], ("Title", "Description", "Priority"))
             pri_str = fields.get("priority", original.priority.value).lower()
             priority = Priority(pri_str) if pri_str in _VALID_PRIORITIES else original.priority
             results.append(
-                Epic(
+                Feature(
                     id=original.id,
                     title=fields.get("title", original.title) or original.title,
                     description=fields.get("description", original.description),
@@ -394,7 +394,7 @@ def _parse_edited_epics(text: str, originals: list[Epic]) -> list[Epic]:
     return results
 
 
-def _epic_editable_start(line: str) -> int | None:
+def _feature_editable_start(line: str) -> int | None:
     """Return column where editable value starts, or None if non-editable."""
     stripped = line.strip()
     if not stripped:
@@ -407,25 +407,25 @@ def _epic_editable_start(line: str) -> int | None:
     return 0
 
 
-def edit_epic(
+def edit_feature(
     live: Live,
     console: Console,
-    epics: list[Epic],
+    features: list[Feature],
     _key,
     *,
     width: int = 80,
     height: int = 24,
-) -> list[Epic] | None:
-    """Open the text editor for all Epics at once.
+) -> list[Feature] | None:
+    """Open the text editor for all Features at once.
 
-    Returns a list of edited Epics, or None if cancelled (Esc).
+    Returns a list of edited Features, or None if cancelled (Esc).
     """
-    text = _epics_to_text(epics)
+    text = _features_to_text(features)
     buffer = text.split("\n")
-    cursor_row, cursor_col = _find_first_editable(buffer, _epic_editable_start)
+    cursor_row, cursor_col = _find_first_editable(buffer, _feature_editable_start)
 
     def _render(buf, cr, cc, so, w, h):
-        return render_editor_panel(buf, cr, cc, so, width=w, height=h, editor_label="Epics")
+        return render_editor_panel(buf, cr, cc, so, width=w, height=h, editor_label="Features")
 
     result = edit_buffer_loop(
         live,
@@ -434,12 +434,12 @@ def edit_epic(
         cursor_row,
         cursor_col,
         _key,
-        editable_start_fn=_epic_editable_start,
+        editable_start_fn=_feature_editable_start,
         render_fn=_render,
     )
     if result is None:
         return None
-    return _parse_edited_epics("\n".join(result), epics)
+    return _parse_edited_features("\n".join(result), features)
 
 
 # ---------------------------------------------------------------------------

@@ -99,7 +99,7 @@ def get_sprint_planner_prompt(
     else:
         target_note = "Calculate the number of sprints from total story points ÷ velocity (rounded up)"
 
-    from scrum_agent.prompts.epic_generator import _build_review_section
+    from scrum_agent.prompts.feature_generator import _build_review_section
 
     # When starting_sprint_number > 0, use real sprint numbers in the schema and rules.
     # e.g. SP-105, SP-106, Sprint 105, Sprint 106 instead of SP-1, SP-2.
@@ -182,7 +182,12 @@ def get_sprint_planner_prompt(
         "6. Each sprint goal summarises the sprint's theme in 1-2 sentences.\n"
         f"7. {target_note}.\n"
         "8. Every story must appear in exactly one sprint — no duplicates.\n"
-        f"9. Maximum {MAX_SPRINTS} sprints.\n\n"
+        f"9. Maximum {MAX_SPRINTS} sprints.\n"
+        "10. MINIMUM SPRINT LOAD: if the remaining stories after filling all previous sprints "
+        "would create a final sprint with fewer points than 30% of velocity, merge them into "
+        "the previous sprint instead (allow it to slightly exceed velocity). A nearly-empty "
+        "sprint wastes a full sprint cycle. It is better to slightly overflow the previous "
+        "sprint than to create a sprint with trivial work.\n\n"
         "## Chain of Thought\n\n"
         "Think step by step:\n"
         "1. Sort stories by priority (Critical → High → Medium → Low).\n"

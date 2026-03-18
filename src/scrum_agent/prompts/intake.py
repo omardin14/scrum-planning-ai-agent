@@ -417,7 +417,7 @@ STARTUP_MODE_ORDER: tuple[str, ...] = ("project-planning", "coming-soon-1", "com
 
 QUESTION_IMPROVEMENT_HINTS: dict[int, str] = {
     # Essential questions (Q1-Q4, Q6, Q11, Q15)
-    1: "Describe your project in detail for better epic decomposition",
+    1: "Describe your project in detail for better feature decomposition",
     2: "Specify if this is greenfield or existing codebase — affects architecture decisions",
     3: "Clarify the problem and end users for more targeted user stories",
     4: "Define what 'done' looks like for clearer acceptance criteria",

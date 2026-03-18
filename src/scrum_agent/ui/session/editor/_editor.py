@@ -3,7 +3,7 @@
 # See README: "Architecture" — UI component in the session layer.
 # The most complex editor: includes DoD toggle buttons, AC insertion,
 # and custom grid navigation. Other editors (task, sprint, analysis,
-# epic) live in _editor_artifacts.py and use the generic loop from
+# feature) live in _editor_artifacts.py and use the generic loop from
 # _editor_core.py.
 #
 # Key bindings:
@@ -82,6 +82,8 @@ def _story_to_text(story: UserStory) -> str:
     lines.append(f"{'Benefit:':<{w}}{story.benefit}")
     lines.append("")
     lines.append(f"{'Points:':<{w}}{story.story_points}")
+    if story.points_rationale:
+        lines.append(f"{'Rationale:':<{w}}{story.points_rationale}")
     lines.append(f"{'Priority:':<{w}}{story.priority.value}")
     lines.append(f"{'Discipline:':<{w}}{story.discipline.value}")
     lines.append("")
@@ -110,7 +112,7 @@ def _parse_edited_story(text: str, original: UserStory) -> UserStory:
     lines = [ln for ln in text.split("\n") if ln.strip() != _ADD_AC_MARKER]
     fields: dict[str, str] = {}
     for line in lines:
-        m = re.match(r"^(Persona|Goal|Benefit|Points|Priority|Discipline)\s*:\s*(.+)$", line.strip())
+        m = re.match(r"^(Persona|Goal|Benefit|Points|Rationale|Priority|Discipline)\s*:\s*(.+)$", line.strip())
         if m:
             fields[m.group(1).lower()] = m.group(2).strip()
 
@@ -165,6 +167,7 @@ def _parse_edited_story(text: str, original: UserStory) -> UserStory:
         priority=priority,
         discipline=discipline,
         dod_applicable=tuple(dod_flags) if len(dod_flags) == len(DOD_ITEMS) else original.dod_applicable,
+        points_rationale=fields.get("rationale", original.points_rationale),
     )
 
 

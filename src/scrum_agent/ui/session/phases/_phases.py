@@ -205,6 +205,177 @@ def _pipeline_choice_screen(
 
 
 # ---------------------------------------------------------------------------
+# Jira sync helper
+# ---------------------------------------------------------------------------
+
+
+def _handle_jira_sync(
+    live: Live,
+    console: Console,
+    _key,
+    graph_state: dict,
+    stage: str,
+    stage_label: str,
+    progress: str,
+    step: int,
+    total: int,
+) -> dict | None:
+    """Run Jira sync for the current pipeline stage with progress animation.
+
+    Shows a confirmation summary, then a progress screen during sync,
+    then updates graph_state with the results.
+    Returns updated graph_state on success, or None on cancel/failure.
+
+    # See README: "Tools" — tool types, write tools, human-in-the-loop pattern
+    """
+    from scrum_agent.jira_sync import (
+        JiraSyncResult,
+        sync_sprints_to_jira,
+        sync_stories_to_jira,
+        sync_tasks_to_jira,
+    )
+
+    # Pick the right sync function based on stage
+    if stage == "story_writer":
+        sync_fn = sync_stories_to_jira
+    elif stage == "task_decomposer":
+        sync_fn = sync_tasks_to_jira
+    elif stage == "sprint_planner":
+        sync_fn = sync_sprints_to_jira
+    else:
+        return None
+
+    # Compute what will be created vs skipped for confirmation
+    stories = graph_state.get("stories", [])
+    tasks = graph_state.get("tasks", [])
+    sprints = graph_state.get("sprints", [])
+    existing_stories = len(graph_state.get("jira_story_keys", {}))
+    existing_tasks = len(graph_state.get("jira_task_keys", {}))
+    existing_sprints = len(graph_state.get("jira_sprint_keys", {}))
+    has_epic = bool(graph_state.get("jira_epic_key"))
+
+    # Build confirmation description
+    parts: list[str] = []
+    if stage == "story_writer":
+        new_stories = len(stories) - existing_stories
+        if not has_epic:
+            parts.append("1 Epic")
+        if new_stories > 0:
+            parts.append(f"{new_stories} Stories")
+        if existing_stories > 0:
+            parts.append(f"({existing_stories} already exist)")
+    elif stage == "task_decomposer":
+        new_tasks = len(tasks) - existing_tasks
+        if not existing_stories and stories:
+            parts.append(f"{len(stories)} Stories (cascade)")
+        if new_tasks > 0:
+            parts.append(f"{new_tasks} Sub-tasks")
+        if existing_tasks > 0:
+            parts.append(f"({existing_tasks} already exist)")
+    elif stage == "sprint_planner":
+        new_sprints = len(sprints) - existing_sprints
+        if new_sprints > 0:
+            parts.append(f"{new_sprints} Sprints")
+        if existing_sprints > 0:
+            parts.append(f"({existing_sprints} already exist)")
+
+    if not parts:
+        return None  # Nothing to create
+
+    # Show confirmation via choice screen
+    desc = "Create in Jira: " + ", ".join(parts)
+    choice = _pipeline_choice_screen(
+        live,
+        console,
+        _key,
+        title="Create in Jira",
+        subtitle=desc,
+        options=["Confirm", "Cancel"],
+        step=step,
+        total=total,
+        stage_label=stage_label,
+        progress=progress,
+    )
+    if choice != 0:
+        return None  # User cancelled
+
+    # Run sync in a background thread with progress updates
+    # _sync_log accumulates completed items; _sync_current shows the active item.
+    _sync_log: list[str] = []
+    _sync_current: list[str] = ["Starting..."]
+    _sync_counter: list[int] = [0, 0]  # [current, total]
+    result_box: list[JiraSyncResult | None] = [None]
+    state_box: list[dict | None] = [None]
+    error_box: list[Exception | None] = [None]
+    done = threading.Event()
+
+    def _on_progress(current: int, total_items: int, desc: str) -> None:
+        _sync_counter[0] = current
+        _sync_counter[1] = total_items
+        # Move previous current item to log
+        if _sync_current[0] and _sync_current[0] != "Starting...":
+            _sync_log.append(f"  \033[32m✓\033[0m {_sync_current[0]}")
+        _sync_current[0] = desc
+
+    def _run_sync() -> None:
+        try:
+            sync_result, new_state = sync_fn(graph_state, on_progress=_on_progress)
+            result_box[0] = sync_result
+            state_box[0] = new_state
+        except Exception as e:
+            error_box[0] = e
+        finally:
+            done.set()
+
+    thread = threading.Thread(target=_run_sync, daemon=True)
+    thread.start()
+
+    # Animate progress while sync runs — show scrolling log of completed items
+    start = time.monotonic()
+    while not done.is_set():
+        tick = time.monotonic() - start
+        w, h = console.size
+        # Build status lines: completed log (tail) + current active item
+        viewport_h = max(3, h - 16)
+        visible_log = _sync_log[-viewport_h:] if _sync_log else []
+        cur = _sync_counter[0]
+        tot = _sync_counter[1]
+        counter = f"[{cur}/{tot}]" if tot else ""
+        active_line = f"  \033[33m▸\033[0m {counter} {_sync_current[0]}"
+        status_lines = [*visible_log, active_line]
+        live.update(
+            _build_pipeline_screen(
+                stage_label,
+                progress,
+                status_lines,
+                0,
+                0,
+                status="processing",
+                width=w,
+                height=h,
+                tick=tick,
+                step=step,
+                total=total,
+            )
+        )
+        time.sleep(FRAME_TIME_30FPS)
+
+    thread.join()
+
+    if error_box[0] is not None:
+        logger.error("Jira sync failed: %s", error_box[0])
+        return None
+
+    if state_box[0] is not None:
+        sync_result = result_box[0]
+        if sync_result and sync_result.errors:
+            logger.warning("Jira sync completed with %d errors", len(sync_result.errors))
+        return state_box[0]
+
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Phase D: Pipeline Stages
 # ---------------------------------------------------------------------------
 
@@ -220,7 +391,7 @@ def _phase_pipeline(
     project_id: str = "",
     dry_run: bool = False,
 ) -> dict | None:
-    """Run 5 pipeline stages: analyzer -> epics -> stories -> tasks -> sprints.
+    """Run 5 pipeline stages: analyzer -> features -> stories -> tasks -> sprints.
 
     Each stage: invoke graph -> show result -> Accept/Edit/Export review.
     Returns updated graph_state after all stages, or None on cancel.
@@ -251,8 +422,8 @@ def _phase_pipeline(
             # Determine next stage based on which artifacts are missing.
             if "project_analysis" not in graph_state:
                 next_node = "project_analyzer"
-            elif "epics" not in graph_state:
-                next_node = "epic_generator"
+            elif "features" not in graph_state:
+                next_node = "feature_generator"
             elif "stories" not in graph_state:
                 next_node = "story_writer"
             elif "tasks" not in graph_state:
@@ -272,8 +443,8 @@ def _phase_pipeline(
             return graph_state
 
         logger.info("Pipeline stage entry: %s", next_node)
-        # epic_skip occupies the same pipeline slot as epic_generator (step 2/5).
-        step_node = "epic_generator" if next_node == "epic_skip" else next_node
+        # feature_skip occupies the same pipeline slot as feature_generator (step 2/5).
+        step_node = "feature_generator" if next_node == "feature_skip" else next_node
         step = _PIPELINE_STEPS.index(step_node) + 1 if step_node in _PIPELINE_STEPS else 0
         total = len(_PIPELINE_STEPS)
         progress = f"[{step}/{total}]"
@@ -427,16 +598,25 @@ def _phase_pipeline(
         status_msg = ""
 
         # Action buttons differ by stage:
-        # story_writer/task_decomposer/sprint_planner: Accept | Edit | Regenerate | Export
+        # story_writer/task_decomposer/sprint_planner: Accept | Edit | Regenerate | Export [| Jira]
         # others: Accept | Edit | Export
         is_analysis_stage = pending == "project_analyzer"
-        is_epic_stage = pending == "epic_generator"
+        is_feature_stage = pending == "feature_generator"
         is_task_stage = pending == "task_decomposer"
         is_sprint_stage = pending == "sprint_planner"
-        if is_story_stage or is_epic_stage or is_task_stage or is_sprint_stage:
+        if is_story_stage or is_feature_stage or is_task_stage or is_sprint_stage:
             actions = ["Accept", "Edit", "Regenerate", "Export"]
         else:
             actions = ["Accept", "Edit", "Export"]
+
+        # Add "Jira" button to stages that produce Jira-syncable artifacts.
+        # Only shown when Jira credentials are configured.
+        # Feature stage does NOT get Jira — features map to labels, not issues.
+        # See README: "Tools" — tool types, write tools, human-in-the-loop pattern
+        from scrum_agent.jira_sync import is_jira_configured
+
+        if is_jira_configured() and (is_story_stage or is_task_stage or is_sprint_stage):
+            actions.append("Jira")
         num_actions = len(actions)
 
         # Capacity warning state — shown as a banner on the sprint review screen.
@@ -526,13 +706,13 @@ def _phase_pipeline(
                                     console, graph_state, selected_story=selected_story
                                 )
                         # Stay in review loop — no LLM call
-                    elif is_epic_stage:
+                    elif is_feature_stage:
                         # Direct text editor for all epics
-                        from scrum_agent.ui.session.editor._editor_artifacts import edit_epic
+                        from scrum_agent.ui.session.editor._editor_artifacts import edit_feature
 
-                        epic_list = graph_state.get("epics", [])
+                        epic_list = graph_state.get("features", [])
                         if epic_list:
-                            edited_epics = edit_epic(
+                            edited_epics = edit_feature(
                                 live,
                                 console,
                                 epic_list,
@@ -541,7 +721,7 @@ def _phase_pipeline(
                                 height=h,
                             )
                             if edited_epics is not None:
-                                graph_state["epics"] = edited_epics
+                                graph_state["features"] = edited_epics
                                 content_lines, sticky_headers = _render_pipeline_artifacts(console, graph_state)
                         # Stay in review loop — no LLM call
                     elif is_task_stage:
@@ -673,6 +853,19 @@ def _phase_pipeline(
                     logger.info("Review decision: Export for %s", pending)
                     _export_checkpoint(console, graph_state, stage=pending)
                     status_msg = "Exported successfully"
+                elif action == "Jira":
+                    logger.info("Jira sync requested for %s", pending)
+                    jira_result = _handle_jira_sync(
+                        live, console, _key, graph_state, pending, stage_label, progress, step, total
+                    )
+                    if jira_result is not None:
+                        graph_state = jira_result
+                        # Save after Jira sync
+                        if project_id:
+                            save_project_snapshot(project_id, graph_state)
+                        # Re-render artifacts (content_lines unchanged, but status_msg updates)
+                        created = len(graph_state.get("jira_story_keys", {}))
+                        status_msg = f"Synced to Jira ({created} stories)"
 
             # Animate button fades toward targets
             _fade_step = 0.15

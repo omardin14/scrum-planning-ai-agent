@@ -2,7 +2,7 @@
 
 Unlike test_repl.py (which tests individual REPL features in isolation),
 these tests drive the full run_repl() loop with a mock graph that simulates
-the complete pipeline progression: intake → analyzer → epics → stories →
+the complete pipeline progression: intake → analyzer → features → stories →
 tasks → sprints → "plan complete".
 
 Each test captures Rich console output to a StringIO buffer and asserts on
@@ -24,7 +24,7 @@ from rich.console import Console
 from scrum_agent.agent.state import (
     TOTAL_QUESTIONS,
     AcceptanceCriterion,
-    Epic,
+    Feature,
     Priority,
     ProjectAnalysis,
     QuestionnaireState,
@@ -99,10 +99,10 @@ def _dummy_analysis() -> ProjectAnalysis:
     )
 
 
-def _sample_epics() -> list[Epic]:
+def _sample_features() -> list[Feature]:
     return [
-        Epic(id="E1", title="Auth", description="Authentication", priority=Priority.HIGH),
-        Epic(id="E2", title="Tasks", description="Task management", priority=Priority.HIGH),
+        Feature(id="F1", title="Auth", description="Authentication", priority=Priority.HIGH),
+        Feature(id="F2", title="Tasks", description="Task management", priority=Priority.HIGH),
     ]
 
 
@@ -110,7 +110,7 @@ def _sample_stories() -> list[UserStory]:
     return [
         UserStory(
             id="US-E1-001",
-            epic_id="E1",
+            feature_id="F1",
             persona="user",
             goal="register",
             benefit="access",
@@ -139,7 +139,7 @@ def _make_pipeline_graph():
     On each invoke() call, it progresses through the pipeline based on state:
     - No questionnaire → intake (returns completed questionnaire)
     - No analysis → analyzer (returns analysis)
-    - No epics → epic generator (returns epics)
+    - No features → feature generator (returns features)
     - No stories → story writer (returns stories)
     - No tasks → task decomposer (returns tasks)
     - No sprints → sprint planner (returns sprints)
@@ -177,14 +177,14 @@ def _make_pipeline_graph():
                 "context_sources": [],
             }
 
-        # Epic generator
-        if not state.get("epics"):
-            ai_msg = AIMessage(content="# Epics\n2 epics generated.")
+        # Feature generator
+        if not state.get("features"):
+            ai_msg = AIMessage(content="# Features\n2 features generated.")
             return {
                 **state,
                 "messages": [*input_msgs, ai_msg],
-                "epics": _sample_epics(),
-                "pending_review": "epic_generator",
+                "features": _sample_features(),
+                "pending_review": "feature_generator",
             }
 
         # Story writer
@@ -257,7 +257,7 @@ class TestHappyPathE2E:
             "Build a todo app",  # triggers intake → returns completed questionnaire
             "1",  # start analysis (post-questionnaire ready gate)
             "accept",  # accept analysis
-            "accept",  # accept epics
+            "accept",  # accept features
             "accept",  # accept stories
             "accept",  # accept tasks
             "accept",  # accept sprints → plan complete
@@ -282,7 +282,7 @@ class TestHappyPathE2E:
             "Build a todo app",
             "start",  # post-questionnaire gate
             "accept",  # analysis
-            "accept",  # epics
+            "accept",  # features
             "exit",
         ]
         monkeypatch.setattr("scrum_agent.repl.PromptSession", _mock_session_factory(inputs))
@@ -333,13 +333,13 @@ class TestGracefulExitAtPipelineStages:
         output = buf.getvalue()
         assert "Goodbye!" in output
 
-    def test_ctrl_c_after_epics(self, monkeypatch):
-        """Exit after accepting analysis but before accepting epics."""
+    def test_ctrl_c_after_features(self, monkeypatch):
+        """Exit after accepting analysis but before accepting features."""
         inputs = [
             "Build a todo app",
             "start",
-            "accept",  # accept analysis → graph produces epics
-            # EOFError at epic review
+            "accept",  # accept analysis → graph produces features
+            # EOFError at feature review
         ]
         monkeypatch.setattr("scrum_agent.repl.PromptSession", _mock_session_factory(inputs))
         monkeypatch.setattr("scrum_agent.repl.time", MagicMock())
@@ -378,7 +378,7 @@ class TestExportCommandE2E:
             "Build a todo app",
             "start",
             "accept",  # accept analysis
-            "export",  # export at epic review checkpoint
+            "export",  # export at feature review checkpoint
             "exit",
         ]
         monkeypatch.setattr("scrum_agent.repl.PromptSession", _mock_session_factory(inputs))
@@ -396,7 +396,7 @@ class TestExportCommandE2E:
             "Build a todo app",
             "1",  # start analysis
             "accept",  # analysis
-            "accept",  # epics
+            "accept",  # features
             "accept",  # stories
             "accept",  # tasks
             "accept",  # sprints → plan complete
@@ -437,7 +437,7 @@ class TestResumeCommandE2E:
 
     def test_resume_with_startup_flag(self, monkeypatch, tmp_path):
         """Resuming via resume_state= parameter should show 'Resumed session'."""
-        # Build a mid-pipeline state (after analysis, before epics)
+        # Build a mid-pipeline state (after analysis, before features)
         resume_state = {
             "messages": [],
             "questionnaire": _completed_questionnaire(),
@@ -445,7 +445,7 @@ class TestResumeCommandE2E:
         }
 
         inputs = [
-            "accept",  # accept epics (mock graph generates them)
+            "accept",  # accept features (mock graph generates them)
             "exit",
         ]
         monkeypatch.setattr("scrum_agent.repl.PromptSession", _mock_session_factory(inputs))

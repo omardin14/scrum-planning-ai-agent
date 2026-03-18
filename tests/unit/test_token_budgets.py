@@ -16,12 +16,12 @@ accidentally duplicates a large section, or a new optional context argument
 that always injects a large block, will silently triple the prompt size and
 cost without these assertions.
 
-Sizing reference (measured on a typical 4-epic / 15-story project):
-  System prompt   ~3 100 chars  (~780 tokens)   — budget 5 000 chars
-  Analyzer prompt ~7 200 chars  (~1 800 tokens)  — budget 20 000 chars
-  Epic prompt     ~1 550 chars  (~390 tokens)    — budget 15 000 chars
-  Story prompt    ~4 200 chars  (~1 050 tokens)  — budget 20 000 chars
-  Sprint prompt   ~3 000 chars  (~750 tokens)    — budget 15 000 chars
+Sizing reference (measured on a typical 4-feature / 15-story project):
+  System prompt    ~3 100 chars  (~780 tokens)   — budget 5 000 chars
+  Analyzer prompt  ~7 200 chars  (~1 800 tokens)  — budget 20 000 chars
+  Feature prompt   ~1 550 chars  (~390 tokens)    — budget 15 000 chars
+  Story prompt     ~4 200 chars  (~1 050 tokens)  — budget 20 000 chars
+  Sprint prompt    ~3 000 chars  (~750 tokens)    — budget 15 000 chars
 
 The budgets are intentionally permissive — roughly 3-4× the typical size —
 so that optional context blocks (repo_context, confluence_context, SCRUM.md)
@@ -41,7 +41,7 @@ from __future__ import annotations
 
 SYSTEM_PROMPT_CHAR_BUDGET = 5_000  # ~1 250 tokens
 ANALYZER_PROMPT_CHAR_BUDGET = 20_000  # ~5 000 tokens
-EPIC_PROMPT_CHAR_BUDGET = 15_000  # ~3 750 tokens
+FEATURE_PROMPT_CHAR_BUDGET = 15_000  # ~3 750 tokens
 STORY_PROMPT_CHAR_BUDGET = 20_000  # ~5 000 tokens
 SPRINT_PROMPT_CHAR_BUDGET = 15_000  # ~3 750 tokens
 
@@ -79,15 +79,15 @@ def _make_answers_block() -> str:
     return "\n".join(lines)
 
 
-# Pre-formatted epics block (4 epics, ~400 chars) — mirrors _format_epics_for_prompt output.
-_EPICS_BLOCK = (
-    "**E1: User Authentication & Authorization** (Priority: high)\n"
+# Pre-formatted features block (4 features, ~400 chars) — mirrors _format_features_for_prompt output.
+_FEATURES_BLOCK = (
+    "**F1: User Authentication & Authorization** (Priority: high)\n"
     "  OAuth2, JWT, registration, login, logout, password reset\n\n"
-    "**E2: Task Management Core** (Priority: high)\n"
+    "**F2: Task Management Core** (Priority: high)\n"
     "  Create, read, update, delete tasks with due dates, priorities, labels\n\n"
-    "**E3: Team Collaboration** (Priority: medium)\n"
+    "**F3: Team Collaboration** (Priority: medium)\n"
     "  Shared workspaces, task assignment, comments, @mentions, notifications\n\n"
-    "**E4: Infrastructure & DevOps** (Priority: medium)\n"
+    "**F4: Infrastructure & DevOps** (Priority: medium)\n"
     "  CI/CD pipeline, containerization, monitoring, deployment automation\n"
 )
 
@@ -95,9 +95,9 @@ _EPICS_BLOCK = (
 # _format_stories_for_sprint_planner output.  Used by sprint planner.
 _STORIES_BLOCK = "\n".join(
     [
-        f"### E{(i // 4) + 1}: Epic {(i // 4) + 1} (high)"
+        f"### F{(i // 4) + 1}: Feature {(i // 4) + 1} (high)"
         if i % 4 == 0
-        else f"- US-E{(i // 4) + 1}-00{(i % 4) + 1} | 3 pts | High | backend | implement feature"
+        else f"- US-F{(i // 4) + 1}-00{(i % 4) + 1} | 3 pts | High | backend | implement feature"
         for i in range(16)
     ]
 )
@@ -195,17 +195,17 @@ class TestAnalyzerPromptBudget:
         _assert_budget("analyzer_prompt_with_full_context", prompt, ANALYZER_PROMPT_CHAR_BUDGET)
 
 
-class TestEpicGeneratorPromptBudget:
-    """Epic generator receives only project analysis fields — the smallest pipeline prompt.
+class TestFeatureGeneratorPromptBudget:
+    """Feature generator receives only project analysis fields — the smallest pipeline prompt.
 
-    # See README: "Scrum Standards" — epic decomposition
+    # See README: "Scrum Standards" — feature decomposition
     """
 
     def test_typical_project_under_budget(self):
-        """Epic generator prompt with typical project analysis stays under 15 000 chars."""
-        from scrum_agent.prompts.epic_generator import get_epic_generator_prompt
+        """Feature generator prompt with typical project analysis stays under 15 000 chars."""
+        from scrum_agent.prompts.feature_generator import get_feature_generator_prompt
 
-        prompt = get_epic_generator_prompt(
+        prompt = get_feature_generator_prompt(
             project_name=_PROJECT_NAME,
             project_description=_PROJECT_DESC,
             project_type="greenfield",
@@ -217,17 +217,17 @@ class TestEpicGeneratorPromptBudget:
             risks="- Third-party OAuth provider downtime\n- PostgreSQL migration complexity",
             target_sprints="3",
         )
-        _assert_budget("epic_generator_prompt", prompt, EPIC_PROMPT_CHAR_BUDGET)
+        _assert_budget("feature_generator_prompt", prompt, FEATURE_PROMPT_CHAR_BUDGET)
 
 
 class TestStoryWriterPromptBudget:
-    """Story writer receives project analysis + all epics — grows with epic count.
+    """Story writer receives project analysis + all features — grows with feature count.
 
     # See README: "Scrum Standards" — user story format, acceptance criteria
     """
 
-    def test_typical_epics_under_budget(self):
-        """Story writer prompt with 4 typical epics stays under 20 000 chars."""
+    def test_typical_features_under_budget(self):
+        """Story writer prompt with 4 typical features stays under 20 000 chars."""
         from scrum_agent.prompts.story_writer import get_story_writer_prompt
 
         prompt = get_story_writer_prompt(
@@ -238,17 +238,17 @@ class TestStoryWriterPromptBudget:
             end_users=_END_USERS,
             tech_stack=_TECH_STACK,
             constraints=_CONSTRAINTS,
-            epics_block=_EPICS_BLOCK,
+            features_block=_FEATURES_BLOCK,
         )
         _assert_budget("story_writer_prompt", prompt, STORY_PROMPT_CHAR_BUDGET)
 
-    def test_max_epics_under_budget(self):
-        """Story writer prompt with 6 epics (the maximum) stays under budget."""
+    def test_max_features_under_budget(self):
+        """Story writer prompt with 6 features (the maximum) stays under budget."""
         from scrum_agent.prompts.story_writer import get_story_writer_prompt
 
-        # 6 epics at ~130 chars each — the maximum allowed by epic_generator rules.
-        max_epics_block = "".join(
-            f"**E{i}: Epic {i} Title — Descriptive Scope** (Priority: high)\n"
+        # 6 features at ~130 chars each — the maximum allowed by feature_generator rules.
+        max_features_block = "".join(
+            f"**F{i}: Feature {i} Title — Descriptive Scope** (Priority: high)\n"
             f"  Implementation scope: services, APIs, data models, and UI components for feature {i}.\n\n"
             for i in range(1, 7)
         )
@@ -260,9 +260,9 @@ class TestStoryWriterPromptBudget:
             end_users=_END_USERS,
             tech_stack=_TECH_STACK,
             constraints=_CONSTRAINTS,
-            epics_block=max_epics_block,
+            features_block=max_features_block,
         )
-        _assert_budget("story_writer_prompt_max_epics", prompt, STORY_PROMPT_CHAR_BUDGET)
+        _assert_budget("story_writer_prompt_max_features", prompt, STORY_PROMPT_CHAR_BUDGET)
 
 
 class TestSprintPlannerPromptBudget:
@@ -295,7 +295,7 @@ class TestSprintPlannerPromptBudget:
         pts = [1, 2, 3, 5]
         prios = ["High", "Medium", "High", "Low"]
         large_backlog = "\n".join(
-            f"- US-E{(i // 6) + 1}-0{(i % 6) + 1:02d} | {pts[i % 4]} pts | {prios[i % 4]} | backend | implement feature"
+            f"- US-F{(i // 6) + 1}-0{(i % 6) + 1:02d} | {pts[i % 4]} pts | {prios[i % 4]} | backend | implement feature"
             for i in range(30)
         )
         prompt = get_sprint_planner_prompt(

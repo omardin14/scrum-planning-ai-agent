@@ -2,7 +2,7 @@
 
 Tests the full graph execution with mock LLM responses, verifying:
 - Route entry correctly dispatches to the right node based on state
-- The full pipeline: analyzer → epics → stories → tasks → sprints
+- The full pipeline: analyzer → features → stories → tasks → sprints
 - Questionnaire flow end-to-end (Q1 → Q26 → completed)
 - Each node's output feeds correctly into the next
 
@@ -15,7 +15,7 @@ from langchain_core.messages import HumanMessage
 
 from scrum_agent.agent.graph import create_graph
 from scrum_agent.agent.nodes import (
-    epic_generator,
+    feature_generator,
     project_analyzer,
     project_intake,
     route_entry,
@@ -26,7 +26,7 @@ from scrum_agent.agent.nodes import (
 from scrum_agent.agent.state import (
     TOTAL_QUESTIONS,
     AcceptanceCriterion,
-    Epic,
+    Feature,
     Priority,
     ProjectAnalysis,
     QuestionnaireState,
@@ -59,18 +59,18 @@ _VALID_ANALYSIS_JSON = """\
   "assumptions": ["Default velocity assumed"]
 }"""
 
-_VALID_EPICS_JSON = """\
+_VALID_FEATURES_JSON = """\
 [
-  {"id": "E1", "title": "User Authentication", "description": "Registration, login, JWT", "priority": "high"},
-  {"id": "E2", "title": "Task Management", "description": "CRUD operations for tasks", "priority": "high"},
-  {"id": "E3", "title": "Dashboard", "description": "Responsive dashboard", "priority": "medium"}
+  {"id": "F1", "title": "User Authentication", "description": "Registration, login, JWT", "priority": "high"},
+  {"id": "F2", "title": "Task Management", "description": "CRUD operations for tasks", "priority": "high"},
+  {"id": "F3", "title": "Dashboard", "description": "Responsive dashboard", "priority": "medium"}
 ]"""
 
 _VALID_STORIES_JSON = """\
 [
   {
-    "id": "US-E1-001",
-    "epic_id": "E1",
+    "id": "US-F1-001",
+    "feature_id": "F1",
     "persona": "end user",
     "goal": "register an account",
     "benefit": "I can access the application",
@@ -82,8 +82,8 @@ _VALID_STORIES_JSON = """\
     "priority": "high"
   },
   {
-    "id": "US-E1-002",
-    "epic_id": "E1",
+    "id": "US-F1-002",
+    "feature_id": "F1",
     "persona": "end user",
     "goal": "log in to my account",
     "benefit": "I can access my data",
@@ -94,8 +94,8 @@ _VALID_STORIES_JSON = """\
     "priority": "high"
   },
   {
-    "id": "US-E2-001",
-    "epic_id": "E2",
+    "id": "US-F2-001",
+    "feature_id": "F2",
     "persona": "end user",
     "goal": "create a new task",
     "benefit": "I can track my work",
@@ -110,26 +110,26 @@ _VALID_STORIES_JSON = """\
 _VALID_TASKS_JSON = """\
 [
   {
-    "id": "T-US-E1-001-01",
-    "story_id": "US-E1-001",
+    "id": "T-US-F1-001-01",
+    "story_id": "US-F1-001",
     "title": "Create user registration API endpoint",
     "description": "Build POST /api/auth/register endpoint"
   },
   {
-    "id": "T-US-E1-001-02",
-    "story_id": "US-E1-001",
+    "id": "T-US-F1-001-02",
+    "story_id": "US-F1-001",
     "title": "Write tests for registration endpoint",
     "description": "Unit and integration tests for registration"
   },
   {
-    "id": "T-US-E1-002-01",
-    "story_id": "US-E1-002",
+    "id": "T-US-F1-002-01",
+    "story_id": "US-F1-002",
     "title": "Create login API endpoint",
     "description": "Build POST /api/auth/login endpoint with JWT"
   },
   {
-    "id": "T-US-E2-001-01",
-    "story_id": "US-E2-001",
+    "id": "T-US-F2-001-01",
+    "story_id": "US-F2-001",
     "title": "Create task CRUD endpoints",
     "description": "Build CRUD endpoints for task management"
   }
@@ -142,14 +142,14 @@ _VALID_SPRINTS_JSON = """\
     "name": "Sprint 1",
     "goal": "Establish authentication foundation",
     "capacity_points": 8,
-    "story_ids": ["US-E1-001", "US-E1-002"]
+    "story_ids": ["US-F1-001", "US-F1-002"]
   },
   {
     "id": "SP-2",
     "name": "Sprint 2",
     "goal": "Implement task management",
     "capacity_points": 3,
-    "story_ids": ["US-E2-001"]
+    "story_ids": ["US-F2-001"]
   }
 ]"""
 
@@ -187,12 +187,12 @@ def _make_dummy_analysis() -> ProjectAnalysis:
     )
 
 
-def _make_sample_epics() -> list[Epic]:
-    """Create sample epics matching _VALID_EPICS_JSON."""
+def _make_sample_features() -> list[Feature]:
+    """Create sample features matching _VALID_FEATURES_JSON."""
     return [
-        Epic(id="E1", title="User Authentication", description="Registration, login, JWT", priority=Priority.HIGH),
-        Epic(id="E2", title="Task Management", description="CRUD operations for tasks", priority=Priority.HIGH),
-        Epic(id="E3", title="Dashboard", description="Responsive dashboard", priority=Priority.MEDIUM),
+        Feature(id="F1", title="User Authentication", description="Registration, login, JWT", priority=Priority.HIGH),
+        Feature(id="F2", title="Task Management", description="CRUD operations for tasks", priority=Priority.HIGH),
+        Feature(id="F3", title="Dashboard", description="Responsive dashboard", priority=Priority.MEDIUM),
     ]
 
 
@@ -200,8 +200,8 @@ def _make_sample_stories() -> list[UserStory]:
     """Create sample stories matching _VALID_STORIES_JSON."""
     return [
         UserStory(
-            id="US-E1-001",
-            epic_id="E1",
+            id="US-F1-001",
+            feature_id="F1",
             persona="end user",
             goal="register an account",
             benefit="I can access the application",
@@ -212,8 +212,8 @@ def _make_sample_stories() -> list[UserStory]:
             priority=Priority.HIGH,
         ),
         UserStory(
-            id="US-E1-002",
-            epic_id="E1",
+            id="US-F1-002",
+            feature_id="F1",
             persona="end user",
             goal="log in to my account",
             benefit="I can access my data",
@@ -224,8 +224,8 @@ def _make_sample_stories() -> list[UserStory]:
             priority=Priority.HIGH,
         ),
         UserStory(
-            id="US-E2-001",
-            epic_id="E2",
+            id="US-F2-001",
+            feature_id="F2",
             persona="end user",
             goal="create a new task",
             benefit="I can track my work",
@@ -241,10 +241,10 @@ def _make_sample_stories() -> list[UserStory]:
 def _make_sample_tasks() -> list[Task]:
     """Create sample tasks matching _VALID_TASKS_JSON."""
     return [
-        Task(id="T-US-E1-001-01", story_id="US-E1-001", title="Registration endpoint", description="Build endpoint"),
-        Task(id="T-US-E1-001-02", story_id="US-E1-001", title="Registration tests", description="Write tests"),
-        Task(id="T-US-E1-002-01", story_id="US-E1-002", title="Login endpoint", description="Build endpoint"),
-        Task(id="T-US-E2-001-01", story_id="US-E2-001", title="Task CRUD", description="Build CRUD endpoints"),
+        Task(id="T-US-F1-001-01", story_id="US-F1-001", title="Registration endpoint", description="Build endpoint"),
+        Task(id="T-US-F1-001-02", story_id="US-F1-001", title="Registration tests", description="Write tests"),
+        Task(id="T-US-F1-002-01", story_id="US-F1-002", title="Login endpoint", description="Build endpoint"),
+        Task(id="T-US-F2-001-01", story_id="US-F2-001", title="Task CRUD", description="Build CRUD endpoints"),
     ]
 
 
@@ -275,22 +275,22 @@ class TestFullGraphExecution:
         state = {"messages": [], "questionnaire": _make_completed_questionnaire()}
         assert route_entry(state) == "project_analyzer"
 
-    def test_route_entry_dispatches_epic_generator_after_analysis(self):
-        """Analysis present should route to epic_generator."""
+    def test_route_entry_dispatches_feature_generator_after_analysis(self):
+        """Analysis present should route to feature_generator."""
         state = {
             "messages": [],
             "questionnaire": _make_completed_questionnaire(),
             "project_analysis": _make_dummy_analysis(),
         }
-        assert route_entry(state) == "epic_generator"
+        assert route_entry(state) == "feature_generator"
 
-    def test_route_entry_dispatches_story_writer_after_epics(self):
-        """Epics present should route to story_writer."""
+    def test_route_entry_dispatches_story_writer_after_features(self):
+        """Features present should route to story_writer."""
         state = {
             "messages": [],
             "questionnaire": _make_completed_questionnaire(),
             "project_analysis": _make_dummy_analysis(),
-            "epics": _make_sample_epics(),
+            "features": _make_sample_features(),
         }
         assert route_entry(state) == "story_writer"
 
@@ -300,7 +300,7 @@ class TestFullGraphExecution:
             "messages": [],
             "questionnaire": _make_completed_questionnaire(),
             "project_analysis": _make_dummy_analysis(),
-            "epics": _make_sample_epics(),
+            "features": _make_sample_features(),
             "stories": _make_sample_stories(),
         }
         assert route_entry(state) == "task_decomposer"
@@ -311,7 +311,7 @@ class TestFullGraphExecution:
             "messages": [],
             "questionnaire": _make_completed_questionnaire(),
             "project_analysis": _make_dummy_analysis(),
-            "epics": _make_sample_epics(),
+            "features": _make_sample_features(),
             "stories": _make_sample_stories(),
             "tasks": _make_sample_tasks(),
         }
@@ -323,7 +323,7 @@ class TestFullGraphExecution:
             "messages": [],
             "questionnaire": _make_completed_questionnaire(),
             "project_analysis": _make_dummy_analysis(),
-            "epics": _make_sample_epics(),
+            "features": _make_sample_features(),
             "stories": _make_sample_stories(),
             "tasks": _make_sample_tasks(),
             "starting_sprint_number": -1,
@@ -336,7 +336,7 @@ class TestFullGraphExecution:
             "messages": [],
             "questionnaire": _make_completed_questionnaire(),
             "project_analysis": _make_dummy_analysis(),
-            "epics": _make_sample_epics(),
+            "features": _make_sample_features(),
             "stories": _make_sample_stories(),
             "tasks": _make_sample_tasks(),
             "starting_sprint_number": 105,
@@ -349,11 +349,11 @@ class TestFullGraphExecution:
             "messages": [],
             "questionnaire": _make_completed_questionnaire(),
             "project_analysis": _make_dummy_analysis(),
-            "epics": _make_sample_epics(),
+            "features": _make_sample_features(),
             "stories": _make_sample_stories(),
             "tasks": _make_sample_tasks(),
             "sprints": [
-                Sprint(id="SP-1", name="Sprint 1", goal="Auth", capacity_points=8, story_ids=("US-E1-001",)),
+                Sprint(id="SP-1", name="Sprint 1", goal="Auth", capacity_points=8, story_ids=("US-F1-001",)),
             ],
         }
         assert route_entry(state) == "agent"
@@ -512,12 +512,12 @@ class TestQuestionnaireFlowE2E:
 
 
 # ---------------------------------------------------------------------------
-# Test 3: Epic → story → task → sprint pipeline
+# Test 3: Feature → story → task → sprint pipeline
 # ---------------------------------------------------------------------------
 
 
 class TestPipelineE2E:
-    """Test the full generation pipeline: analyzer → epics → stories → tasks → sprints.
+    """Test the full generation pipeline: analyzer → features → stories → tasks → sprints.
 
     Each node is called directly (not via graph.invoke) with the previous node's
     output merged into state. This verifies the data flows correctly through the
@@ -544,9 +544,9 @@ class TestPipelineE2E:
         assert analysis.project_name == "Todo App"
         assert analysis.tech_stack == ("React", "FastAPI", "PostgreSQL")
 
-    def test_epic_generator_produces_epics_from_analysis(self, monkeypatch):
-        """epic_generator should produce Epic list from ProjectAnalysis."""
-        mock_llm = _mock_llm(_VALID_EPICS_JSON)
+    def test_feature_generator_produces_features_from_analysis(self, monkeypatch):
+        """feature_generator should produce Feature list from ProjectAnalysis."""
+        mock_llm = _mock_llm(_VALID_FEATURES_JSON)
         monkeypatch.setattr("scrum_agent.agent.nodes.get_llm", lambda **kw: mock_llm)
 
         state = {
@@ -554,17 +554,17 @@ class TestPipelineE2E:
             "questionnaire": _make_completed_questionnaire(),
             "project_analysis": _make_dummy_analysis(),
         }
-        result = epic_generator(state)
+        result = feature_generator(state)
 
-        assert "epics" in result
-        epics = result["epics"]
-        assert isinstance(epics, list)
-        assert len(epics) == 3
-        assert all(isinstance(e, Epic) for e in epics)
-        assert epics[0].title == "User Authentication"
+        assert "features" in result
+        features = result["features"]
+        assert isinstance(features, list)
+        assert len(features) == 3
+        assert all(isinstance(e, Feature) for e in features)
+        assert features[0].title == "User Authentication"
 
-    def test_story_writer_produces_stories_from_epics(self, monkeypatch):
-        """story_writer should produce UserStory list from epics + analysis."""
+    def test_story_writer_produces_stories_from_features(self, monkeypatch):
+        """story_writer should produce UserStory list from features + analysis."""
         mock_llm = _mock_llm(_VALID_STORIES_JSON)
         monkeypatch.setattr("scrum_agent.agent.nodes.get_llm", lambda **kw: mock_llm)
 
@@ -572,7 +572,7 @@ class TestPipelineE2E:
             "messages": [HumanMessage(content="continue")],
             "questionnaire": _make_completed_questionnaire(),
             "project_analysis": _make_dummy_analysis(),
-            "epics": _make_sample_epics(),
+            "features": _make_sample_features(),
         }
         result = story_writer(state)
 
@@ -582,8 +582,8 @@ class TestPipelineE2E:
         assert len(stories) == 3
         assert all(isinstance(s, UserStory) for s in stories)
         # Verify story fields
-        assert stories[0].id == "US-E1-001"
-        assert stories[0].epic_id == "E1"
+        assert stories[0].id == "US-F1-001"
+        assert stories[0].feature_id == "F1"
         assert isinstance(stories[0].story_points, StoryPointValue)
 
     def test_task_decomposer_produces_tasks_from_stories(self, monkeypatch):
@@ -595,7 +595,7 @@ class TestPipelineE2E:
             "messages": [HumanMessage(content="continue")],
             "questionnaire": _make_completed_questionnaire(),
             "project_analysis": _make_dummy_analysis(),
-            "epics": _make_sample_epics(),
+            "features": _make_sample_features(),
             "stories": _make_sample_stories(),
         }
         result = task_decomposer(state)
@@ -619,7 +619,7 @@ class TestPipelineE2E:
             "messages": [HumanMessage(content="continue")],
             "questionnaire": _make_completed_questionnaire(),
             "project_analysis": _make_dummy_analysis(),
-            "epics": _make_sample_epics(),
+            "features": _make_sample_features(),
             "stories": _make_sample_stories(),
             "tasks": _make_sample_tasks(),
             "team_size": 2,
@@ -663,20 +663,20 @@ class TestPipelineE2E:
         analysis = analyzer_result["project_analysis"]
         assert isinstance(analysis, ProjectAnalysis)
 
-        # --- Stage 2: Epic generator ---
-        mock_llm = _mock_llm(_VALID_EPICS_JSON)
+        # --- Stage 2: Feature generator ---
+        mock_llm = _mock_llm(_VALID_FEATURES_JSON)
         monkeypatch.setattr("scrum_agent.agent.nodes.get_llm", lambda **kw: mock_llm)
 
         state["project_analysis"] = analysis
-        epic_result = epic_generator(state)
-        epics = epic_result["epics"]
-        assert len(epics) == 3
+        feature_result = feature_generator(state)
+        features = feature_result["features"]
+        assert len(features) == 3
 
         # --- Stage 3: Story writer ---
         mock_llm = _mock_llm(_VALID_STORIES_JSON)
         monkeypatch.setattr("scrum_agent.agent.nodes.get_llm", lambda **kw: mock_llm)
 
-        state["epics"] = epics
+        state["features"] = features
         story_result = story_writer(state)
         stories = story_result["stories"]
         assert len(stories) == 3
@@ -741,15 +741,15 @@ class TestPipelineE2E:
         analysis = analyzer_result["project_analysis"]
         assert isinstance(analysis, ProjectAnalysis)
 
-        # Epic fallback
+        # Feature fallback
         state["project_analysis"] = analysis
-        epic_result = epic_generator(state)
-        epics = epic_result["epics"]
-        assert len(epics) >= 1
-        assert all(isinstance(e, Epic) for e in epics)
+        feature_result = feature_generator(state)
+        features = feature_result["features"]
+        assert len(features) >= 1
+        assert all(isinstance(e, Feature) for e in features)
 
         # Story fallback
-        state["epics"] = epics
+        state["features"] = features
         story_result = story_writer(state)
         stories = story_result["stories"]
         assert len(stories) >= 1

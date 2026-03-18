@@ -226,9 +226,33 @@ def _render_active_item(
         if len(display) <= avail:
             input_content.append("  " + display, style=text_style)
         else:
-            visible = display[-(avail - 1) :]
-            input_content.append(" \u25c2", style="dim")
+            # Viewport follows cursor position. The cursor character (█) is
+            # at index cpos in the display string. We window around it,
+            # showing ◂/▸ indicators when text extends beyond either edge.
+            cursor_in_display = cpos  # cursor char is at this index in display
+            # Reserve 1 char each side for overflow indicators
+            has_left = cursor_in_display > 0
+            has_right = True  # text overflows if we're here
+            indicator_budget = (1 if has_left else 0) + (1 if has_right else 0)
+            view_w = avail - indicator_budget
+
+            # Centre the viewport on the cursor
+            start = max(0, cursor_in_display - view_w // 2)
+            # Clamp so we don't go past the end
+            if start + view_w > len(display):
+                start = max(0, len(display) - view_w)
+            end = start + view_w
+            visible = display[start:end]
+
+            left_overflow = start > 0
+            right_overflow = end < len(display)
+
+            prefix = " \u25c2" if left_overflow else "  "
+            suffix = "\u25b8" if right_overflow else ""
+            input_content.append(prefix, style="dim")
             input_content.append(visible, style=text_style)
+            if suffix:
+                input_content.append(suffix, style="dim")
 
         input_box = Panel(
             input_content,

@@ -30,7 +30,7 @@ class ProjectSummary:
     id: str = ""  # UUID from persistence
     created: str = ""  # human-readable date, e.g. "2 days ago"
     status: str = ""  # e.g. "In Progress", "Complete"
-    epic_count: int = 0
+    feature_count: int = 0
     story_count: int = 0
     task_count: int = 0
     sprint_count: int = 0
@@ -167,8 +167,8 @@ def _build_project_card(
         else:
             meta_text.append(project.status, style=meta_style)
     counts = []
-    if project.epic_count:
-        counts.append(f"{project.epic_count} epic{'s' if project.epic_count != 1 else ''}")
+    if project.feature_count:
+        counts.append(f"{project.feature_count} feature{'s' if project.feature_count != 1 else ''}")
     if project.story_count:
         counts.append(f"{project.story_count} stor{'ies' if project.story_count != 1 else 'y'}")
     if project.task_count:
