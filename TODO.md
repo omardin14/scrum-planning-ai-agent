@@ -763,45 +763,45 @@ _Tests:_
 33. `make test-fast` — 2207 pass, `make lint` — clean, `make snapshot-update` — 2 snapshots updated for formatter column change.
 
 
-
-#### Re-architect Greenfield projects for Harness Engineering (Include Github/Azure Devops push for the arhcitecture: https://github.com/nikomain/harness-engineering-boilerplate/tree/main)
-- [ ]
-
-
 #### Smart intake improvements - For Exisiting Repo Track
 _Make the adaptive questionnaire smarter — extract more, ask less, validate answers._
 
 **Smarter extraction:**
-- [ ] Relax extraction rules — infer Q2 (project type) from keywords like "refactor", "migrate", "legacy"
-- [ ] Extract integrations (Q12) from tech stack keywords (Stripe, Auth0, Firebase, etc.)
-- [ ] Extract architectural constraints (Q13) from infra signals (Kubernetes, microservices, AWS)
+- [x] Relax extraction rules — infer Q2 (project type) from keywords like "refactor", "migrate", "legacy"
+- [x] Extract integrations (Q12) from tech stack keywords (Stripe, Auth0, Firebase, etc.)
+- [x] Extract architectural constraints (Q13) from infra signals (Kubernetes, microservices, AWS)
 
 **Adaptive question text:**
-- [ ] Personalise Q7 (roles) based on Q6 team size — "You said 5 engineers; what are their roles?"
-- [ ] Personalise Q12 (integrations) with hints from Q11 tech stack
-- [ ] Reference Q2 answer in Q13 — greenfield vs existing has different constraint concerns
+- [x] Personalise Q7 (roles) based on Q6 team size — "You said 5 engineers; what are their roles?"
+- [x] Personalise Q12 (integrations) with hints from Q11 tech stack
+- [x] Reference Q2 answer in Q13 — greenfield vs existing has different constraint concerns
 
 **Cross-question validation:**
-- [ ] Detect contradictions — Q2="Greenfield" but Q17 has an existing repo URL
-- [ ] Flag unrealistic combos — Q8 sprint length × Q10 target sprints > 6 months → confirm scope
-- [ ] Sanity-check velocity (Q9) against team size (Q6) — flag if wildly off
+- [x] Detect contradictions — Q2="Greenfield" but Q17 has an existing repo URL
+- [x] Flag unrealistic combos — Q8 sprint length × Q10 target sprints > 6 months → confirm scope
+- [x] Sanity-check velocity (Q9) against team size (Q6) — flag if wildly off
 
 **Follow-up quality:**
-- [ ] Custom follow-up templates per question (not just generic "tell me more")
-- [ ] Q3 (problem): "Who experiences this problem? Give 2-3 user personas"
-- [ ] Q11 (tech stack): "What's the primary language and framework?"
-- [ ] Q21 (risks): "Which risk should be addressed earliest?"
+- [x] Custom follow-up templates per question (not just generic "tell me more")
+- [x] Q3 (problem): "Who experiences this problem? Give 2-3 user personas"
+- [x] Q11 (tech stack): "What's the primary language and framework?"
+- [x] Q21 (risks): "Which risk should be addressed earliest?"
 
 **Answer confidence signalling:**
-- [ ] Track answer source: `direct`, `extracted`, `defaulted`, `probed` per question
-- [ ] Show breakdown in intake summary: "12 direct, 3 extracted, 7 defaulted"
-- [ ] Pass confidence hints to downstream nodes — low-confidence areas → recommend spikes
+- [x] Track answer source: `direct`, `extracted`, `defaulted`, `probed` per question
+- [x] Show breakdown in intake summary: "12 direct, 3 extracted, 7 defaulted"
+- [x] Pass confidence hints to downstream nodes — low-confidence areas → recommend spikes
 
-#### Jira board & ticket format setup
-_Auto-configure a Jira project to match the agent's output format._
-- [ ] Project board with swimlanes (todo, in-progress, in-test, security-review, human-feedback, done)
-- [ ] User story ticket format (description, acceptance criteria, definition of done, test plan, prompt)
-- [ ] UI option to set up a new Jira project or analyse an existing project for compatibility
+**Spot checks** (`make run` with real LLM):
+- [x] **Keyword extraction:** type `We're refactoring our legacy API built with Express and PostgreSQL, integrating Stripe for payments` → verify Q2 extracted as "Existing codebase", Q12 as "Stripe"
+- [ ] **Adaptive Q7:** answer Q6 with "5" → verify Q7 says "You said 5 engineers — what are their roles?"
+- [ ] **Adaptive Q13:** answer Q2 as "Existing codebase" → verify Q13 mentions "backward compatibility" in the hint
+- [ ] **Follow-up quality:** give a vague Q3 answer like "users" → verify follow-up asks about user personas (not generic "tell me more")
+- [ ] **Confidence breakdown:** at the intake summary, verify stats line shows `N direct | N extracted | N defaulted` (not the old `N answered | N defaults` format)
+- [ ] **Cross-validation — greenfield + URL:** answer Q2 as "Greenfield", then provide a repo URL at Q17 → verify summary shows "Heads up" warning about the contradiction
+- [ ] **Cross-validation — long timeline:** set Q8 = "2 weeks", Q10 = "15 sprints" → verify summary shows info warning about timeline spanning ~7 months
+- [ ] **Cross-validation — clean:** answer Q2 = "Existing codebase", Q6 = "5", Q9 = "30" → verify NO spurious warnings appear
+- [ ] **Dry run smoke test:** `make run-dry` → TUI launches without errors, no crashes from new code paths
 
 
 #### "Create in Jira" option
@@ -823,545 +823,41 @@ _Push artifacts to Jira. Two modes: inline (during pipeline) and selective (post
 - [x] Cascade: Tasks stage creates Stories if not done; Sprints stage creates Stories if not done
 - [x] Tests for jira_sync module (unit + idempotency + error handling)
 - [x] Tests for new state fields and persistence round-trip
-- [ ] Manual test with real Jira: create stories → verify Epic + Stories with correct labels
-- [ ] Manual test: create tasks → verify Sub-tasks linked to Stories
-- [ ] Manual test: create sprints → verify Sprints created with stories assigned
-- [ ] Manual test: re-run same stage → verify idempotency (skips existing)
 
 
-### 13A½: OpenClaw Integration
 
-_Leverage [OpenClaw](https://openclaw.ai/) to expose the scrum agent beyond the terminal — multi-channel access, workflow automation, and always-on capabilities._
+### 13B: Packaging & Distribution (Homebrew)
 
-#### Skill: Scrum Planner (priority: high)
-- [ ] Package scrum-agent as an OpenClaw AgentSkill (`skills/scrum-planner/SKILL.md`)
-- [ ] Expose CLI in non-interactive mode for skill invocation
-- [ ] Enable sprint planning from Slack, Discord, WhatsApp, Teams via OpenClaw channels
-- [ ] Format agent output for chat-friendly rendering (markdown cards, summaries)
+_Ship the CLI as a Homebrew-installable app so anyone can `brew install scrum-agent` and go. This is a prerequisite for 13C (OpenClaw) — the skill needs an installable CLI to invoke._
 
-#### Webhook-Triggered Planning (priority: high)
-- [ ] Configure OpenClaw webhook endpoint to trigger planning on Jira epic creation
-- [ ] GitHub webhook: auto-generate project plan on new repo/milestone creation
-- [ ] Slack slash command (`/plan-sprint`) routed via OpenClaw webhook
+#### PyPI release (prerequisite for Homebrew)
+- [ ] Finalise `pyproject.toml` metadata (name, version, description, author, license, classifiers, URLs)
+- [ ] Add `[project.scripts]` entry point: `scrum-agent = "scrum_agent.cli:main"`
+- [ ] Build sdist + wheel with `uv build` / `python -m build`
+- [ ] Publish to PyPI (`twine upload` or GitHub Actions workflow)
+- [ ] Verify `pipx install scrum-agent` works end-to-end on a clean machine
 
-#### Conversational Intake via Chat (priority: high)
-- [ ] Wrap 30-question intake questionnaire as an OpenClaw conversational flow
-- [ ] Support async answering — users respond over hours/days in Slack/WhatsApp
-- [ ] Maintain questionnaire state across messages via OpenClaw session persistence
-- [ ] Trigger LLM pipeline once all questions answered, return plan inline
+#### Homebrew formula
+- [ ] Create Homebrew formula (`Formula/scrum-agent.rb`) — installs via `pip` into a virtualenv
+- [ ] Add formula to a personal tap (`homebrew-tap` repo): `brew tap omardin14/tap`
+- [ ] `brew install omardin14/tap/scrum-agent` installs the CLI + all dependencies
+- [ ] Post-install: prompt user to run `scrum-agent --setup` for API key configuration
+- [ ] Add `brew test` block — runs `scrum-agent --version` and `scrum-agent --help`
+- [ ] Automate formula version bumps via GitHub Actions on new PyPI release
 
-#### Lobster Workflow Pipeline (priority: medium)
-- [ ] Define `.lobster` workflow: intake → analysis → features → stories → tasks → sprints → Jira export
-- [ ] Map existing accept/edit/reject gates to Lobster approval checkpoints with resume tokens
-- [ ] Add crash-safe resume — pipeline restarts from last approved step
+#### Non-interactive / headless mode (prerequisite for OpenClaw skill)
+- [ ] Add `--non-interactive` flag — runs full pipeline with no TUI, auto-accepts all gates
+- [ ] Add `--output json` flag — structured JSON to stdout (epics, stories, tasks, sprints)
+- [ ] Accept project description and key params via CLI args (`--input`, `--team-size`, `--sprint-length`)
+- [ ] Combine with existing `--quick` mode for minimal-question headless runs
 
-#### Always-On Standup Bot (priority: medium)
-- [ ] OpenClaw cron job: daily standup at configurable time
-- [ ] Fetch active sprint from Jira (reuse `jira_read_board` / `jira_fetch_active_sprint` tools)
-- [ ] Generate standup summary (done yesterday, planned today, blockers)
-- [ ] Post to team Slack/Discord channel, collect responses
-
-#### Multi-Agent Scrum Team (priority: low — exploratory)
-- [ ] Scrum Master agent — runs full planning pipeline, facilitates ceremonies
-- [ ] Tech Lead agent — reviews stories for technical feasibility
-- [ ] QA agent — reviews acceptance criteria, suggests missing test scenarios
-- [ ] Product Owner agent — prioritises backlog, validates business alignment
-- [ ] Route different Slack channels to different agents via OpenClaw multi-agent routing
-
-#### HTML Report Delivery (priority: low)
-- [ ] Post sprint plan summary + HTML export to team channel after planning completes
-- [ ] Explore OpenClaw Canvas for interactive live view of generated plans
-
----
-
-### 13B: Production Infrastructure
-- [ ] Containerised deployment (Docker / Docker Compose)
-- [ ] Secret management (env vars → vault or cloud-native secrets)
-- [ ] Add token budget tracking per session
-- [ ] Add cost estimation before write operations ("This will create 14 tickets. Proceed?")
-- [ ] Implement model fallback chain (primary → backup → static response)
-- [ ] Add retry with exponential backoff for API failures
-- [ ] Add request timeout handling
-
-### 13C: Observability
-- [ ] LangSmith observability for production tracing
-- [ ] Error tracking and alerting (agent failures, API timeouts, LLM errors)
-- [ ] Token usage tracking per session
-- [ ] Health check endpoint
-
-### 13D: Packaging & Distribution
-- [ ] Package as installable CLI tool (`pip install scrum-agent` or `pipx`)
-- [ ] CI/CD pipeline for the project itself (lint, test, build, publish)
-- [ ] Comprehensive README with quick-start guide
-- [ ] Write deployment instructions (Docker, local, cloud)
+#### CI/CD pipeline
+- [ ] GitHub Actions workflow: lint → test → build → publish to PyPI on tagged releases
+- [ ] Auto-update Homebrew formula SHA and version on successful publish
 - [ ] `.env.example` review — ensure all options are documented
+
+#### Documentation
+- [ ] Comprehensive README with quick-start guide (`brew install` → first plan in 2 minutes)
 - [ ] Tag v1.0.0 release
 
-
-
-
 ---
-
-# Multi-Agent Transformation
-
-_Everything below Phase 13 transforms the shipped project planning CLI into a
-multi-agent platform with a web UI. The v1.0 planning agent becomes the
-**Project Planning Agent** — the first of many specialised agents that share a
-common state store and communicate via a central orchestrator. Each phase ships
-independently — users get value from each new agent as it lands._
-
-## Architecture
-
-```
-┌────────────────────────────────────────────────────────────────────┐
-│  Web Frontend (React / Next.js)                                    │
-│  Sprint board · Standup dashboard · Refinement voting · PR views   │
-└───────────────────────────┬────────────────────────────────────────┘
-                            │ WebSocket / REST
-┌───────────────────────────▼────────────────────────────────────────┐
-│  API + Orchestrator Layer (FastAPI)                                 │
-│  Auth · Team management · Event routing · Webhook receivers        │
-│  Agent dispatcher — routes tasks to the right specialised agent     │
-└──┬──────┬──────┬──────┬──────┬──────┬──────┬──────┬───────────────┘
-   │      │      │      │      │      │      │      │
-   ▼      ▼      ▼      ▼      ▼      ▼      ▼      ▼
- Scrum  Daily  Sprint Review  Backlog  Code  QA   DevOps Security
- Master Standup Review  &     Refine-  Agent Agent Agent  Agent
- Agent  Agent  Agent   Retro  ment
-                       Agent  Agent
-└────────────────────────────────────────────────────────────────────┘
-  Shared: PostgreSQL · Vector Store (Chroma) · Jira/GitHub/Slack APIs
-```
-
----
-
-## Phase 14: Platform Foundation — Web App & Multi-Agent Infrastructure
-
-_Extract the core agent into a backend service, add auth, team management,
-and the orchestrator that routes work to specialised agents._
-
-### 14A: API Layer
-- [ ] Create FastAPI backend wrapping the existing agent core
-- [ ] RESTful endpoints: `/projects`, `/sessions`, `/agents/{name}/invoke`
-- [ ] WebSocket endpoint for real-time streaming (replaces REPL streaming)
-- [ ] Move session persistence from local SQLite to PostgreSQL
-- [ ] Auth: JWT-based authentication with team/role support
-- [ ] Team management: invite members, assign roles (Scrum Master, Dev, PO, QA)
-- [ ] API key management for external integrations (Jira, GitHub, Slack)
-
-### 14B: Agent Orchestrator
-- [ ] Central dispatcher that routes tasks to the correct specialised agent
-- [ ] Shared state store — agents read/write to a common project state (PostgreSQL + Redis)
-- [ ] Agent-to-agent messaging — structured handoffs (e.g. Code Agent → QA Agent)
-- [ ] Event bus for async triggers (webhook → event → agent invocation)
-- [ ] Agent registry — discover available agents, their capabilities, and health
-- [ ] Concurrency control — prevent two agents from modifying the same artifact simultaneously
-
-### 14C: Web Frontend
-- [ ] React/Next.js app with project dashboard
-- [ ] Sprint board view (kanban columns: To Do, In Progress, Review, Done)
-- [ ] Real-time updates via WebSocket (agent actions appear live)
-- [ ] Project setup wizard (replaces CLI questionnaire with a guided form)
-- [ ] Artifact viewers: epic/story/task detail panels with edit capability
-- [ ] Agent activity feed — shows what each agent is doing and has done
-- [ ] Notification system (in-app + email/Slack for important events)
-
-### 14D: CLI Preservation
-- [ ] Keep CLI as a first-class client (power users, local repo scanning, CI/CD scripting)
-- [ ] CLI talks to the API layer (same as web frontend)
-- [ ] `scrum-agent login` — authenticate against the API
-- [ ] `scrum-agent sync` — push local session to server, pull remote changes
-- [ ] Offline mode — full local functionality, sync when connected
-
----
-
-## Phase 15: Project Planning Agent (existing pipeline, enhanced)
-
-_The current single-agent pipeline becomes the Project Planning Agent — responsible
-for project setup, decomposition into epics/stories/tasks, and sprint planning.
-This phase also includes rebranding: rename "Scrum AI" labels, CLI name, and
-user-facing strings from scrum-master terminology to project planning terminology._
-
-### 15A: Rebrand to Project Planning Agent
-- [ ] Rename CLI entry point: `scrum-agent` → `planbot` (or chosen name)
-- [ ] Rename "Scrum AI" label in REPL to "Planning Agent" (AI_LABEL, AI_QUESTION_LABEL)
-- [ ] Rename package: `scrum_agent` → new package name (if desired, or keep internal name)
-- [ ] Update README, CLAUDE.md, and all user-facing docs
-- [ ] Update Docker image name and PyPI package name
-- [ ] Rename `SCRUM.md` convention to `PROJECT.md` (keep SCRUM.md as deprecated alias)
-
-### 15B: Enhanced Planning
-- [ ] Project board and ticket format setup (auto-configure Jira board, columns, workflows)
-- [ ] Dynamic capacity retrieval — pull team availability from Jira/calendar APIs
-- [ ] Sprint planning risk adviser — analyse constraints, dependencies, team history before planning
-- [ ] Story labels: "Code", "Documentation", "Infrastructure", "Testing" auto-tagged based on content
-- [ ] Testing plans included in stories — auto-generate test plan section in each story’s AC
-
-### 15C: Vector-Store RAG (Chroma)
-- [ ] Add `chromadb` + `langchain-chroma` dependencies
-- [ ] `VectorStore` wrapper: init, ingest, query, reset (persisted in project DB)
-- [ ] Codebase ingestion with language-aware chunking (`RecursiveCharacterTextSplitter`)
-- [ ] Document ingestion: scrum-docs, SCRUM.md, Confluence pages
-- [ ] Incremental re-indexing (only changed files)
-- [ ] `vector_search` tool for semantic search across codebase + docs
-- [ ] Hybrid retrieval: vector similarity + BM25 keyword matching
-- [ ] Wire retriever into epic_generator and story_writer nodes
-
----
-
-## Phase 16: Daily Standup Agent
-
-_Monitors team communication (Slack), collects standup updates, identifies
-blockers and patterns, and provides actionable insights to the Scrum Master._
-
-### 16A: Slack Integration
-- [ ] Slack bot: `/standup` command to submit daily updates
-- [ ] Parse standup format: What I did · What I’m doing · Blockers
-- [ ] Accept updates via DM or channel thread
-- [ ] Scheduled reminders for missing standups (configurable time)
-- [ ] Thread-based follow-up questions when updates are vague
-
-### 16B: Performance Insights
-- [ ] Track velocity trends per engineer and per team over sprints
-- [ ] Detect patterns: consistently blocked engineers, scope creep, uneven workload
-- [ ] Compare planned vs actual story points per sprint
-- [ ] Identify stories that have been "In Progress" too long
-- [ ] Weekly digest: team health summary with trends and recommendations
-
-### 16C: Recommendations Engine
-- [ ] Flag at-risk stories (no progress for N days, blocked, reassigned multiple times)
-- [ ] Suggest pair programming when an engineer is stuck on a complex story
-- [ ] Recommend workload rebalancing when capacity is uneven
-- [ ] Detect and flag anti-patterns: hero culture, knowledge silos, skipped ceremonies
-- [ ] Push recommendations to Slack channel or web dashboard
-
-### 16D: Testing
-- [ ] Mock Slack API tests for standup collection
-- [ ] Test pattern detection with synthetic sprint data
-- [ ] Test recommendation engine with edge cases (empty sprints, single-person teams)
-
----
-
-## Phase 17: Sprint Review Agent
-
-_Facilitates mid-sprint and end-of-sprint reviews. Analyses progress against
-the sprint goal and recommends scope adjustments._
-
-### 17A: Mid-Sprint Review
-- [ ] Triggered automatically at sprint midpoint (or on-demand via `/review`)
-- [ ] Pull current sprint state from Jira: completed, in-progress, not started
-- [ ] Calculate burndown trajectory — on track, ahead, or behind
-- [ ] Recommend scope changes: stories to pull in (ahead) or defer (behind)
-- [ ] Present recommendations to team via web UI or Slack with accept/reject buttons
-- [ ] Auto-update Jira when team approves scope changes
-
-### 17B: End-of-Sprint Review
-- [ ] Generate sprint report: planned vs delivered, velocity, carry-over stories
-- [ ] Summarise what was accomplished and how it delivers customer value
-- [ ] Compare actual vs estimated story points — identify estimation gaps
-- [ ] Risk analysis update — new risks discovered during the sprint
-- [ ] Draft stakeholder-ready report (formatted for governance/compliance if needed)
-- [ ] Archive sprint data for historical trend analysis
-
-### 17C: Retrospective Facilitation
-- [ ] Collect anonymous feedback (web form or Slack DM): went well, improve, action items
-- [ ] AI-powered theme clustering — group similar feedback automatically
-- [ ] Voting on action items (web UI with real-time vote counts)
-- [ ] Track action item follow-through across sprints (did we actually do it?)
-- [ ] Detect recurring themes that never get resolved — escalate
-
-### 17D: Testing
-- [ ] Test burndown calculation with various sprint scenarios
-- [ ] Test scope change recommendations (ahead/behind/on-track)
-- [ ] Test retrospective clustering with diverse feedback inputs
-
----
-
-## Phase 18: Backlog Refinement Agent
-
-_Facilitates collaborative backlog refinement sessions. Provides tools for
-story discussion, estimation voting, and acceptance criteria improvement._
-
-### 18A: Refinement Session Management
-- [ ] Create refinement sessions linked to a set of stories/epics
-- [ ] Present stories one-by-one with full context (description, AC, dependencies)
-- [ ] Real-time discussion thread per story (web UI + optional Slack bridge)
-- [ ] Time-box per story with configurable defaults (5 min discussion, 2 min voting)
-- [ ] Session summary: refined stories, updated estimates, unresolved questions
-
-### 18B: Estimation Voting (built-in web UI)
-- [ ] Custom voting UI in the web frontend — no third-party dependency
-- [ ] Each team member votes simultaneously (hidden until reveal)
-- [ ] Support Fibonacci (1,2,3,5,8,13) and T-shirt (XS,S,M,L,XL) scales
-- [ ] AI-suggested estimate based on historical data and story complexity
-- [ ] Highlight large variance in votes — trigger discussion before re-vote
-- [ ] Auto-update Jira story points after team consensus
-- [ ] Voting history tracked for estimation accuracy insights over time
-
-### 18C: Story Enhancement
-- [ ] AI-driven suggestions: missing AC, ambiguous requirements, implicit dependencies
-- [ ] "What about..." prompts — edge cases the team might not have considered
-- [ ] Acceptance criteria completeness check (happy path, error, edge, security)
-- [ ] Auto-detect stories that should be split (too large, multiple concerns)
-- [ ] Documentation generation for refined stories
-
-### 18D: Testing
-- [ ] Test voting mechanics (hidden votes, reveal, variance detection)
-- [ ] Test AI estimation against historical sprint data
-- [ ] Test story enhancement suggestions with various story types
-
----
-
-## Phase 19: Coding Agent Integration Hub
-
-_Rather than building a coding agent from scratch (competing with Copilot, Claude Code,
-Cursor, Devin, etc.), this phase makes the platform the **brain that tells coding agents
-what to do** and the **quality gate that reviews what they produce**. The platform owns
-the spec and the review — the coding agent is pluggable._
-
-### 19A: Story Spec Export (universal format)
-- [ ] Define a structured story spec format (markdown + frontmatter YAML) containing:
-  description, AC (Given/When/Then), test plan, related files, dependencies, architecture context
-- [ ] Export spec to clipboard / file / stdout for manual use with any tool
-- [ ] Include codebase context from vector store (relevant files, patterns, conventions)
-- [ ] Include architecture decisions from SCRUM.md / Confluence / scrum-docs
-- [ ] Spec quality score — warn if AC is vague, test plan is missing, or scope is unclear
-
-### 19B: GitHub / Azure DevOps Integration
-- [ ] Write story spec to GitHub Issue (with labels, assignee, milestone)
-- [ ] Write story spec to Azure DevOps Work Item
-- [ ] GitHub Copilot Workspace picks up Issues natively — zero extra integration
-- [ ] Link PRs back to stories automatically (branch naming convention + webhook)
-- [ ] Track story status from Issue/PR lifecycle (opened → in review → merged → done)
-
-### 19C: MCP Server (Claude Code / AI IDE integration)
-- [ ] Expose stories as an MCP tool server (`get_next_story`, `get_story_spec`, `mark_done`)
-- [ ] Claude Code, Windsurf, and other MCP-compatible tools can pull stories directly
-- [ ] Serve codebase context alongside the story (relevant files, test patterns)
-- [ ] Bi-directional: coding agent reports progress/blockers back via MCP
-- [ ] Auth: token-scoped access per developer
-
-### 19D: IDE Extensions
-- [ ] VS Code extension: sidebar showing assigned stories, one-click to load spec into editor
-- [ ] JetBrains plugin: same functionality for IntelliJ/WebStorm/PyCharm users
-- [ ] Story context injected into editor’s AI assistant (Copilot, Cursor, Cody, etc.)
-- [ ] "Start working" button: creates branch, loads spec, opens relevant files
-
-### 19E: CLI Integration
-- [ ] `planbot work [story-key]` — fetch story spec, create branch, output spec to terminal
-- [ ] Pipe-friendly: `planbot spec PROJ-123 | claude-code` or similar
-- [ ] `planbot done [story-key]` — mark story complete, trigger QA Agent review
-- [ ] Works offline with cached story specs from last sync
-
-### 19F: Webhook / API (bring-your-own-agent)
-- [ ] REST API: `GET /stories/{key}/spec` returns the full structured spec
-- [ ] Webhook: notify external systems when a story is ready for development
-- [ ] Support custom coding agents (Devin, SWE-Agent, OpenHands, internal tools)
-- [ ] Agent-agnostic callback: any tool can POST results (PR link, status, blockers)
-
-### 19G: Documentation Generation (post-merge)
-- [ ] Triggered after PR merge — auto-generate docs for completed stories
-- [ ] Update README sections affected by code changes
-- [ ] Generate changelog entries per story/sprint
-- [ ] Create/update Confluence pages for significant features
-- [ ] Label documentation stories as "Documentation" in Jira
-
-### 19H: Testing
-- [ ] Test spec export format with various story types (frontend, backend, infra)
-- [ ] Test GitHub Issue creation and PR-to-story linking
-- [ ] Test MCP server with mock client
-- [ ] Test webhook delivery and callback handling
-
----
-
-## Phase 20: QA Agent
-
-_AI-powered quality gate that reviews PRs against story specs. Outsources
-test execution to the project’s own CI pipeline and existing testing frameworks
-(pytest, Jest, Playwright, Cypress, etc.) — the agent provides the intelligence,
-not the infrastructure._
-
-### 20A: PR Review (your AI — unique value)
-- [ ] Triggered when a PR is opened or updated (via GitHub/AzDO webhook)
-- [ ] Validate against story AC — does the code actually implement what was specified?
-- [ ] AI diff analysis: logic errors, missing edge cases, code smell detection
-- [ ] Post structured review comments on the PR (by file, with severity levels)
-- [ ] Suggest improvements with code snippets, not just complaints
-
-### 20B: Test Plan Validation (your AI + external runners)
-- [ ] Read the test plan from the story’s AC (Given/When/Then scenarios)
-- [ ] Map test plan items to existing automated tests (or flag missing coverage)
-- [ ] Suggest additional test cases the developer may have missed
-- [ ] Integrate with CI: read test results from GitHub Actions / Azure Pipelines / Jenkins
-- [ ] Integrate with coverage tools: Codecov, Coveralls, SonarQube — read reports, don’t regenerate
-- [ ] Post coverage delta as PR comment ("Coverage: 84% → 87%, +3 new files covered")
-
-### 20C: Quality Gates (your orchestration + external signals)
-- [ ] Aggregate signals: CI status + coverage delta + AI review + security scan results
-- [ ] Quality score per PR (0-100 composite from all sources)
-- [ ] Block merge when critical issues found (configurable severity threshold)
-- [ ] Track quality trends over time per engineer and per module
-- [ ] Flag regressions: "This module’s coverage dropped from 85% to 72%"
-
-### 20D: Testing
-- [ ] Test PR analysis with synthetic diffs (clean code, buggy code, missing tests)
-- [ ] Test CI result ingestion from mock GitHub Actions / Azure Pipelines
-- [ ] Test quality scoring with various signal combinations
-
----
-
-## Phase 21: DevOps Agent
-
-_AI intelligence layer over existing DevOps tools. Monitors and diagnoses
-CI/CD pipelines, manages repo configuration, and orchestrates deployments —
-but delegates actual infrastructure to Terraform Cloud, ArgoCD, GitHub Actions,
-and other existing tools._
-
-### 21A: CI/CD Intelligence (your AI + existing pipelines)
-- [ ] Monitor pipeline runs via GitHub Actions / Azure Pipelines / Jenkins APIs
-- [ ] Diagnose failed builds — read logs, identify root cause, suggest fix
-- [ ] Detect flaky tests — track failure patterns, flag unreliable tests
-- [ ] Pipeline performance tracking — build time trends, bottleneck identification
-- [ ] Suggest pipeline optimisations (caching, parallelism, unnecessary steps)
-- [ ] Post diagnosis to PR or Slack when a build fails
-
-### 21B: Repository Management (your orchestration + GitHub/AzDO APIs)
-- [ ] Branch protection rules — configure/enforce per project policy via API
-- [ ] Auto-merge approved PRs that pass all checks (configurable policy)
-- [ ] Stale branch cleanup — identify and archive old feature branches
-- [ ] Release management — auto-tag, generate release notes, create GitHub releases
-- [ ] Integrate with existing CODEOWNERS and review requirements
-
-### 21C: Deployment Orchestration (your intelligence + external IaC)
-- [ ] Integrate with Terraform Cloud / Pulumi / ArgoCD — trigger deployments, read state
-- [ ] Deployment tracking — which commit is deployed where (read from CD tool APIs)
-- [ ] Rollback recommendations when post-deploy metrics degrade
-- [ ] Integrate with cloud cost tools (Infracost, AWS Cost Explorer) — alert on spend spikes
-- [ ] Preview environment management — trigger creation/teardown via existing IaC
-
-### 21D: Testing
-- [ ] Test pipeline diagnosis with synthetic build logs
-- [ ] Test branch management with mock GitHub API
-- [ ] Test deployment tracking with mock CD tool responses
-
----
-
-## Phase 22: Security Agent
-
-_AI orchestration layer that aggregates findings from best-in-class security
-scanners (Snyk, Semgrep, SonarQube, GitHub Advanced Security, Trivy) and
-provides unified, story-aware security intelligence. Doesn’t replace scanners —
-makes them smarter by correlating findings with your project context._
-
-### 22A: Code Security Review (your AI + external scanners)
-- [ ] Integrate with Semgrep / SonarQube / CodeQL — ingest scan results via API
-- [ ] AI enrichment: correlate findings with story context, assess real exploitability
-- [ ] Detect hardcoded secrets via GitLeaks / GitHub Secret Scanning integration
-- [ ] Reduce noise: suppress false positives, prioritise by actual risk to this project
-- [ ] Post unified security review on PRs (one comment thread, not five scanner bots)
-
-### 22B: Dependency Security (your orchestration + Snyk/Dependabot/OSV)
-- [ ] Integrate with Snyk / Dependabot / OSV.dev — pull vulnerability data via API
-- [ ] AI triage: assess impact on your codebase (is the vulnerable function actually used?)
-- [ ] Auto-raise PRs for critical dependency updates (via Dependabot or Renovate)
-- [ ] License compliance checking — flag incompatible licenses
-- [ ] Track vulnerability resolution time per team
-
-### 22C: Infrastructure Security (your AI + Trivy/Checkov/tfsec)
-- [ ] Integrate with Trivy / Checkov / tfsec — ingest IaC scan results
-- [ ] AI enrichment: prioritise findings by blast radius and business impact
-- [ ] Compliance mapping: link findings to GDPR, SOC2, PCI-DSS controls
-- [ ] Security posture dashboard — unified score from all integrated scanners
-- [ ] Trend tracking — is the security posture improving or degrading?
-
-### 22D: Testing
-- [ ] Test scanner result ingestion with mock API responses (Snyk, Semgrep, Trivy)
-- [ ] Test AI triage with intentionally vulnerable code + scanner output
-- [ ] Test false positive suppression accuracy
-
----
-
-## Phase 23: Product Discovery Agent
-
-_Analyses feature requests, customer feedback, and market signals to help
-the Product Owner make informed backlog prioritisation decisions._
-
-### 23A: Feature Request Analysis
-- [ ] Ingest feature requests from Jira, Slack, email, or web form
-- [ ] Compare against product strategy/goals — is this aligned?
-- [ ] Score by impact (users affected), effort (complexity estimate), and strategic fit
-- [ ] Cluster similar requests to identify demand patterns
-- [ ] Auto-suggest: accept (add to backlog), park (add to discovery), or archive
-
-### 23B: User Feedback Loop
-- [ ] Ingest customer feedback from support tickets, NPS surveys, app reviews
-- [ ] Sentiment analysis and theme extraction
-- [ ] Link feedback to existing stories/epics ("12 users mentioned this pain point")
-- [ ] Surface feedback during refinement sessions for relevant stories
-- [ ] Track feature adoption post-release — did users actually use it?
-
-### 23C: Testing
-- [ ] Test scoring model with diverse feature requests
-- [ ] Test clustering with overlapping and distinct requests
-- [ ] Test sentiment analysis with mixed feedback
-
----
-
-## Phase 24: Observability & Analytics Agent
-
-_Monitors all agent activity, tracks team performance metrics, and provides
-executive-level dashboards and reports._
-
-### 24A: Agent Observability
-- [ ] LangSmith integration for production tracing across all agents
-- [ ] Token usage tracking per agent, per session, per team
-- [ ] Cost attribution — which agents/features consume the most tokens
-- [ ] Agent performance metrics: latency, success rate, user satisfaction
-- [ ] Error tracking and alerting (agent failures, API timeouts, LLM errors)
-
-### 24B: Team Analytics Dashboard
-- [ ] Velocity trends (per team, per sprint, per engineer — anonymised option)
-- [ ] Sprint predictability score — how often does the team deliver what it planned?
-- [ ] Cycle time tracking — from story creation to deployment
-- [ ] Blocker frequency and resolution time
-- [ ] Cross-sprint comparison with configurable date ranges
-
-### 24C: Executive Reports
-- [ ] Auto-generated weekly/sprint/monthly reports
-- [ ] Progress against OKRs/milestones with RAG status
-- [ ] Resource utilisation and capacity planning insights
-- [ ] Risk register with AI-assessed likelihood and impact
-- [ ] Exportable to PDF, Confluence, or email
-
----
-
-## Phase 25: Platform Deployment & Infrastructure
-
-_Production infrastructure for the multi-agent platform._
-
-- [ ] Containerised deployment (Docker Compose for dev, Kubernetes for prod)
-- [ ] Secret management (HashiCorp Vault or cloud-native secrets manager)
-- [ ] PostgreSQL for persistent state (sessions, team data, sprint history)
-- [ ] Redis for real-time state and agent-to-agent messaging
-- [ ] Chroma (or Pinecone) for vector store in production
-- [ ] API rate limiting and request throttling
-- [ ] Horizontal scaling — multiple agent workers behind a queue
-- [ ] Health checks and readiness probes for each agent
-- [ ] Backup and disaster recovery for project data
-
----
-
-## Phase 26: Platform Production Readiness
-
-- [ ] Add token budget tracking per session
-- [ ] Add cost estimation before write operations ("This will create 14 tickets. Proceed?")
-- [ ] Implement model fallback chain (primary → backup → static response)
-- [ ] Add retry with exponential backoff for API failures
-- [ ] Add request timeout handling
-- [ ] LangSmith observability for production tracing
-- [ ] Comprehensive deployment documentation
-- [ ] Package as installable CLI tool (`pip install scrum-agent` or `pipx`)
-- [ ] CI/CD pipeline for the platform itself (lint, test, build, deploy)
-- [ ] Security audit of the platform (auth, data handling, API security)
-- [ ] Load testing — concurrent users, multiple agents, large projects
-- [ ] Tag v1.0.0 release

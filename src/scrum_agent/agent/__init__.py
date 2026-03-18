@@ -18,8 +18,10 @@ from scrum_agent.agent.nodes import (
     task_decomposer,
 )
 from scrum_agent.agent.state import Discipline, ProjectAnalysis, PromptQualityRating, ScrumState
+from scrum_agent.prompts.intake import AnswerSource
 
 __all__ = [
+    "AnswerSource",
     "Discipline",
     "ProjectAnalysis",
     "PromptQualityRating",

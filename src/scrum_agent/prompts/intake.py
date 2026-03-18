@@ -21,11 +21,32 @@
 """
 
 from dataclasses import dataclass
+from enum import StrEnum
 
 # ---------------------------------------------------------------------------
 # All 30 intake questions, keyed by question number (1-based).
 # See README: "Project Intake Questionnaire" for rationale behind each phase.
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Answer provenance — tracks how each question was answered.
+# See README: "Project Intake Questionnaire" — answer confidence signalling
+#
+# Used by the intake summary to show a confidence breakdown and by
+# compute_prompt_quality() to identify low-confidence areas for downstream
+# spike recommendations.
+# ---------------------------------------------------------------------------
+
+
+class AnswerSource(StrEnum):
+    """How a questionnaire answer was obtained."""
+
+    DIRECT = "direct"
+    EXTRACTED = "extracted"
+    DEFAULTED = "defaulted"
+    PROBED = "probed"
+    SCRUM_MD = "scrum_md"
+
 
 INTAKE_QUESTIONS: dict[int, str] = {
     # Phase 1 — Project Context (Q1–Q5)
@@ -433,6 +454,127 @@ QUESTION_IMPROVEMENT_HINTS: dict[int, str] = {
 # was loaded. The SCRUM.md file lets users provide free-form project context
 # (URLs, design notes, tech decisions) that enriches the analysis.
 SCRUM_MD_HINT: str = "Add a SCRUM.md file to your project root with links, design notes, or tech decisions"
+
+
+# ---------------------------------------------------------------------------
+# Step 2: Smarter Extraction — keyword maps for deterministic fallback
+# See README: "Project Intake Questionnaire" — smart intake
+#
+# After LLM extraction, a deterministic keyword scan catches signals the
+# LLM may have been too conservative to infer. Keywords are case-insensitive.
+# ---------------------------------------------------------------------------
+
+Q2_INFERENCE_KEYWORDS: dict[str, str] = {
+    "refactor": "Existing codebase",
+    "migrate": "Existing codebase",
+    "legacy": "Existing codebase",
+    "rewrite": "Existing codebase",
+    "from scratch": "Greenfield",
+    "new project": "Greenfield",
+    "startup": "Greenfield",
+    "greenfield": "Greenfield",
+}
+
+Q12_SERVICE_KEYWORDS: frozenset[str] = frozenset(
+    {
+        "stripe",
+        "auth0",
+        "firebase",
+        "twilio",
+        "sendgrid",
+        "segment",
+        "launchdarkly",
+        "datadog",
+        "pagerduty",
+        "sentry",
+        "okta",
+        "plaid",
+        "algolia",
+        "cloudflare",
+        "vercel",
+    }
+)
+
+Q13_INFRA_KEYWORDS: frozenset[str] = frozenset(
+    {
+        "kubernetes",
+        "k8s",
+        "microservices",
+        "serverless",
+        "lambda",
+        "aws",
+        "gcp",
+        "azure",
+        "docker",
+        "monolith",
+        "on-premise",
+        "terraform",
+        "cloudformation",
+        "ecs",
+        "eks",
+    }
+)
+
+
+# ---------------------------------------------------------------------------
+# Step 3: Adaptive Question Text — templates that reference prior answers
+# See README: "Project Intake Questionnaire" — adaptive question text
+#
+# When a template's dependencies are available (and not defaulted), the
+# intake node renders the personalized version instead of the generic
+# INTAKE_QUESTIONS text. Fallback is always the original question.
+# ---------------------------------------------------------------------------
+
+ADAPTIVE_QUESTION_TEMPLATES: dict[int, str] = {
+    7: "You said {q6} engineers — what are their roles? (e.g., 2 backend, 1 frontend, 1 fullstack)",
+    12: "You mentioned {q11} as your tech stack. Are there any existing APIs, services, or third-party integrations?",
+    13: "Since this is a {q2} project, are there any architectural constraints? (e.g., {hint})",
+}
+
+Q2_CONSTRAINT_HINTS: dict[str, str] = {
+    "Greenfield": "microservices vs monolith, cloud provider, language choices",
+    "Existing codebase": "must preserve existing APIs, database migrations, backward compatibility",
+    "Hybrid": "which parts are new vs existing, integration boundaries",
+}
+
+
+# ---------------------------------------------------------------------------
+# Step 4: Follow-up Quality — custom follow-up templates per question
+# See README: "Project Intake Questionnaire" — follow-up probing
+#
+# When _check_vague_answer detects a vague answer for one of these questions,
+# the custom template is injected into the LLM prompt as a hint. This produces
+# more targeted follow-ups than the generic "tell me more" approach.
+# ---------------------------------------------------------------------------
+
+FOLLOW_UP_TEMPLATES: dict[int, str] = {
+    3: "Who experiences this problem? Can you give 2-3 user personas?",
+    4: "What measurable outcome would tell you the project succeeded?",
+    7: "Can you break down the team by specialty? (e.g., 2 backend, 1 frontend, 1 DevOps)",
+    11: "What's the primary language and framework? And what database/storage?",
+    12: "Which integrations are critical vs nice-to-have?",
+    13: "Are these constraints firm (non-negotiable) or preferences?",
+    20: "Which area of tech debt is the highest risk?",
+    21: "Which risk should be addressed earliest? What's the worst-case impact?",
+}
+
+
+# ---------------------------------------------------------------------------
+# Step 5: Cross-Question Validation — catch contradictions before analysis
+# See README: "Project Intake Questionnaire" — cross-question validation
+#
+# Deterministic rules (no LLM call) that flag contradictory or unrealistic
+# answer combinations. Warnings are advisory — the user can still confirm.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ValidationWarning:
+    """A warning about contradictory or unrealistic intake answers."""
+
+    question_nums: tuple[int, ...]
+    message: str
+    severity: str = "warning"  # "warning" | "info"
 
 
 def is_choice_question(q_num: int) -> bool:

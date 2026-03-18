@@ -218,11 +218,26 @@ def _phase_intake_questions(
                 progress = f"Q{cur_q} of {TOTAL_QUESTIONS}"
             suggestion = _get_active_suggestion(graph_state)
 
-            # Choice options for single-choice questions
+            # Choice options for single-choice questions.
+            # When an extracted suggestion matches one of the options, pre-select
+            # it instead of the static default — the user sees the arrow on the
+            # extracted answer and can just press Enter to confirm.
             if is_choice_question(cur_q) and cur_q not in qs.probed_questions:
                 meta = QUESTION_METADATA.get(cur_q)
                 if meta:
-                    choices = [(opt, i == meta.default_index) for i, opt in enumerate(meta.options)]
+                    # Determine which option to highlight: extracted suggestion > static default
+                    pre_select_idx = meta.default_index
+                    if suggestion:
+                        sugg_lower = suggestion.lower().strip()
+                        for i, opt in enumerate(meta.options):
+                            if opt.lower().strip() == sugg_lower:
+                                pre_select_idx = i
+                                break
+                    choices = [(opt, i == pre_select_idx) for i, opt in enumerate(meta.options)]
+                    # Clear the text suggestion — the pre-selected option IS the
+                    # suggestion now, so we don't need the two-step confirm flow.
+                    if suggestion and pre_select_idx is not None:
+                        suggestion = None
 
             # Dynamic choices — follow-up probes or node-generated options (e.g. Q27 sprint selection)
             follow_up_choices = qs._follow_up_choices.get(cur_q)
@@ -318,7 +333,7 @@ def _phase_intake_questions(
             "suggestion": suggestion,
             "progress": progress,
             "phase_label": phase_label,
-            "selected_choice": 0,
+            "selected_choice": next((i for i, (_, is_def) in enumerate(choices) if is_def), 0) if choices else 0,
         }
         if isinstance(qs, QuestionnaireState):
             screen_kwargs["questionnaire"] = qs
@@ -386,7 +401,13 @@ def _question_input_loop(
     # Cursor at start for prefilled suggestions (so user sees beginning of long text),
     # at end for editing existing answers (user typically appends).
     cursor_pos = 0 if prefill else len(input_value)
+    # Start on the pre-selected option (extracted suggestion or static default) if any
     selected_choice = 0
+    if choices:
+        for i, (_opt, is_default) in enumerate(choices):
+            if is_default:
+                selected_choice = i
+                break
     selected_choices: set[int] = set()  # for multi-select mode
     scroll_offset = 0
     use_accordion = questionnaire is not None

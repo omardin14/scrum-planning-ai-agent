@@ -27,6 +27,7 @@ def make_completed_questionnaire() -> QuestionnaireState:
     qs = QuestionnaireState(completed=True, current_question=TOTAL_QUESTIONS + 1)
     for i in range(1, TOTAL_QUESTIONS + 1):
         qs.answers[i] = f"Answer for Q{i}"
+        qs.answer_sources[i] = "direct"
     return qs
 
 
