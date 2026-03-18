@@ -101,15 +101,23 @@ def _build_pipeline_screen(
     body: list = []
 
     if status == "processing":
-        # Pulsing dots animation — stage label is already in the subtitle
-        intensity = (math.sin(tick * 6) + 1) / 2
-        v = int(60 + 140 * intensity)
-        dots = "." * (int(tick * 3) % 4)
+        # Show content lines if provided (e.g. Jira sync progress log),
+        # otherwise fall back to generic "Processing..." with pulsing dots.
         body.append(Text(""))
-        body.append(Text(""))
-        body.append(Text(_PAD + f"  Processing{dots}", style=f"rgb({v},{v},{v})", justify="left"))
-        for _ in range(max(0, viewport_h - 5)):
+        if content_lines:
+            visible = content_lines[-(viewport_h - 2):] if len(content_lines) > viewport_h - 2 else content_lines
+            for line in visible:
+                body.append(Text.from_ansi(_PAD + line, justify="left"))
+            for _ in range(max(0, viewport_h - 2 - len(visible))):
+                body.append(Text(""))
+        else:
+            intensity = (math.sin(tick * 6) + 1) / 2
+            v = int(60 + 140 * intensity)
+            dots = "." * (int(tick * 3) % 4)
             body.append(Text(""))
+            body.append(Text(_PAD + f"  Processing{dots}", style=f"rgb({v},{v},{v})", justify="left"))
+            for _ in range(max(0, viewport_h - 5)):
+                body.append(Text(""))
         border_style = "white"
     else:
         # Scrollable content with action bar.
