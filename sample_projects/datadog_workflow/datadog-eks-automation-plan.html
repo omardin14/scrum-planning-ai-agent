@@ -237,7 +237,7 @@ section h2 {
     <div class="card-desc" style="margin-top:0.75rem;"><strong>Target state:</strong> The workflow automation raises Pull Requests in Azure DevOps for impacted services to increase pod specs, determines reasonable value increases based on usage, connects to Jenkins to release new app versions, notifies the developer releases Slack channel, runs Jenkins E2E pipeline tests, monitors the situation for a few minutes, and either sends Slack confirmation or notifies PagerDuty for human involvement.</div>
   </div>
   <div class="analysis-grid"><div class="analysis-section"><h3>Goals</h3><ul><li class="">Automate response to CPU and memory utilization alerts for EKS pods</li><li class="">Reduce manual intervention for repetitive resource scaling tasks</li><li class="">Implement end-to-end workflow from alert to resolution or escalation</li></ul></div><div class="analysis-section"><h3>End Users</h3><ul><li class="">DevOps engineers</li><li class="">On-call responders</li></ul></div><div class="analysis-section"><h3>Tech Stack</h3><ul><li class="">Terraform</li><li class="">AWS Secrets Manager</li><li class="">Azure DevOps Git</li><li class="">Jenkins</li><li class="">Datadog Workflows</li></ul></div><div class="analysis-section"><h3>Integrations</h3><ul><li class="">Datadog Workflows API</li><li class="">Azure DevOps REST API</li><li class="">Jenkins Remote Access API</li><li class="">PagerDuty Events API v2</li><li class="">Slack API</li></ul></div><div class="analysis-section"><h3>Constraints</h3><ul><li class="">Workflow automation connection to Jenkins authentication and job triggering permissions</li><li class="">Mapping each Datadog service to its Azure DevOps repository</li><li class="">Workflow automation connection to Azure DevOps with PAT permissions</li><li class="">Workflow automation connection to Slack with bot token permissions</li><li class="">Resource increase calculations must include safety margins</li><li class="">Must handle cases where E2E test suites don&#x27;t exist for a service</li></ul></div><div class="analysis-section"><h3>Out of Scope</h3><ul><li class="">Creating Jenkins or Jenkins pipelines</li><li class="">Creating the Slack channel</li><li class="">Creating the PagerDuty rota</li><li class="">Handling non-CPU/memory alerts</li><li class="">Multi-cluster support</li></ul></div><div class="analysis-section"><h3>Assumptions</h3><ul><li class="assumption-item">No hard deadlines</li><li class="assumption-item">Generalist/fullstack team roles</li><li class="assumption-item">No architectural constraints specified</li><li class="assumption-item">No existing documentation to reference</li><li class="assumption-item">Monorepo structure</li><li class="assumption-item">No known technical debt identified</li><li class="assumption-item">No specific risks identified</li><li class="assumption-item">No known blockers or external dependencies</li><li class="assumption-item">Markdown output format</li><li class="assumption-item">10% capacity lost to unplanned absences</li><li class="assumption-item">No engineers onboarding</li></ul></div></div>
-  
+
   <div class="analysis-section">
     <h3>Capacity</h3>
     <ul><li>Team: 5 engineer(s), 2-week sprints &times; 2</li><li>Gross velocity: 21 pts/sprint</li><li>Deductions: bank holidays: 1d, unplanned: 10%, discovery: 5%</li><li><strong>Net velocity: 16 pts/sprint</strong></li></ul>
@@ -246,7 +246,7 @@ section h2 {
 
 <section id="features">
   <h2>Features</h2>
-  
+
   <div class="card">
     <div class="card-header">
       <div>
@@ -261,10 +261,10 @@ section h2 {
 
 <section id="stories">
   <h2>User Stories</h2>
-  
+
   <div style="margin-bottom:1.5rem;">
     <div style="font-size:0.8rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.5rem;">F1: Datadog EKS Automation</div>
-    
+
     <div class="card story-card high">
       <div class="card-header">
         <div>
@@ -509,7 +509,7 @@ section h2 {
     18 total story points &bull;
     21 pts/sprint velocity
   </p>
-  
+
   <div class="card sprint-card">
     <div class="sprint-header">
       <span class="card-title">Sprint 107</span>
