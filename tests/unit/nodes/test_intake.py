@@ -37,6 +37,7 @@ from scrum_agent.agent.state import (
     QuestionnaireState,
 )
 from scrum_agent.prompts.intake import (
+    CONDITIONAL_ESSENTIALS,
     INTAKE_QUESTIONS,
     PHASE_INTROS,
     PHASE_LABELS,
@@ -849,42 +850,42 @@ class TestFollowUpProbing:
         # Should contain the follow-up
         assert "What kind of users?" in content
 
-    def test_probing_on_last_question_then_completes(self, monkeypatch):
-        """Probing on the last free-text question (Q25), then answering follow-up → completes questionnaire.
+    def test_probing_on_last_free_text_question_then_completes(self, monkeypatch):
+        """Probing on the last free-text question (Q23), then answering follow-up → advances.
 
-        Note: Q26 is a choice question (skips vagueness check), so we test with Q25
-        which is the last free-text question before Q26 is auto-answered.
+        Note: Q24, Q25, Q26 are choice questions (skip vagueness check), so we test
+        with Q23 which is the last free-text question before the choices run.
         """
-        # First call: vague answer on Q25 → follow-up
+        # First call: vague answer on Q23 → follow-up
         monkeypatch.setattr(
             "scrum_agent.agent.nodes._check_vague_answer",
-            lambda q, a, n=0: ("What does your Definition of Done include?", ("Tests passing", "Code reviewed")),
+            lambda q, a, n=0: ("What specifically is out of scope?", ("Mobile app", "Analytics")),
         )
 
-        qs = QuestionnaireState(current_question=25)
-        qs.answers = {i: f"answer {i}" for i in range(1, 25)}
+        qs = QuestionnaireState(current_question=23)
+        qs.answers = {i: f"answer {i}" for i in range(1, 23)}
         state = {
-            "messages": [HumanMessage(content="Standard")],
+            "messages": [HumanMessage(content="Nothing specific")],
             "questionnaire": qs,
         }
 
         result1 = project_intake(state)
         assert result1["questionnaire"].completed is False
-        assert 25 in result1["questionnaire"].probed_questions
+        assert 23 in result1["questionnaire"].probed_questions
 
-        # Second call: follow-up answer on Q25 → should advance to Q26
+        # Second call: follow-up answer on Q23 → should advance to Q24
         monkeypatch.setattr("scrum_agent.agent.nodes._check_vague_answer", lambda q, a, n=0: None)
 
         state2 = {
-            "messages": [HumanMessage(content="Code reviewed, tests passing, deployed to staging")],
+            "messages": [HumanMessage(content="Mobile app and advanced analytics are out of scope")],
             "questionnaire": result1["questionnaire"],
         }
 
         result2 = project_intake(state2)
-        # Should advance to Q26 (not complete yet)
-        assert result2["questionnaire"].current_question == 26
+        # Should advance to Q24 (not complete yet)
+        assert result2["questionnaire"].current_question == 24
         # Combined answer should be stored
-        assert "Follow-up detail:" in result2["questionnaire"].answers[25]
+        assert "Follow-up detail:" in result2["questionnaire"].answers[23]
 
 
 # ── Skip intent detection tests ──────────────────────────────────────
@@ -1949,19 +1950,21 @@ class TestExtractCapacityDeductions:
 class TestQuestionMetadata:
     """Tests for QUESTION_METADATA structure and is_choice_question helper."""
 
-    def test_metadata_has_ten_entries(self):
-        """QUESTION_METADATA should define exactly 10 choice questions."""
-        assert len(QUESTION_METADATA) == 10
+    def test_metadata_has_fifteen_entries(self):
+        """QUESTION_METADATA should define exactly 15 choice questions."""
+        assert len(QUESTION_METADATA) == 15
 
     def test_all_entries_are_question_meta(self):
         """Every value in QUESTION_METADATA should be a QuestionMeta instance."""
         for q_num, meta in QUESTION_METADATA.items():
             assert isinstance(meta, QuestionMeta), f"Q{q_num} is not a QuestionMeta"
 
-    def test_all_entries_are_single_choice(self):
-        """Every entry should have question_type == 'single_choice'."""
+    def test_all_entries_are_valid_choice_type(self):
+        """Every entry should have question_type 'single_choice' or 'multi_choice'."""
         for q_num, meta in QUESTION_METADATA.items():
-            assert meta.question_type == "single_choice", f"Q{q_num} is not single_choice"
+            assert meta.question_type in ("single_choice", "multi_choice"), (
+                f"Q{q_num} has invalid type '{meta.question_type}'"
+            )
 
     def test_all_entries_have_options(self):
         """Every entry should have at least 2 options (except Q27/Q28 which are dynamic)."""
@@ -1971,8 +1974,8 @@ class TestQuestionMetadata:
             assert len(meta.options) >= 2, f"Q{q_num} has fewer than 2 options"
 
     def test_expected_question_numbers(self):
-        """The 10 choice questions should be Q2, Q8, Q10, Q16, Q18, Q24, Q26, Q27, Q28, Q29."""
-        assert set(QUESTION_METADATA.keys()) == {2, 8, 10, 16, 18, 24, 26, 27, 28, 29}
+        """The 15 choice questions."""
+        assert set(QUESTION_METADATA.keys()) == {2, 7, 8, 10, 13, 16, 18, 19, 24, 25, 26, 27, 28, 29, 30}
 
     def test_default_index_valid_or_none(self):
         """default_index must be None or a valid index into options."""
@@ -1994,12 +1997,12 @@ class TestQuestionMetadata:
         assert is_choice_question(1) is False
         assert is_choice_question(3) is False
         assert is_choice_question(11) is False
-        assert is_choice_question(25) is False
+        assert is_choice_question(20) is False
 
     def test_defaults_consistency(self):
-        """For choice Qs with a default_index, QUESTION_DEFAULTS should match the option text."""
+        """For single_choice Qs with a default_index, QUESTION_DEFAULTS should match the option text."""
         for q_num, meta in QUESTION_METADATA.items():
-            if meta.default_index is not None:
+            if meta.question_type == "single_choice" and meta.default_index is not None:
                 expected = meta.options[meta.default_index]
                 assert QUESTION_DEFAULTS[q_num] == expected, (
                     f"Q{q_num}: QUESTION_DEFAULTS[{q_num}]='{QUESTION_DEFAULTS[q_num]}' "
@@ -2400,9 +2403,9 @@ class TestFindEssentialGaps:
         qs.answers = {2: "Greenfield", 6: "3"}
         gaps = _find_essential_gaps(qs, SMART_ESSENTIALS)
         # SMART_ESSENTIALS = {2, 3, 4, 6, 10, 11, 27}; answered: 2, 6
-        # Q8 excluded — always defaults to "2 weeks" in smart mode
-        # → gaps: 3, 4, 10, 11, 27
-        assert gaps == [3, 4, 10, 11, 27]
+        # Conditional: Q6 answered → Q7, Q29 promoted; Q2 answered → Q13 promoted
+        # → gaps: 3, 4, 7, 10, 11, 13, 27, 29
+        assert gaps == [3, 4, 7, 10, 11, 13, 27, 29]
 
     def test_no_gaps_when_all_answered(self):
         qs = QuestionnaireState()
@@ -2411,10 +2414,14 @@ class TestFindEssentialGaps:
             3: "Problem",
             4: "Done state",
             6: "3",
+            7: "Backend, Frontend",
             8: "2 weeks",
             10: "5 sprints",
             11: "React",
+            12: "No integrations",
+            13: "AWS",
             27: "Fresh start (today)",
+            29: "10%",
         }
         gaps = _find_essential_gaps(qs, SMART_ESSENTIALS)
         assert gaps == []
@@ -3248,6 +3255,8 @@ class TestPTOSubLoop:
 
     def test_pto_start_date_before_window_rejected(self):
         """Start date before planning window should be rejected."""
+        from datetime import date, timedelta
+
         qs = self._make_qs_at_confirmation("standard")
         qs._awaiting_leave_input = True
         qs._leave_input_stage = "start"
@@ -3255,7 +3264,9 @@ class TestPTOSubLoop:
         # Q8=2 weeks, Q10=2 sprints → window is today + 4 weeks
         qs.answers[8] = "2 weeks"
         qs.answers[10] = "2 sprints"
-        state = {"messages": [HumanMessage(content="01/01/2020")], "questionnaire": qs}
+        # Use a date within 6 months but before the planning window (yesterday)
+        yesterday = (date.today() - timedelta(days=1)).strftime("%d/%m/%Y")
+        state = {"messages": [HumanMessage(content=yesterday)], "questionnaire": qs}
         result = project_intake(state)
         assert "before" in result["messages"][0].content.lower()
         assert result["questionnaire"]._leave_input_stage == "start"
@@ -3309,6 +3320,13 @@ class TestPTOSubLoop:
         assert _parse_date_dmy("06/04/26") == date(2026, 4, 6)
         assert _parse_date_dmy("06-04-2026") == date(2026, 4, 6)
         assert _parse_date_dmy("06-04-26") == date(2026, 4, 6)
+
+    def test_rejects_dates_far_in_past(self):
+        """Dates more than 6 months in the past should be rejected (catches 2-digit year typos)."""
+        from scrum_agent.agent.nodes import _parse_date_dmy
+
+        assert _parse_date_dmy("12/12/12") is None  # 2012 — clearly in the past
+        assert _parse_date_dmy("01/01/2020") is None
 
 
 # ── Smart Intake Improvements tests ─────────────────────────────────
@@ -3587,6 +3605,15 @@ class TestCrossQuestionValidation:
         assert "Greenfield" in warnings[0].message
         assert "repo URL" in warnings[0].message
 
+    def test_greenfield_case_insensitive(self):
+        """Greenfield check should be case-insensitive."""
+        from scrum_agent.agent.nodes import _validate_cross_questions
+
+        for variant in ("greenfield", "GREENFIELD", "Greenfield", " greenfield "):
+            answers = {2: variant, 17: "https://github.com/org/repo"}
+            warnings = _validate_cross_questions(answers)
+            assert len(warnings) == 1, f"Failed for q2={variant!r}"
+
     def test_existing_codebase_with_repo_url_no_warning(self):
         """Existing codebase + repo URL should NOT produce a warning."""
         from scrum_agent.agent.nodes import _validate_cross_questions
@@ -3659,3 +3686,141 @@ class TestCrossQuestionValidation:
         summary = _build_intake_summary(qs)
         assert "Heads up" in summary
         assert "Greenfield" in summary
+
+
+class TestConditionalEssentials:
+    """Tests for CONDITIONAL_ESSENTIALS and their integration with _find_essential_gaps."""
+
+    def test_q7_promoted_when_q6_answered(self):
+        """Q7 (team roles) becomes a gap when Q6 (team size) has a real answer."""
+        qs = QuestionnaireState()
+        qs.answers = {6: "5"}
+        gaps = _find_essential_gaps(qs, SMART_ESSENTIALS)
+        assert 7 in gaps
+
+    def test_q7_not_promoted_when_q6_defaulted(self):
+        """Q7 stays defaulted when Q6 was itself defaulted — no point asking roles."""
+        qs = QuestionnaireState()
+        qs.answers = {6: "3"}
+        qs.defaulted_questions.add(6)
+        gaps = _find_essential_gaps(qs, SMART_ESSENTIALS)
+        assert 7 not in gaps
+
+    def test_q12_promoted_when_q11_answered(self):
+        """Q12 (integrations) becomes a gap when Q11 (tech stack) is answered."""
+        qs = QuestionnaireState()
+        qs.answers = {11: "React, FastAPI"}
+        gaps = _find_essential_gaps(qs, SMART_ESSENTIALS)
+        assert 12 in gaps
+
+    def test_q12_not_promoted_when_q11_defaulted(self):
+        qs = QuestionnaireState()
+        qs.answers = {11: "Not specified"}
+        qs.defaulted_questions.add(11)
+        gaps = _find_essential_gaps(qs, SMART_ESSENTIALS)
+        assert 12 not in gaps
+
+    def test_q13_promoted_when_q2_answered(self):
+        """Q13 (constraints) becomes a gap when Q2 (project type) is answered."""
+        qs = QuestionnaireState()
+        qs.answers = {2: "Greenfield"}
+        gaps = _find_essential_gaps(qs, SMART_ESSENTIALS)
+        assert 13 in gaps
+
+    def test_q13_not_promoted_when_q2_defaulted(self):
+        qs = QuestionnaireState()
+        qs.answers = {2: "Greenfield"}
+        qs.defaulted_questions.add(2)
+        gaps = _find_essential_gaps(qs, SMART_ESSENTIALS)
+        assert 13 not in gaps
+
+    def test_conditional_not_promoted_when_directly_answered(self):
+        """If Q7 has a direct (non-defaulted) answer, it should not appear as a gap."""
+        qs = QuestionnaireState()
+        qs.answers = {6: "5", 7: "Backend, Frontend"}
+        gaps = _find_essential_gaps(qs, SMART_ESSENTIALS)
+        assert 7 not in gaps
+
+    def test_conditional_promoted_when_defaulted_and_prereq_answered(self):
+        """Q7 defaulted by _auto_default_remaining should become a gap when Q6 is answered."""
+        qs = QuestionnaireState()
+        qs.answers = {6: "5", 7: "Roles not specified — assuming generalist/fullstack team"}
+        qs.defaulted_questions.add(7)
+        gaps = _find_essential_gaps(qs, SMART_ESSENTIALS)
+        assert 7 in gaps
+
+    def test_q29_promoted_when_q6_answered(self):
+        """Q29 (unplanned leave %) becomes a gap when Q6 (team size) is answered."""
+        qs = QuestionnaireState()
+        qs.answers = {6: "5"}
+        gaps = _find_essential_gaps(qs, SMART_ESSENTIALS)
+        assert 29 in gaps
+
+    def test_q29_not_promoted_when_q6_defaulted(self):
+        qs = QuestionnaireState()
+        qs.answers = {6: "3"}
+        qs.defaulted_questions.add(6)
+        gaps = _find_essential_gaps(qs, SMART_ESSENTIALS)
+        assert 29 not in gaps
+
+    def test_multiple_conditionals_promoted_together(self):
+        """All four conditionals can fire at once when prerequisites are met."""
+        qs = QuestionnaireState()
+        qs.answers = {2: "Existing codebase", 6: "4", 11: "Python, Django"}
+        gaps = _find_essential_gaps(qs, SMART_ESSENTIALS)
+        assert 7 in gaps
+        assert 12 in gaps
+        assert 13 in gaps
+        assert 29 in gaps
+
+    def test_conditional_essentials_mapping_is_complete(self):
+        """Verify the mapping covers Q7→Q6, Q12→Q11, Q13→Q2, Q29→Q6."""
+        assert CONDITIONAL_ESSENTIALS == {7: 6, 12: 11, 13: 2, 29: 6}
+
+
+class TestMultiChoiceMetadata:
+    """Tests for multi_choice question metadata and is_choice_question."""
+
+    def test_q7_is_multi_choice(self):
+        meta = QUESTION_METADATA[7]
+        assert meta.question_type == "multi_choice"
+        assert "Backend" in meta.options
+        assert "Frontend" in meta.options
+        assert "Fullstack" in meta.options
+
+    def test_q13_is_multi_choice(self):
+        meta = QUESTION_METADATA[13]
+        assert meta.question_type == "multi_choice"
+        assert "AWS" in meta.options
+        assert "Microservices" in meta.options
+
+    def test_q19_is_single_choice(self):
+        meta = QUESTION_METADATA[19]
+        assert meta.question_type == "single_choice"
+        assert meta.options == ("Yes", "No", "Partial/in progress")
+        assert meta.default_index == 1
+
+    def test_q25_is_single_choice(self):
+        meta = QUESTION_METADATA[25]
+        assert meta.question_type == "single_choice"
+        assert len(meta.options) == 2
+        assert meta.default_index == 1
+
+    def test_q30_is_single_choice(self):
+        meta = QUESTION_METADATA[30]
+        assert meta.question_type == "single_choice"
+        assert "None" in meta.options
+        assert meta.default_index == 0
+
+    def test_is_choice_question_includes_multi_choice(self):
+        """is_choice_question should return True for both single and multi choice."""
+        assert is_choice_question(7) is True  # multi_choice
+        assert is_choice_question(13) is True  # multi_choice
+        assert is_choice_question(2) is True  # single_choice
+        assert is_choice_question(1) is False  # free text
+
+    def test_multi_choice_has_no_default_index(self):
+        """Multi-choice questions don't use default_index — users toggle selections."""
+        for q_num, meta in QUESTION_METADATA.items():
+            if meta.question_type == "multi_choice":
+                assert meta.default_index is None, f"Q{q_num} multi_choice should have no default_index"

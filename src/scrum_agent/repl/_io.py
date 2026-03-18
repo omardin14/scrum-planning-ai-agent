@@ -245,6 +245,18 @@ def _append_capacity_section(lines: list[str], graph_state: dict) -> None:
     team_size = graph_state.get("team_size", 0)
     velocity = graph_state.get("velocity_per_sprint", 0)
     net_velocity = graph_state.get("net_velocity_per_sprint", 0)
+
+    # Fallback: if analyzer hasn't run yet (export at intake review stage),
+    # compute capacity from the questionnaire directly — same as the intake
+    # summary does. This ensures early exports include PTO/capacity data.
+    if (not team_size or not velocity) and graph_state.get("questionnaire"):
+        from scrum_agent.agent.nodes import _extract_capacity_deductions, _extract_team_and_velocity
+
+        qs = graph_state["questionnaire"]
+        tv = _extract_team_and_velocity(qs)
+        team_size = team_size or tv.get("team_size", 0)
+        velocity = velocity or tv.get("velocity_per_sprint", 0)
+
     _log.debug(
         "CAPACITY_EXPORT: team_size=%s velocity=%s net_velocity=%s",
         team_size,
@@ -255,9 +267,23 @@ def _append_capacity_section(lines: list[str], graph_state: dict) -> None:
         _log.debug("CAPACITY_EXPORT: skipping — team_size or velocity is 0/missing")
         return
 
-    sprint_weeks = graph_state.get("sprint_length_weeks", 2)
+    sprint_weeks = graph_state.get("sprint_length_weeks", 0)
     analysis = graph_state.get("project_analysis")
     target_sprints = analysis.target_sprints if analysis else 0
+
+    # Fallback: derive sprint_weeks and target_sprints from questionnaire
+    if graph_state.get("questionnaire"):
+        from scrum_agent.agent.nodes import _parse_first_int
+
+        qs = graph_state["questionnaire"]
+        if not sprint_weeks:
+            sprint_weeks = _parse_first_int(qs.answers.get(8, "2 weeks")) or 2
+        if not target_sprints:
+            import re
+
+            q10 = qs.answers.get(10, "")
+            q10_nums = re.findall(r"\d+", q10)
+            target_sprints = int(q10_nums[-1]) if q10_nums else 0
     if not target_sprints:
         return
 
@@ -268,6 +294,17 @@ def _append_capacity_section(lines: list[str], graph_state: dict) -> None:
     ktlo = graph_state.get("capacity_ktlo_engineers", 0)
     discovery_pct = graph_state.get("capacity_discovery_pct", 5)
 
+    # Fallback: extract capacity deductions from questionnaire
+    if not any([bank_holidays, planned_leave, unplanned_pct, onboarding]) and graph_state.get("questionnaire"):
+        from scrum_agent.agent.nodes import _extract_capacity_deductions
+
+        qs = graph_state["questionnaire"]
+        cap = _extract_capacity_deductions(qs)
+        bank_holidays = bank_holidays or cap.get("capacity_bank_holiday_days", 0)
+        planned_leave = planned_leave or cap.get("capacity_planned_leave_days", 0)
+        unplanned_pct = unplanned_pct or cap.get("capacity_unplanned_leave_pct", 0)
+        onboarding = onboarding or cap.get("capacity_onboarding_engineer_sprints", 0)
+
     lines.append("## Capacity")
     lines.append("")
     lines.append(f"- **Team size:** {team_size} engineer(s)")
@@ -277,6 +314,8 @@ def _append_capacity_section(lines: list[str], graph_state: dict) -> None:
 
     deductions: list[str] = []
     leave_entries = graph_state.get("planned_leave_entries", [])
+    if not leave_entries and graph_state.get("questionnaire"):
+        leave_entries = list(graph_state["questionnaire"]._planned_leave_entries)
     if planned_leave > 0:
         if leave_entries:
             leave_detail = ", ".join(f"{e['person']} {e['working_days']}d" for e in leave_entries)

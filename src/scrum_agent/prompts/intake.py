@@ -120,18 +120,18 @@ QUESTION_DEFAULTS: dict[int, str] = {
     16: "GitHub",
     17: "No repo URL provided",
     18: "Monorepo",
-    19: "No existing CI/CD pipeline",
+    19: "No",
     20: "No known technical debt identified",
     21: "No specific risks identified",
     22: "No known blockers or external dependencies",
     23: "No explicit exclusions",
     24: "Fibonacci points",
-    25: "Standard Scrum DoD (code reviewed, tests passing, deployed)",
+    25: "No — use a recommended DoD",
     26: "Markdown",
     27: "None",
     28: "No bank holidays detected",
     29: "10%",
-    30: "No engineers onboarding",
+    30: "None",
 }
 
 # ---------------------------------------------------------------------------
@@ -193,13 +193,14 @@ class QuestionMeta:
     # See README: "Project Intake Questionnaire" — selection menus
 
     Attributes:
-        question_type: "free_text" or "single_choice".
-        options: Tuple of option strings for single_choice questions.
-        default_index: Index into `options` for the default selection,
+        question_type: "free_text", "single_choice", or "multi_choice".
+        options: Tuple of option strings for choice questions.
+        default_index: Index into `options` for the default selection (single_choice),
             or None if no default (question is required / essential).
+            Ignored for multi_choice.
     """
 
-    question_type: str  # "free_text" | "single_choice"
+    question_type: str  # "free_text" | "single_choice" | "multi_choice"
     options: tuple[str, ...] = ()
     default_index: int | None = None
 
@@ -209,6 +210,10 @@ QUESTION_METADATA: dict[int, QuestionMeta] = {
         question_type="single_choice",
         options=("Greenfield", "Existing codebase", "Hybrid"),
         default_index=None,  # essential — no default
+    ),
+    7: QuestionMeta(
+        question_type="multi_choice",
+        options=("Backend", "Frontend", "Fullstack", "DevOps/Infra", "QA/Testing", "Design", "Data/ML"),
     ),
     8: QuestionMeta(
         question_type="single_choice",
@@ -226,6 +231,10 @@ QUESTION_METADATA: dict[int, QuestionMeta] = {
         ),
         default_index=4,  # No preference
     ),
+    13: QuestionMeta(
+        question_type="multi_choice",
+        options=("Microservices", "Monolith", "Serverless", "AWS", "GCP", "Azure", "On-premise", "Kubernetes/Docker"),
+    ),
     16: QuestionMeta(
         question_type="single_choice",
         options=("GitHub", "Azure DevOps", "GitLab", "Bitbucket", "Local"),
@@ -236,10 +245,20 @@ QUESTION_METADATA: dict[int, QuestionMeta] = {
         options=("Monorepo", "Multi-repo", "Microservices", "Monolith"),
         default_index=0,  # Monorepo
     ),
+    19: QuestionMeta(
+        question_type="single_choice",
+        options=("Yes", "No", "Partial/in progress"),
+        default_index=1,  # No
+    ),
     24: QuestionMeta(
         question_type="single_choice",
         options=("Fibonacci points", "T-shirt sizes", "No estimates"),
         default_index=0,  # Fibonacci points
+    ),
+    25: QuestionMeta(
+        question_type="single_choice",
+        options=("Yes — team has a standard DoD", "No — use a recommended DoD"),
+        default_index=1,  # No — use recommended
     ),
     26: QuestionMeta(
         question_type="single_choice",
@@ -260,6 +279,11 @@ QUESTION_METADATA: dict[int, QuestionMeta] = {
         question_type="single_choice",
         options=("0%", "5%", "10%", "15%", "20%"),
         default_index=2,  # 10%
+    ),
+    30: QuestionMeta(
+        question_type="single_choice",
+        options=("None", "1 engineer", "2 engineers", "3+ engineers"),
+        default_index=0,  # None
     ),
 }
 
@@ -290,6 +314,17 @@ ESSENTIAL_QUESTIONS: frozenset[int] = frozenset({1, 2, 3, 4, 6, 11, 15})
 # Q8 (sprint length) excluded — always defaults to "2 weeks" in smart mode.
 SMART_ESSENTIALS: frozenset[int] = frozenset({2, 3, 4, 6, 10, 11, 27})
 QUICK_ESSENTIALS: frozenset[int] = frozenset({6, 11})
+
+# Conditional essentials — questions that become essential when their
+# prerequisite has a real (non-defaulted) answer. This keeps smart mode
+# lean while still asking useful follow-ups when context is available.
+# See README: "Project Intake Questionnaire" — conditional essentials
+CONDITIONAL_ESSENTIALS: dict[int, int] = {
+    7: 6,  # ask team roles        when team size is answered
+    12: 11,  # ask integrations      when tech stack is answered
+    13: 2,  # ask constraints       when project type is answered
+    29: 6,  # ask unplanned leave % when team size is answered
+}
 
 # Deterministic mapping from Q2 (project type) → Q15 (existing codebase?).
 # Avoids an LLM call — Q15 is redundant when Q2 is answered.
@@ -578,13 +613,13 @@ class ValidationWarning:
 
 
 def is_choice_question(q_num: int) -> bool:
-    """Check whether a question number has single-choice metadata.
+    """Check whether a question number has choice metadata (single or multi).
 
     Args:
         q_num: The 1-based question number.
 
     Returns:
-        True if the question is a single-choice question with options.
+        True if the question is a single_choice or multi_choice question.
     """
     meta = QUESTION_METADATA.get(q_num)
-    return meta is not None and meta.question_type == "single_choice"
+    return meta is not None and meta.question_type in ("single_choice", "multi_choice")

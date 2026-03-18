@@ -49,6 +49,7 @@ from scrum_agent.prompts.analyzer import get_analyzer_prompt
 from scrum_agent.prompts.feature_generator import get_feature_generator_prompt
 from scrum_agent.prompts.intake import (
     ADAPTIVE_QUESTION_TEMPLATES,
+    CONDITIONAL_ESSENTIALS,
     ESSENTIAL_QUESTIONS,
     FOLLOW_UP_TEMPLATES,
     INTAKE_QUESTIONS,
@@ -1118,9 +1119,14 @@ def _parse_date_dmy(text: str):
     if year < 100:
         year += 2000
     try:
-        return date(year, month, day)
+        parsed = date(year, month, day)
     except ValueError:
         return None
+    # Reject dates obviously in the past (> 6 months ago) — catches 2-digit year
+    # typos like "12/12/12" → 2012 which is clearly not a future leave date.
+    if (date.today() - parsed).days > 180:
+        return None
+    return parsed
 
 
 def _count_working_days(start_date, end_date) -> int:
@@ -2037,6 +2043,13 @@ def _prepare_bank_holiday_choices(questionnaire: QuestionnaireState) -> None:
 def _find_essential_gaps(questionnaire: QuestionnaireState, essential_set: frozenset[int]) -> list[int]:
     """Return sorted list of essential question numbers that are still unanswered.
 
+    # See README: "Project Intake Questionnaire" — conditional essentials
+    #
+    # In addition to the static essential set, CONDITIONAL_ESSENTIALS maps
+    # questions to their prerequisites. A conditional question becomes a gap
+    # when its prerequisite has a real (non-defaulted) answer — e.g., Q7
+    # (team roles) is only asked when Q6 (team size) was actually answered.
+
     Args:
         questionnaire: The current questionnaire state.
         essential_set: The set of essential question numbers to check.
@@ -2044,7 +2057,21 @@ def _find_essential_gaps(questionnaire: QuestionnaireState, essential_set: froze
     Returns:
         Sorted list of question numbers that have no answer recorded.
     """
-    return sorted(q for q in essential_set if q not in questionnaire.answers)
+    gaps = set(q for q in essential_set if q not in questionnaire.answers)
+
+    # Conditionals: promote to essential when prerequisite is answered (not defaulted).
+    # A conditional question becomes a gap when:
+    #   - it has no answer at all, OR it was auto-defaulted (worth re-asking)
+    #   - its prerequisite has a real (non-defaulted) answer
+    for q, prereq in CONDITIONAL_ESSENTIALS.items():
+        if (
+            (q not in questionnaire.answers or q in questionnaire.defaulted_questions)
+            and prereq in questionnaire.answers
+            and prereq not in questionnaire.defaulted_questions
+        ):
+            gaps.add(q)
+
+    return sorted(gaps)
 
 
 def _resolve_adaptive_text(q_num: int, questionnaire: QuestionnaireState) -> str:
@@ -2297,7 +2324,7 @@ def _validate_cross_questions(answers: dict[int, str]) -> list[ValidationWarning
     # Rule 1: Greenfield + repo URL
     q2 = answers.get(2, "")
     q17 = answers.get(17, "")
-    if q2 == "Greenfield" and q17 and "http" in q17.lower():
+    if q2.lower().strip() == "greenfield" and q17 and "http" in q17.lower():
         warnings.append(
             ValidationWarning(
                 question_nums=(2, 17),
@@ -2690,9 +2717,9 @@ def _show_summary_or_pto(questionnaire: QuestionnaireState, prefix: str = "") ->
         questionnaire._leave_input_stage = "ask"
         # Set awaiting_confirmation so the PTO handler runs in the confirmation gate
         questionnaire.awaiting_confirmation = True
-        # Keep current_question at TOTAL_QUESTIONS (not +1) so the TUI accordion
-        # can render — question TOTAL_QUESTIONS+1 has no accordion entry.
-        questionnaire.current_question = TOTAL_QUESTIONS
+        # Show PTO under Q28 (Holidays & leave) in the accordion — semantically
+        # PTO belongs with the leave/holidays section, not onboarding (Q30).
+        questionnaire.current_question = 28
         return {
             "questionnaire": questionnaire,
             "messages": [
