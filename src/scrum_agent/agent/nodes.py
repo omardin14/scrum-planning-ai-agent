@@ -48,17 +48,28 @@ from scrum_agent.agent.state import (
 from scrum_agent.prompts.analyzer import get_analyzer_prompt
 from scrum_agent.prompts.feature_generator import get_feature_generator_prompt
 from scrum_agent.prompts.intake import (
+    ADAPTIVE_QUESTION_TEMPLATES,
+    CONDITIONAL_ESSENTIALS,
+    ESSENTIAL_QUESTIONS,
+    FOLLOW_UP_TEMPLATES,
     INTAKE_QUESTIONS,
     PHASE_INTROS,
     PHASE_LABELS,
+    Q2_CONSTRAINT_HINTS,
+    Q2_INFERENCE_KEYWORDS,
     Q2_TO_Q15_MAP,
+    Q12_SERVICE_KEYWORDS,
+    Q13_INFRA_KEYWORDS,
     QUESTION_DEFAULTS,
     QUESTION_IMPROVEMENT_HINTS,
     QUESTION_METADATA,
+    QUESTION_SHORT_LABELS,
     QUICK_ESSENTIALS,
     QUICK_FALLBACK_DEFAULTS,
     SCRUM_MD_HINT,
     SMART_ESSENTIALS,
+    AnswerSource,
+    ValidationWarning,
     is_choice_question,
 )
 from scrum_agent.prompts.sprint_planner import get_sprint_planner_prompt
@@ -371,7 +382,10 @@ def _extract_answers_from_description(description: str) -> dict[int, str]:
         "mapping the question number (as a string key) to the extracted answer.\n\n"
         "STRICT RULES:\n"
         "- Only include questions where the user DIRECTLY stated the answer.\n"
-        "- Do NOT infer Q2 (project type) from verbs like 'refactor' or 'migrate'.\n"
+        "- Q2 (project type): INFER from strong signals like 'refactor', 'migrate', 'legacy' → Existing codebase; "
+        "'from scratch', 'new project', 'greenfield' → Greenfield.\n"
+        "- Q12 (integrations): EXTRACT named services (e.g. 'Stripe', 'Auth0', 'Firebase').\n"
+        "- Q13 (constraints): EXTRACT named infra (e.g. 'Kubernetes', 'AWS', 'microservices').\n"
         "- Do NOT infer Q11 (tech stack) from product/service names (e.g. 'Teleport', 'Kubernetes').\n"
         "- Do NOT infer Q4 (end-state) from vague goals like 'improve security'.\n"
         "- Do NOT extract Q3 (problem/users) unless the description names specific users or problems.\n"
@@ -421,6 +435,48 @@ def _extract_answers_from_description(description: str) -> dict[int, str]:
         # 26 questions as usual — the feature never breaks the existing flow.
         logger.debug("Failed to extract answers from description, falling back to full questionnaire", exc_info=True)
         return {}
+
+
+def _keyword_extract_fallback(description: str, extracted: dict[int, str]) -> dict[int, str]:
+    """Deterministic keyword-based extraction fallback after LLM extraction.
+
+    # See README: "Project Intake Questionnaire" — smart intake
+    #
+    # Scans the description for strong keyword signals for Q2 (project type),
+    # Q12 (integrations), and Q13 (architectural constraints). Only fills
+    # questions not already extracted by the LLM — LLM-extracted values
+    # always take priority.
+
+    Args:
+        description: The user's project description text.
+        extracted: The LLM-extracted answers dict (mutated in place with additions).
+
+    Returns:
+        The same extracted dict with any new keyword-based additions.
+    """
+    desc_lower = description.lower()
+
+    # Q2: project type from keywords
+    if 2 not in extracted:
+        for keyword, value in Q2_INFERENCE_KEYWORDS.items():
+            if keyword in desc_lower:
+                extracted[2] = value
+                break
+
+    # Q12: service/integration names
+    if 12 not in extracted:
+        found_services = [kw for kw in Q12_SERVICE_KEYWORDS if kw in desc_lower]
+        if found_services:
+            # Capitalize service names for readability
+            extracted[12] = ", ".join(s.capitalize() for s in sorted(found_services))
+
+    # Q13: infrastructure/architecture keywords
+    if 13 not in extracted:
+        found_infra = [kw for kw in Q13_INFRA_KEYWORDS if kw in desc_lower]
+        if found_infra:
+            extracted[13] = ", ".join(sorted(found_infra))
+
+    return extracted
 
 
 def _next_unskipped_question(current: int, skipped: set[int]) -> int | None:
@@ -568,6 +624,7 @@ def _batch_defaults_for_phase(questionnaire: QuestionnaireState) -> tuple[list[s
             default_val = meta.options[meta.default_index]
             questionnaire.answers[q_num] = default_val
             questionnaire.defaulted_questions.add(q_num)
+            questionnaire.answer_sources[q_num] = AnswerSource.DEFAULTED
             summary_lines.append(f"  Q{q_num}: {default_val}")
             count += 1
         elif q_num in QUESTION_DEFAULTS:
@@ -575,6 +632,7 @@ def _batch_defaults_for_phase(questionnaire: QuestionnaireState) -> tuple[list[s
             default_val = QUESTION_DEFAULTS[q_num]
             questionnaire.answers[q_num] = default_val
             questionnaire.defaulted_questions.add(q_num)
+            questionnaire.answer_sources[q_num] = AnswerSource.DEFAULTED
             summary_lines.append(f"  Q{q_num}: {default_val}")
             count += 1
         else:
@@ -1061,9 +1119,14 @@ def _parse_date_dmy(text: str):
     if year < 100:
         year += 2000
     try:
-        return date(year, month, day)
+        parsed = date(year, month, day)
     except ValueError:
         return None
+    # Reject dates obviously in the past (> 6 months ago) — catches 2-digit year
+    # typos like "12/12/12" → 2012 which is clearly not a future leave date.
+    if (date.today() - parsed).days > 180:
+        return None
+    return parsed
 
 
 def _count_working_days(start_date, end_date) -> int:
@@ -1609,6 +1672,7 @@ def _auto_apply_extractions(questionnaire: QuestionnaireState, extracted: dict[i
     for q_num, answer in extracted.items():
         questionnaire.answers[q_num] = answer
         questionnaire.extracted_questions.add(q_num)
+        questionnaire.answer_sources[q_num] = AnswerSource.EXTRACTED
 
 
 def _auto_default_remaining(
@@ -1648,12 +1712,15 @@ def _auto_default_remaining(
         if meta and meta.default_index is not None:
             questionnaire.answers[q_num] = meta.options[meta.default_index]
             questionnaire.defaulted_questions.add(q_num)
+            questionnaire.answer_sources[q_num] = AnswerSource.DEFAULTED
         elif q_num in QUESTION_DEFAULTS:
             questionnaire.answers[q_num] = QUESTION_DEFAULTS[q_num]
             questionnaire.defaulted_questions.add(q_num)
+            questionnaire.answer_sources[q_num] = AnswerSource.DEFAULTED
         elif fallbacks and q_num in fallbacks:
             questionnaire.answers[q_num] = fallbacks[q_num]
             questionnaire.defaulted_questions.add(q_num)
+            questionnaire.answer_sources[q_num] = AnswerSource.DEFAULTED
 
 
 # Prompt shown immediately after Q2 is answered as "Existing codebase" or "Hybrid",
@@ -1701,6 +1768,7 @@ def _derive_q15_from_q2(questionnaire: QuestionnaireState) -> None:
     if derived:
         questionnaire.answers[15] = derived
         questionnaire.defaulted_questions.add(15)
+        questionnaire.answer_sources[15] = AnswerSource.DEFAULTED
 
 
 def _detect_bank_holidays_for_window(
@@ -1780,6 +1848,7 @@ def _derive_q27_from_locale(questionnaire: QuestionnaireState) -> None:
     questionnaire.answers[27] = "Fresh start (today)"
     questionnaire.extracted_questions.add(27)
     questionnaire.defaulted_questions.discard(27)
+    questionnaire.answer_sources[27] = AnswerSource.EXTRACTED
 
 
 def _resolve_sprint_start_date(questionnaire: QuestionnaireState) -> str:
@@ -1948,11 +2017,13 @@ def _prepare_bank_holiday_choices(questionnaire: QuestionnaireState) -> None:
         questionnaire.answers[28] = summary
         questionnaire.extracted_questions.add(28)
         questionnaire.defaulted_questions.discard(28)
+        questionnaire.answer_sources[28] = AnswerSource.EXTRACTED
         logger.debug("BANK_HOLIDAY: Q28 set to %r (extracted)", summary)
     else:
         questionnaire.answers[28] = "No bank holidays detected"
         questionnaire.extracted_questions.add(28)
         questionnaire.defaulted_questions.discard(28)
+        questionnaire.answer_sources[28] = AnswerSource.EXTRACTED
         logger.debug("BANK_HOLIDAY: Q28 set to 'No bank holidays detected'")
 
     # Populate choice menu for standard mode (Q28 is still interactive there)
@@ -1972,6 +2043,13 @@ def _prepare_bank_holiday_choices(questionnaire: QuestionnaireState) -> None:
 def _find_essential_gaps(questionnaire: QuestionnaireState, essential_set: frozenset[int]) -> list[int]:
     """Return sorted list of essential question numbers that are still unanswered.
 
+    # See README: "Project Intake Questionnaire" — conditional essentials
+    #
+    # In addition to the static essential set, CONDITIONAL_ESSENTIALS maps
+    # questions to their prerequisites. A conditional question becomes a gap
+    # when its prerequisite has a real (non-defaulted) answer — e.g., Q7
+    # (team roles) is only asked when Q6 (team size) was actually answered.
+
     Args:
         questionnaire: The current questionnaire state.
         essential_set: The set of essential question numbers to check.
@@ -1979,7 +2057,68 @@ def _find_essential_gaps(questionnaire: QuestionnaireState, essential_set: froze
     Returns:
         Sorted list of question numbers that have no answer recorded.
     """
-    return sorted(q for q in essential_set if q not in questionnaire.answers)
+    gaps = set(q for q in essential_set if q not in questionnaire.answers)
+
+    # Conditionals: promote to essential when prerequisite is answered (not defaulted).
+    # A conditional question becomes a gap when:
+    #   - it has no answer at all, OR it was auto-defaulted (worth re-asking)
+    #   - its prerequisite has a real (non-defaulted) answer
+    for q, prereq in CONDITIONAL_ESSENTIALS.items():
+        if (
+            (q not in questionnaire.answers or q in questionnaire.defaulted_questions)
+            and prereq in questionnaire.answers
+            and prereq not in questionnaire.defaulted_questions
+        ):
+            gaps.add(q)
+
+    return sorted(gaps)
+
+
+def _resolve_adaptive_text(q_num: int, questionnaire: QuestionnaireState) -> str:
+    """Return personalized question text if a template exists and dependencies are met.
+
+    # See README: "Project Intake Questionnaire" — adaptive question text
+    #
+    # Checks ADAPTIVE_QUESTION_TEMPLATES for q_num. If all referenced prior
+    # answers are available (and not defaulted), formats the template with
+    # those answers. Otherwise falls back to INTAKE_QUESTIONS[q_num].
+
+    Args:
+        q_num: The question number to resolve text for.
+        questionnaire: The current questionnaire state with answers.
+
+    Returns:
+        The personalized question text, or the original INTAKE_QUESTIONS text.
+    """
+    template = ADAPTIVE_QUESTION_TEMPLATES.get(q_num)
+    if not template:
+        return INTAKE_QUESTIONS[q_num]
+
+    try:
+        # Build format kwargs from prior answers
+        kwargs: dict[str, str] = {}
+        if "{q6}" in template:
+            q6 = questionnaire.answers.get(6)
+            if not q6 or 6 in questionnaire.defaulted_questions:
+                return INTAKE_QUESTIONS[q_num]
+            kwargs["q6"] = q6
+        if "{q11}" in template:
+            q11 = questionnaire.answers.get(11)
+            if not q11 or 11 in questionnaire.defaulted_questions:
+                return INTAKE_QUESTIONS[q_num]
+            kwargs["q11"] = q11
+        if "{q2}" in template:
+            q2 = questionnaire.answers.get(2)
+            if not q2 or 2 in questionnaire.defaulted_questions:
+                return INTAKE_QUESTIONS[q_num]
+            kwargs["q2"] = q2
+        if "{hint}" in template:
+            q2 = questionnaire.answers.get(2, "")
+            hint = Q2_CONSTRAINT_HINTS.get(q2, "microservices vs monolith, cloud provider")
+            kwargs["hint"] = hint
+        return template.format(**kwargs)
+    except (KeyError, ValueError):
+        return INTAKE_QUESTIONS[q_num]
 
 
 def _build_gap_prompt(gaps: list[int], questionnaire: QuestionnaireState) -> tuple[str, list[int]]:
@@ -2001,7 +2140,7 @@ def _build_gap_prompt(gaps: list[int], questionnaire: QuestionnaireState) -> tup
 
     q_num = gaps[0]
 
-    prompt = INTAKE_QUESTIONS[q_num]
+    prompt = _resolve_adaptive_text(q_num, questionnaire)
     suggest = _build_suggestion_line(questionnaire, q_num)
     return (f"{prompt}{suggest}", [q_num])
 
@@ -2029,7 +2168,7 @@ def _build_skip_acknowledgment(question_num: int, *, during_probe: bool, default
     return f"Skipped Q{question_num} — I'll work without this information."
 
 
-def _check_vague_answer(question: str, answer: str) -> tuple[str, tuple[str, ...]] | None:
+def _check_vague_answer(question: str, answer: str, q_num: int = 0) -> tuple[str, tuple[str, ...]] | None:
     """Use the LLM to judge whether an intake answer is too vague.
 
     # See README: "Project Intake Questionnaire" — follow-up probing
@@ -2045,10 +2184,15 @@ def _check_vague_answer(question: str, answer: str) -> tuple[str, tuple[str, ...
     # Dynamic choices: when the answer is vague, the LLM also generates 2-4
     # contextual options for the follow-up so the user can pick a number
     # instead of composing a free-text answer from scratch.
+    #
+    # Custom follow-up templates (Step 4): when q_num has a FOLLOW_UP_TEMPLATES
+    # entry, the template is injected into the prompt as a hint. This produces
+    # more targeted follow-ups for key questions.
 
     Args:
         question: The intake question that was asked.
         answer: The user's response to the question.
+        q_num: The question number (used for custom follow-up templates).
 
     Returns:
         A (follow_up, choices) tuple if the answer is vague, where choices
@@ -2069,6 +2213,11 @@ def _check_vague_answer(question: str, answer: str) -> tuple[str, tuple[str, ...
     except ValueError:
         pass
 
+    # Build custom follow-up hint if available for this question
+    custom_hint = ""
+    if q_num and q_num in FOLLOW_UP_TEMPLATES:
+        custom_hint = f"\nIf vague, use this follow-up: '{FOLLOW_UP_TEMPLATES[q_num]}'\n"
+
     prompt = (
         "You are evaluating whether a user's answer to a project intake question "
         "is specific enough to be useful for Scrum planning.\n\n"
@@ -2080,6 +2229,7 @@ def _check_vague_answer(question: str, answer: str) -> tuple[str, tuple[str, ...
         "- Short answers can still be specific. 'React' is specific, 'something modern' is vague.\n"
         "- Only flag an answer as vague if it truly lacks actionable detail "
         "(e.g. 'stuff', 'not sure', 'the usual', 'some things').\n\n"
+        f"{custom_hint}"
         "If the answer is too vague or generic to be actionable, respond with JSON:\n"
         '{"vague": true, "follow_up": "A specific follow-up question to get more detail", '
         '"choices": ["Option A", "Option B", "Option C"]}\n\n'
@@ -2153,6 +2303,74 @@ def _parse_follow_up_choices(raw_choices: object) -> tuple[str, ...]:
     return tuple(cleaned[:4])
 
 
+def _validate_cross_questions(answers: dict[int, str]) -> list[ValidationWarning]:
+    """Run deterministic cross-question validation rules on completed answers.
+
+    # See README: "Project Intake Questionnaire" — cross-question validation
+    #
+    # Three rules (no LLM call):
+    # 1. Greenfield + repo URL → contradiction
+    # 2. Timeline > 6 months → advisory
+    # 3. Velocity / team_size outside 2-15 range → sanity check
+
+    Args:
+        answers: The questionnaire answers dict (q_num → answer string).
+
+    Returns:
+        A list of ValidationWarning instances (may be empty).
+    """
+    warnings: list[ValidationWarning] = []
+
+    # Rule 1: Greenfield + repo URL
+    q2 = answers.get(2, "")
+    q17 = answers.get(17, "")
+    if q2.lower().strip() == "greenfield" and q17 and "http" in q17.lower():
+        warnings.append(
+            ValidationWarning(
+                question_nums=(2, 17),
+                message="Q2 says Greenfield but Q17 has a repo URL — did you mean Existing codebase?",
+            )
+        )
+
+    # Rule 2: Timeline > 6 months
+    q8 = answers.get(8, "")
+    q10 = answers.get(10, "")
+    sprint_weeks = _parse_first_int(q8) or 2
+    q10_nums = re.findall(r"\d+", q10)
+    if q10_nums:
+        target_sprints = int(q10_nums[-1])
+        total_weeks = sprint_weeks * target_sprints
+        if total_weeks > 26:
+            months = round(total_weeks / 4.3, 1)
+            warnings.append(
+                ValidationWarning(
+                    question_nums=(8, 10),
+                    message=f"Plan spans ~{months} months. Consider breaking into phases.",
+                    severity="info",
+                )
+            )
+
+    # Rule 3: Velocity sanity check
+    q6 = answers.get(6, "")
+    q9 = answers.get(9, "")
+    team_size = _parse_first_int(q6)
+    velocity = _parse_first_int(q9)
+    if team_size and team_size > 0 and velocity and velocity > 0:
+        ratio = velocity / team_size
+        if ratio < 2 or ratio > 15:
+            warnings.append(
+                ValidationWarning(
+                    question_nums=(6, 9),
+                    message=(
+                        f"Velocity of {velocity} with {team_size} engineers = "
+                        f"{ratio:.1f} pts/engineer. Typical range: 3-10."
+                    ),
+                )
+            )
+
+    return warnings
+
+
 def _build_intake_summary(questionnaire: QuestionnaireState) -> str:
     """Build a formatted markdown summary of all intake answers grouped by phase.
 
@@ -2187,22 +2405,44 @@ def _build_intake_summary(questionnaire: QuestionnaireState) -> str:
         sections.append("\n".join(lines))
 
     # Stats header — shows answer provenance at a glance
-    num_answered = len(
-        questionnaire.answers.keys() - questionnaire.extracted_questions - questionnaire.defaulted_questions
-    )
-    num_extracted = len(questionnaire.extracted_questions)
-    num_defaulted = len(questionnaire.defaulted_questions)
+    # Use answer_sources for the confidence breakdown when available,
+    # fall back to the legacy tracking sets for backward compatibility.
+    sources = questionnaire.answer_sources
+    if sources:
+        num_direct = sum(1 for v in sources.values() if v == AnswerSource.DIRECT)
+        num_extracted = sum(1 for v in sources.values() if v == AnswerSource.EXTRACTED)
+        num_defaulted = sum(1 for v in sources.values() if v == AnswerSource.DEFAULTED)
+        num_probed = sum(1 for v in sources.values() if v == AnswerSource.PROBED)
+    else:
+        num_direct = len(
+            questionnaire.answers.keys() - questionnaire.extracted_questions - questionnaire.defaulted_questions
+        )
+        num_extracted = len(questionnaire.extracted_questions)
+        num_defaulted = len(questionnaire.defaulted_questions)
+        num_probed = len(questionnaire.probed_questions)
     stats_parts: list[str] = []
-    if num_answered > 0:
-        stats_parts.append(f"{num_answered} answered")
+    if num_direct > 0:
+        stats_parts.append(f"{num_direct} direct")
     if num_extracted > 0:
         stats_parts.append(f"{num_extracted} extracted")
     if num_defaulted > 0:
-        stats_parts.append(f"{num_defaulted} defaults")
+        stats_parts.append(f"{num_defaulted} defaulted")
+    if num_probed > 0:
+        stats_parts.append(f"{num_probed} probed")
     stats_line = f"**{' | '.join(stats_parts)}**\n\n" if stats_parts else ""
 
+    # Cross-question validation — advisory warnings for contradictions/unrealistic combos
+    validation_warnings = _validate_cross_questions(questionnaire.answers)
+    warnings_block = ""
+    if validation_warnings:
+        warning_lines = ["**Heads up** — a few things worth double-checking:\n"]
+        for w in validation_warnings:
+            q_refs = ", ".join(f"Q{q}" for q in w.question_nums)
+            warning_lines.append(f"- {w.message} (edit {q_refs})")
+        warnings_block = "\n".join(warning_lines) + "\n\n"
+
     header = (
-        f"# Project Intake Summary\n\n{stats_line}"
+        f"# Project Intake Summary\n\n{stats_line}{warnings_block}"
         "Here's a summary of your answers. I'll use this to generate your Scrum plan.\n"
     )
     body = "\n---\n\n".join(sections)
@@ -2477,9 +2717,9 @@ def _show_summary_or_pto(questionnaire: QuestionnaireState, prefix: str = "") ->
         questionnaire._leave_input_stage = "ask"
         # Set awaiting_confirmation so the PTO handler runs in the confirmation gate
         questionnaire.awaiting_confirmation = True
-        # Keep current_question at TOTAL_QUESTIONS (not +1) so the TUI accordion
-        # can render — question TOTAL_QUESTIONS+1 has no accordion entry.
-        questionnaire.current_question = TOTAL_QUESTIONS
+        # Show PTO under Q28 (Holidays & leave) in the accordion — semantically
+        # PTO belongs with the leave/holidays section, not onboarding (Q30).
+        questionnaire.current_question = 28
         return {
             "questionnaire": questionnaire,
             "messages": [
@@ -2554,6 +2794,9 @@ def project_intake(state: ScrumState) -> dict:
                 description = first_msg.content
 
         extracted = _extract_answers_from_description(description)
+        # Deterministic keyword fallback — catches strong signals the LLM
+        # may have been too conservative to infer (Q2, Q12, Q13).
+        _keyword_extract_fallback(description, extracted)
 
         # ── SCRUM.md auto-population ─────────────────────────────────
         # Load SCRUM.md early so its content can pre-fill intake answers,
@@ -2593,6 +2836,7 @@ def project_intake(state: ScrumState) -> dict:
             if description.strip():
                 qs.answers[1] = description.strip()
                 qs.extracted_questions.add(1)
+                qs.answer_sources[1] = AnswerSource.EXTRACTED
 
             # Pick essential set based on mode (needed before extraction split)
             essential_set = QUICK_ESSENTIALS if intake_mode == "quick" else SMART_ESSENTIALS
@@ -2670,6 +2914,7 @@ def project_intake(state: ScrumState) -> dict:
                             )
                         qs.extracted_questions.add(9)
                         qs.defaulted_questions.discard(9)
+                        qs.answer_sources[9] = AnswerSource.EXTRACTED
                     else:
                         logger.debug(
                             "Jira velocity zero but org team size=%d stored",
@@ -2855,12 +3100,14 @@ def project_intake(state: ScrumState) -> dict:
                     questionnaire.answers[q_num] = last_msg.content
                     questionnaire.defaulted_questions.discard(q_num)
                     questionnaire.skipped_questions.discard(q_num)
+                    questionnaire.answer_sources[q_num] = AnswerSource.DIRECT
                 questionnaire._pending_merged_questions = []
             else:
                 # Single gap question
                 questionnaire.answers[current_q] = last_msg.content
                 questionnaire.defaulted_questions.discard(current_q)
                 questionnaire.skipped_questions.discard(current_q)
+                questionnaire.answer_sources[current_q] = AnswerSource.DIRECT
                 if current_q == 17:
                     _sync_platform_from_url(questionnaire)
                     platform = questionnaire.answers.get(16, "")
@@ -2890,10 +3137,11 @@ def project_intake(state: ScrumState) -> dict:
             # Skip for choice questions (selections are never vague).
             if not is_choice_question(current_q):
                 check_text = INTAKE_QUESTIONS[current_q]
-                vague_result = _check_vague_answer(check_text, last_msg.content)
+                vague_result = _check_vague_answer(check_text, last_msg.content, current_q)
                 if vague_result:
                     follow_up, choices = vague_result
                     questionnaire.probed_questions.add(current_q)
+                    questionnaire.answer_sources[current_q] = AnswerSource.PROBED
                     if choices:
                         questionnaire._follow_up_choices[current_q] = choices
                     return {
@@ -3403,7 +3651,7 @@ def project_intake(state: ScrumState) -> dict:
             return _show_summary_or_pto(questionnaire, prefix=f"{ack}\n\n")
 
         questionnaire.current_question = next_q
-        question = INTAKE_QUESTIONS[next_q]
+        question = _resolve_adaptive_text(next_q, questionnaire)
         new_phase = questionnaire.current_phase
         phase_label = PHASE_LABELS[new_phase]
         phase_intro = PHASE_INTROS.get(new_phase, "")
@@ -3436,6 +3684,7 @@ def project_intake(state: ScrumState) -> dict:
             default = QUESTION_DEFAULTS[current_q]
             questionnaire.answers[current_q] = default
             questionnaire.defaulted_questions.add(current_q)
+            questionnaire.answer_sources[current_q] = AnswerSource.DEFAULTED
             ack = _build_skip_acknowledgment(current_q, during_probe=False, default=default)
         else:
             # Essential question with no default — flag the gap
@@ -3449,7 +3698,7 @@ def project_intake(state: ScrumState) -> dict:
 
         prev_skip_phase = questionnaire.current_phase
         questionnaire.current_question = next_q
-        question = INTAKE_QUESTIONS[next_q]
+        question = _resolve_adaptive_text(next_q, questionnaire)
         new_skip_phase = questionnaire.current_phase
         phase_label = PHASE_LABELS[new_skip_phase]
         # Show phase intro when entering a new phase after a skip
@@ -3514,6 +3763,7 @@ def project_intake(state: ScrumState) -> dict:
     else:
         # First answer to this question — record it and check vagueness.
         questionnaire.answers[current_q] = last_msg.content
+        questionnaire.answer_sources[current_q] = AnswerSource.DIRECT
         if current_q == 17:
             _sync_platform_from_url(questionnaire)
             platform = questionnaire.answers.get(16, "")
@@ -3537,7 +3787,7 @@ def project_intake(state: ScrumState) -> dict:
         if is_choice_question(current_q):
             vague_result = None
         else:
-            vague_result = _check_vague_answer(INTAKE_QUESTIONS[current_q], last_msg.content)
+            vague_result = _check_vague_answer(INTAKE_QUESTIONS[current_q], last_msg.content, current_q)
         if vague_result:
             # Unpack follow-up question and dynamic choices from the LLM.
             # choices may be empty — the REPL gracefully degrades to open-ended.
@@ -3546,6 +3796,7 @@ def project_intake(state: ScrumState) -> dict:
             # The follow-up message has NO phase label or progress indicator
             # — it feels like a conversational clarification, not a new question.
             questionnaire.probed_questions.add(current_q)
+            questionnaire.answer_sources[current_q] = AnswerSource.PROBED
             # Store dynamic choices so the REPL can render a numbered menu.
             # Same lifecycle as probed_questions — cleared when follow-up is answered.
             if choices:
@@ -4122,6 +4373,20 @@ def compute_prompt_quality(qs: QuestionnaireState, *, has_user_context: bool = F
     if not has_user_context and len(suggestions) < _MAX_SUGGESTIONS:
         suggestions.append(SCRUM_MD_HINT)
 
+    # Low-confidence areas — essential questions that were defaulted.
+    # These are flagged as assumptions in ProjectAnalysis for downstream
+    # spike recommendations. Uses answer_sources when available.
+    low_confidence: list[str] = []
+    for q_num in sorted(ESSENTIAL_QUESTIONS):
+        is_defaulted = (
+            qs.answer_sources.get(q_num) == AnswerSource.DEFAULTED
+            if qs.answer_sources
+            else q_num in qs.defaulted_questions
+        )
+        if is_defaulted:
+            label = QUESTION_SHORT_LABELS.get(q_num, f"Q{q_num}")
+            low_confidence.append(label)
+
     return PromptQualityRating(
         score_pct=score_pct,
         grade=grade,
@@ -4131,6 +4396,7 @@ def compute_prompt_quality(qs: QuestionnaireState, *, has_user_context: bool = F
         skipped_count=skipped_count,
         probed_count=probed_count,
         suggestions=tuple(suggestions),
+        low_confidence_areas=tuple(low_confidence),
     )
 
 

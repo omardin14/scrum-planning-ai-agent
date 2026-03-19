@@ -21,11 +21,32 @@
 """
 
 from dataclasses import dataclass
+from enum import StrEnum
 
 # ---------------------------------------------------------------------------
 # All 30 intake questions, keyed by question number (1-based).
 # See README: "Project Intake Questionnaire" for rationale behind each phase.
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Answer provenance — tracks how each question was answered.
+# See README: "Project Intake Questionnaire" — answer confidence signalling
+#
+# Used by the intake summary to show a confidence breakdown and by
+# compute_prompt_quality() to identify low-confidence areas for downstream
+# spike recommendations.
+# ---------------------------------------------------------------------------
+
+
+class AnswerSource(StrEnum):
+    """How a questionnaire answer was obtained."""
+
+    DIRECT = "direct"
+    EXTRACTED = "extracted"
+    DEFAULTED = "defaulted"
+    PROBED = "probed"
+    SCRUM_MD = "scrum_md"
+
 
 INTAKE_QUESTIONS: dict[int, str] = {
     # Phase 1 — Project Context (Q1–Q5)
@@ -99,18 +120,18 @@ QUESTION_DEFAULTS: dict[int, str] = {
     16: "GitHub",
     17: "No repo URL provided",
     18: "Monorepo",
-    19: "No existing CI/CD pipeline",
+    19: "No",
     20: "No known technical debt identified",
     21: "No specific risks identified",
     22: "No known blockers or external dependencies",
     23: "No explicit exclusions",
     24: "Fibonacci points",
-    25: "Standard Scrum DoD (code reviewed, tests passing, deployed)",
+    25: "No — use a recommended DoD",
     26: "Markdown",
     27: "None",
     28: "No bank holidays detected",
     29: "10%",
-    30: "No engineers onboarding",
+    30: "None",
 }
 
 # ---------------------------------------------------------------------------
@@ -172,13 +193,14 @@ class QuestionMeta:
     # See README: "Project Intake Questionnaire" — selection menus
 
     Attributes:
-        question_type: "free_text" or "single_choice".
-        options: Tuple of option strings for single_choice questions.
-        default_index: Index into `options` for the default selection,
+        question_type: "free_text", "single_choice", or "multi_choice".
+        options: Tuple of option strings for choice questions.
+        default_index: Index into `options` for the default selection (single_choice),
             or None if no default (question is required / essential).
+            Ignored for multi_choice.
     """
 
-    question_type: str  # "free_text" | "single_choice"
+    question_type: str  # "free_text" | "single_choice" | "multi_choice"
     options: tuple[str, ...] = ()
     default_index: int | None = None
 
@@ -188,6 +210,10 @@ QUESTION_METADATA: dict[int, QuestionMeta] = {
         question_type="single_choice",
         options=("Greenfield", "Existing codebase", "Hybrid"),
         default_index=None,  # essential — no default
+    ),
+    7: QuestionMeta(
+        question_type="multi_choice",
+        options=("Backend", "Frontend", "Fullstack", "DevOps/Infra", "QA/Testing", "Design", "Data/ML"),
     ),
     8: QuestionMeta(
         question_type="single_choice",
@@ -205,6 +231,10 @@ QUESTION_METADATA: dict[int, QuestionMeta] = {
         ),
         default_index=4,  # No preference
     ),
+    13: QuestionMeta(
+        question_type="multi_choice",
+        options=("Microservices", "Monolith", "Serverless", "AWS", "GCP", "Azure", "On-premise", "Kubernetes/Docker"),
+    ),
     16: QuestionMeta(
         question_type="single_choice",
         options=("GitHub", "Azure DevOps", "GitLab", "Bitbucket", "Local"),
@@ -215,10 +245,20 @@ QUESTION_METADATA: dict[int, QuestionMeta] = {
         options=("Monorepo", "Multi-repo", "Microservices", "Monolith"),
         default_index=0,  # Monorepo
     ),
+    19: QuestionMeta(
+        question_type="single_choice",
+        options=("Yes", "No", "Partial/in progress"),
+        default_index=1,  # No
+    ),
     24: QuestionMeta(
         question_type="single_choice",
         options=("Fibonacci points", "T-shirt sizes", "No estimates"),
         default_index=0,  # Fibonacci points
+    ),
+    25: QuestionMeta(
+        question_type="single_choice",
+        options=("Yes — team has a standard DoD", "No — use a recommended DoD"),
+        default_index=1,  # No — use recommended
     ),
     26: QuestionMeta(
         question_type="single_choice",
@@ -239,6 +279,11 @@ QUESTION_METADATA: dict[int, QuestionMeta] = {
         question_type="single_choice",
         options=("0%", "5%", "10%", "15%", "20%"),
         default_index=2,  # 10%
+    ),
+    30: QuestionMeta(
+        question_type="single_choice",
+        options=("None", "1 engineer", "2 engineers", "3+ engineers"),
+        default_index=0,  # None
     ),
 }
 
@@ -269,6 +314,17 @@ ESSENTIAL_QUESTIONS: frozenset[int] = frozenset({1, 2, 3, 4, 6, 11, 15})
 # Q8 (sprint length) excluded — always defaults to "2 weeks" in smart mode.
 SMART_ESSENTIALS: frozenset[int] = frozenset({2, 3, 4, 6, 10, 11, 27})
 QUICK_ESSENTIALS: frozenset[int] = frozenset({6, 11})
+
+# Conditional essentials — questions that become essential when their
+# prerequisite has a real (non-defaulted) answer. This keeps smart mode
+# lean while still asking useful follow-ups when context is available.
+# See README: "Project Intake Questionnaire" — conditional essentials
+CONDITIONAL_ESSENTIALS: dict[int, int] = {
+    7: 6,  # ask team roles        when team size is answered
+    12: 11,  # ask integrations      when tech stack is answered
+    13: 2,  # ask constraints       when project type is answered
+    29: 6,  # ask unplanned leave % when team size is answered
+}
 
 # Deterministic mapping from Q2 (project type) → Q15 (existing codebase?).
 # Avoids an LLM call — Q15 is redundant when Q2 is answered.
@@ -435,14 +491,135 @@ QUESTION_IMPROVEMENT_HINTS: dict[int, str] = {
 SCRUM_MD_HINT: str = "Add a SCRUM.md file to your project root with links, design notes, or tech decisions"
 
 
+# ---------------------------------------------------------------------------
+# Step 2: Smarter Extraction — keyword maps for deterministic fallback
+# See README: "Project Intake Questionnaire" — smart intake
+#
+# After LLM extraction, a deterministic keyword scan catches signals the
+# LLM may have been too conservative to infer. Keywords are case-insensitive.
+# ---------------------------------------------------------------------------
+
+Q2_INFERENCE_KEYWORDS: dict[str, str] = {
+    "refactor": "Existing codebase",
+    "migrate": "Existing codebase",
+    "legacy": "Existing codebase",
+    "rewrite": "Existing codebase",
+    "from scratch": "Greenfield",
+    "new project": "Greenfield",
+    "startup": "Greenfield",
+    "greenfield": "Greenfield",
+}
+
+Q12_SERVICE_KEYWORDS: frozenset[str] = frozenset(
+    {
+        "stripe",
+        "auth0",
+        "firebase",
+        "twilio",
+        "sendgrid",
+        "segment",
+        "launchdarkly",
+        "datadog",
+        "pagerduty",
+        "sentry",
+        "okta",
+        "plaid",
+        "algolia",
+        "cloudflare",
+        "vercel",
+    }
+)
+
+Q13_INFRA_KEYWORDS: frozenset[str] = frozenset(
+    {
+        "kubernetes",
+        "k8s",
+        "microservices",
+        "serverless",
+        "lambda",
+        "aws",
+        "gcp",
+        "azure",
+        "docker",
+        "monolith",
+        "on-premise",
+        "terraform",
+        "cloudformation",
+        "ecs",
+        "eks",
+    }
+)
+
+
+# ---------------------------------------------------------------------------
+# Step 3: Adaptive Question Text — templates that reference prior answers
+# See README: "Project Intake Questionnaire" — adaptive question text
+#
+# When a template's dependencies are available (and not defaulted), the
+# intake node renders the personalized version instead of the generic
+# INTAKE_QUESTIONS text. Fallback is always the original question.
+# ---------------------------------------------------------------------------
+
+ADAPTIVE_QUESTION_TEMPLATES: dict[int, str] = {
+    7: "You said {q6} engineers — what are their roles? (e.g., 2 backend, 1 frontend, 1 fullstack)",
+    12: "You mentioned {q11} as your tech stack. Are there any existing APIs, services, or third-party integrations?",
+    13: "Since this is a {q2} project, are there any architectural constraints? (e.g., {hint})",
+}
+
+Q2_CONSTRAINT_HINTS: dict[str, str] = {
+    "Greenfield": "microservices vs monolith, cloud provider, language choices",
+    "Existing codebase": "must preserve existing APIs, database migrations, backward compatibility",
+    "Hybrid": "which parts are new vs existing, integration boundaries",
+}
+
+
+# ---------------------------------------------------------------------------
+# Step 4: Follow-up Quality — custom follow-up templates per question
+# See README: "Project Intake Questionnaire" — follow-up probing
+#
+# When _check_vague_answer detects a vague answer for one of these questions,
+# the custom template is injected into the LLM prompt as a hint. This produces
+# more targeted follow-ups than the generic "tell me more" approach.
+# ---------------------------------------------------------------------------
+
+FOLLOW_UP_TEMPLATES: dict[int, str] = {
+    3: "Who experiences this problem? Can you give 2-3 user personas?",
+    4: "What measurable outcome would tell you the project succeeded?",
+    7: "Can you break down the team by specialty? (e.g., 2 backend, 1 frontend, 1 DevOps)",
+    11: "What's the primary language and framework? And what database/storage?",
+    12: "Which integrations are critical vs nice-to-have?",
+    13: "Are these constraints firm (non-negotiable) or preferences?",
+    20: "Which area of tech debt is the highest risk?",
+    21: "Which risk should be addressed earliest? What's the worst-case impact?",
+}
+
+
+# ---------------------------------------------------------------------------
+# Step 5: Cross-Question Validation — catch contradictions before analysis
+# See README: "Project Intake Questionnaire" — cross-question validation
+#
+# Deterministic rules (no LLM call) that flag contradictory or unrealistic
+# answer combinations. Warnings are advisory — the user can still confirm.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ValidationWarning:
+    """A warning about contradictory or unrealistic intake answers."""
+
+    question_nums: tuple[int, ...]
+    message: str
+    severity: str = "warning"  # "warning" | "info"
+
+
 def is_choice_question(q_num: int) -> bool:
-    """Check whether a question number has single-choice metadata.
+    """Check whether a question number has choice metadata (single or multi).
 
     Args:
         q_num: The 1-based question number.
 
     Returns:
-        True if the question is a single-choice question with options.
+        True if the question is a single_choice or multi_choice question.
     """
     meta = QUESTION_METADATA.get(q_num)
-    return meta is not None and meta.question_type == "single_choice"
+    return meta is not None and meta.question_type in ("single_choice", "multi_choice")

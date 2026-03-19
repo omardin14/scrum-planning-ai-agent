@@ -251,6 +251,7 @@ class PromptQualityRating:
     skipped_count: int
     probed_count: int
     suggestions: tuple[str, ...]
+    low_confidence_areas: tuple[str, ...] = ()  # QUESTION_SHORT_LABELS for defaulted essentials
 
 
 # See README: "Scrum Standards" — project analysis
@@ -412,6 +413,11 @@ class QuestionnaireState:
     # content (as opposed to the user's typed description). Used for provenance
     # markers in the intake preamble ("N from SCRUM.md").
     _scrum_md_questions: set[int] = field(default_factory=set)
+    # Unified answer provenance — maps question number to AnswerSource value.
+    # Populated alongside the existing tracking sets (extracted_questions,
+    # defaulted_questions, probed_questions) for backward compatibility.
+    # See README: "Project Intake Questionnaire" — answer confidence signalling
+    answer_sources: dict[int, str] = field(default_factory=dict)
 
     @property
     def current_phase(self) -> QuestionnairePhase:

@@ -37,6 +37,7 @@ from scrum_agent.agent.state import (
     QuestionnaireState,
 )
 from scrum_agent.prompts.intake import (
+    CONDITIONAL_ESSENTIALS,
     INTAKE_QUESTIONS,
     PHASE_INTROS,
     PHASE_LABELS,
@@ -61,7 +62,7 @@ class TestProjectIntake:
         patches it to always return None (accept the answer as-is), keeping
         existing test logic unchanged.
         """
-        monkeypatch.setattr("scrum_agent.agent.nodes._check_vague_answer", lambda q, a: None)
+        monkeypatch.setattr("scrum_agent.agent.nodes._check_vague_answer", lambda q, a, n=0: None)
 
     def test_first_call_initializes_questionnaire(self):
         """No questionnaire in state → returns a new QuestionnaireState."""
@@ -342,7 +343,7 @@ class TestAdaptiveSkipIntegration:
     @pytest.fixture(autouse=True)
     def _disable_vague_check(self, monkeypatch):
         """Disable vague-answer checking so adaptive-skip tests don't hit the LLM."""
-        monkeypatch.setattr("scrum_agent.agent.nodes._check_vague_answer", lambda q, a: None)
+        monkeypatch.setattr("scrum_agent.agent.nodes._check_vague_answer", lambda q, a, n=0: None)
 
     def _mock_extract(self, monkeypatch, extracted: dict[int, str]):
         """Monkeypatch _extract_answers_from_description to return the given dict."""
@@ -688,9 +689,10 @@ class TestFollowUpProbing:
 
     def test_vague_answer_triggers_follow_up(self, monkeypatch):
         """A vague answer should trigger a follow-up and NOT advance the question."""
+        choices = ("Task management", "E-commerce", "Social platform")
         monkeypatch.setattr(
             "scrum_agent.agent.nodes._check_vague_answer",
-            lambda q, a: ("Can you describe the main features?", ("Task management", "E-commerce", "Social platform")),
+            lambda q, a, n=0: ("Can you describe the main features?", choices),
         )
 
         qs = QuestionnaireState(current_question=1)
@@ -719,7 +721,7 @@ class TestFollowUpProbing:
         """A vague answer with no valid choices should NOT store _follow_up_choices."""
         monkeypatch.setattr(
             "scrum_agent.agent.nodes._check_vague_answer",
-            lambda q, a: ("Can you be more specific?", ()),
+            lambda q, a, n=0: ("Can you be more specific?", ()),
         )
 
         qs = QuestionnaireState(current_question=1)
@@ -735,7 +737,7 @@ class TestFollowUpProbing:
     def test_follow_up_response_combines_answers_and_advances(self, monkeypatch):
         """After a follow-up, the user's second answer is combined with the first and the question advances."""
         # Disable vague check for the second pass (already probed → combines)
-        monkeypatch.setattr("scrum_agent.agent.nodes._check_vague_answer", lambda q, a: None)
+        monkeypatch.setattr("scrum_agent.agent.nodes._check_vague_answer", lambda q, a, n=0: None)
 
         # Simulate: Q1 was probed, user is now responding to the follow-up
         qs = QuestionnaireState(current_question=1)
@@ -764,11 +766,11 @@ class TestFollowUpProbing:
         # _check_vague_answer would say "vague" — but it shouldn't be called
         # because the probed_questions check happens first.
         call_count = {"n": 0}
-        original_check = lambda q, a: None  # noqa: E731
+        original_check = lambda q, a, n=0: None  # noqa: E731
 
-        def tracking_check(q, a):
+        def tracking_check(q, a, n=0):
             call_count["n"] += 1
-            return original_check(q, a)
+            return original_check(q, a, n)
 
         monkeypatch.setattr("scrum_agent.agent.nodes._check_vague_answer", tracking_check)
 
@@ -788,7 +790,7 @@ class TestFollowUpProbing:
 
     def test_specific_answer_advances_without_probing(self, monkeypatch):
         """A specific answer should advance the question without triggering a follow-up."""
-        monkeypatch.setattr("scrum_agent.agent.nodes._check_vague_answer", lambda q, a: None)
+        monkeypatch.setattr("scrum_agent.agent.nodes._check_vague_answer", lambda q, a, n=0: None)
 
         qs = QuestionnaireState(current_question=1)
         state = {
@@ -806,7 +808,7 @@ class TestFollowUpProbing:
         """A probed-but-not-advanced question should not double-count progress."""
         monkeypatch.setattr(
             "scrum_agent.agent.nodes._check_vague_answer",
-            lambda q, a: ("Tell me more?", ()),
+            lambda q, a, n=0: ("Tell me more?", ()),
         )
 
         qs = QuestionnaireState(current_question=1)
@@ -830,7 +832,7 @@ class TestFollowUpProbing:
         """Follow-up messages should feel conversational — no phase header or progress indicator."""
         monkeypatch.setattr(
             "scrum_agent.agent.nodes._check_vague_answer",
-            lambda q, a: ("What kind of users?", ()),
+            lambda q, a, n=0: ("What kind of users?", ()),
         )
 
         qs = QuestionnaireState(current_question=1)
@@ -848,42 +850,42 @@ class TestFollowUpProbing:
         # Should contain the follow-up
         assert "What kind of users?" in content
 
-    def test_probing_on_last_question_then_completes(self, monkeypatch):
-        """Probing on the last free-text question (Q25), then answering follow-up → completes questionnaire.
+    def test_probing_on_last_free_text_question_then_completes(self, monkeypatch):
+        """Probing on the last free-text question (Q23), then answering follow-up → advances.
 
-        Note: Q26 is a choice question (skips vagueness check), so we test with Q25
-        which is the last free-text question before Q26 is auto-answered.
+        Note: Q24, Q25, Q26 are choice questions (skip vagueness check), so we test
+        with Q23 which is the last free-text question before the choices run.
         """
-        # First call: vague answer on Q25 → follow-up
+        # First call: vague answer on Q23 → follow-up
         monkeypatch.setattr(
             "scrum_agent.agent.nodes._check_vague_answer",
-            lambda q, a: ("What does your Definition of Done include?", ("Tests passing", "Code reviewed")),
+            lambda q, a, n=0: ("What specifically is out of scope?", ("Mobile app", "Analytics")),
         )
 
-        qs = QuestionnaireState(current_question=25)
-        qs.answers = {i: f"answer {i}" for i in range(1, 25)}
+        qs = QuestionnaireState(current_question=23)
+        qs.answers = {i: f"answer {i}" for i in range(1, 23)}
         state = {
-            "messages": [HumanMessage(content="Standard")],
+            "messages": [HumanMessage(content="Nothing specific")],
             "questionnaire": qs,
         }
 
         result1 = project_intake(state)
         assert result1["questionnaire"].completed is False
-        assert 25 in result1["questionnaire"].probed_questions
+        assert 23 in result1["questionnaire"].probed_questions
 
-        # Second call: follow-up answer on Q25 → should advance to Q26
-        monkeypatch.setattr("scrum_agent.agent.nodes._check_vague_answer", lambda q, a: None)
+        # Second call: follow-up answer on Q23 → should advance to Q24
+        monkeypatch.setattr("scrum_agent.agent.nodes._check_vague_answer", lambda q, a, n=0: None)
 
         state2 = {
-            "messages": [HumanMessage(content="Code reviewed, tests passing, deployed to staging")],
+            "messages": [HumanMessage(content="Mobile app and advanced analytics are out of scope")],
             "questionnaire": result1["questionnaire"],
         }
 
         result2 = project_intake(state2)
-        # Should advance to Q26 (not complete yet)
-        assert result2["questionnaire"].current_question == 26
+        # Should advance to Q24 (not complete yet)
+        assert result2["questionnaire"].current_question == 24
         # Combined answer should be stored
-        assert "Follow-up detail:" in result2["questionnaire"].answers[25]
+        assert "Follow-up detail:" in result2["questionnaire"].answers[23]
 
 
 # ── Skip intent detection tests ──────────────────────────────────────
@@ -1007,7 +1009,7 @@ class TestSkipHandling:
     @pytest.fixture(autouse=True)
     def _disable_vague_check(self, monkeypatch):
         """Disable vague-answer checking so skip tests don't hit the LLM."""
-        monkeypatch.setattr("scrum_agent.agent.nodes._check_vague_answer", lambda q, a: None)
+        monkeypatch.setattr("scrum_agent.agent.nodes._check_vague_answer", lambda q, a, n=0: None)
 
     # ── Default storage & advancement ────────────────────────────────
 
@@ -1144,7 +1146,7 @@ class TestSkipHandling:
         """Skip should bypass the vague-answer check entirely."""
         check_called = {"n": 0}
 
-        def tracking_check(q, a):
+        def tracking_check(q, a, n=0):
             check_called["n"] += 1
             return None
 
@@ -1306,7 +1308,7 @@ class TestConfirmation:
     @pytest.fixture(autouse=True)
     def _disable_vague_check(self, monkeypatch):
         """Disable vague-answer checking so confirmation tests don't hit the LLM."""
-        monkeypatch.setattr("scrum_agent.agent.nodes._check_vague_answer", lambda q, a: None)
+        monkeypatch.setattr("scrum_agent.agent.nodes._check_vague_answer", lambda q, a, n=0: None)
 
     def _make_awaiting_state(self) -> QuestionnaireState:
         """Build a QuestionnaireState in awaiting_confirmation mode."""
@@ -1530,7 +1532,7 @@ class TestEditFlow:
     @pytest.fixture(autouse=True)
     def _disable_vague_check(self, monkeypatch):
         """Disable vague-answer checking so edit tests don't hit the LLM."""
-        monkeypatch.setattr("scrum_agent.agent.nodes._check_vague_answer", lambda q, a: None)
+        monkeypatch.setattr("scrum_agent.agent.nodes._check_vague_answer", lambda q, a, n=0: None)
 
     def _make_awaiting_state(self) -> QuestionnaireState:
         """Build a QuestionnaireState in awaiting_confirmation mode."""
@@ -1843,7 +1845,7 @@ class TestConfirmationVelocity:
     @pytest.fixture(autouse=True)
     def _disable_vague_check(self, monkeypatch):
         """Disable vague-answer checking so confirmation tests don't hit the LLM."""
-        monkeypatch.setattr("scrum_agent.agent.nodes._check_vague_answer", lambda q, a: None)
+        monkeypatch.setattr("scrum_agent.agent.nodes._check_vague_answer", lambda q, a, n=0: None)
 
     def _make_awaiting_state(self, **answer_overrides) -> QuestionnaireState:
         """Build a QuestionnaireState in awaiting_confirmation mode."""
@@ -1948,19 +1950,21 @@ class TestExtractCapacityDeductions:
 class TestQuestionMetadata:
     """Tests for QUESTION_METADATA structure and is_choice_question helper."""
 
-    def test_metadata_has_ten_entries(self):
-        """QUESTION_METADATA should define exactly 10 choice questions."""
-        assert len(QUESTION_METADATA) == 10
+    def test_metadata_has_fifteen_entries(self):
+        """QUESTION_METADATA should define exactly 15 choice questions."""
+        assert len(QUESTION_METADATA) == 15
 
     def test_all_entries_are_question_meta(self):
         """Every value in QUESTION_METADATA should be a QuestionMeta instance."""
         for q_num, meta in QUESTION_METADATA.items():
             assert isinstance(meta, QuestionMeta), f"Q{q_num} is not a QuestionMeta"
 
-    def test_all_entries_are_single_choice(self):
-        """Every entry should have question_type == 'single_choice'."""
+    def test_all_entries_are_valid_choice_type(self):
+        """Every entry should have question_type 'single_choice' or 'multi_choice'."""
         for q_num, meta in QUESTION_METADATA.items():
-            assert meta.question_type == "single_choice", f"Q{q_num} is not single_choice"
+            assert meta.question_type in ("single_choice", "multi_choice"), (
+                f"Q{q_num} has invalid type '{meta.question_type}'"
+            )
 
     def test_all_entries_have_options(self):
         """Every entry should have at least 2 options (except Q27/Q28 which are dynamic)."""
@@ -1970,8 +1974,8 @@ class TestQuestionMetadata:
             assert len(meta.options) >= 2, f"Q{q_num} has fewer than 2 options"
 
     def test_expected_question_numbers(self):
-        """The 10 choice questions should be Q2, Q8, Q10, Q16, Q18, Q24, Q26, Q27, Q28, Q29."""
-        assert set(QUESTION_METADATA.keys()) == {2, 8, 10, 16, 18, 24, 26, 27, 28, 29}
+        """The 15 choice questions."""
+        assert set(QUESTION_METADATA.keys()) == {2, 7, 8, 10, 13, 16, 18, 19, 24, 25, 26, 27, 28, 29, 30}
 
     def test_default_index_valid_or_none(self):
         """default_index must be None or a valid index into options."""
@@ -1993,12 +1997,12 @@ class TestQuestionMetadata:
         assert is_choice_question(1) is False
         assert is_choice_question(3) is False
         assert is_choice_question(11) is False
-        assert is_choice_question(25) is False
+        assert is_choice_question(20) is False
 
     def test_defaults_consistency(self):
-        """For choice Qs with a default_index, QUESTION_DEFAULTS should match the option text."""
+        """For single_choice Qs with a default_index, QUESTION_DEFAULTS should match the option text."""
         for q_num, meta in QUESTION_METADATA.items():
-            if meta.default_index is not None:
+            if meta.question_type == "single_choice" and meta.default_index is not None:
                 expected = meta.options[meta.default_index]
                 assert QUESTION_DEFAULTS[q_num] == expected, (
                     f"Q{q_num}: QUESTION_DEFAULTS[{q_num}]='{QUESTION_DEFAULTS[q_num]}' "
@@ -2088,7 +2092,7 @@ class TestDefaultsCommand:
 
     def test_defaults_command_in_intake_node(self, monkeypatch):
         """Typing 'defaults' during intake should apply defaults and advance past the phase."""
-        monkeypatch.setattr("scrum_agent.agent.nodes._check_vague_answer", lambda q, a: None)
+        monkeypatch.setattr("scrum_agent.agent.nodes._check_vague_answer", lambda q, a, n=0: None)
 
         qs = QuestionnaireState(current_question=8)
         qs.answers = {i: f"answer {i}" for i in range(1, 8)}
@@ -2105,7 +2109,7 @@ class TestDefaultsCommand:
 
     def test_defaults_on_last_phase_shows_summary(self, monkeypatch):
         """Typing 'defaults' on the last phase should show the intake summary."""
-        monkeypatch.setattr("scrum_agent.agent.nodes._check_vague_answer", lambda q, a: None)
+        monkeypatch.setattr("scrum_agent.agent.nodes._check_vague_answer", lambda q, a, n=0: None)
 
         qs = QuestionnaireState(current_question=27)
         qs.answers = {i: f"answer {i}" for i in range(1, 27)}
@@ -2129,7 +2133,7 @@ class TestVaguenessSkipForChoiceQuestions:
         """A choice question answer should NOT trigger _check_vague_answer."""
         vague_called = False
 
-        def fake_vague(q, a):
+        def fake_vague(q, a, n=0):
             nonlocal vague_called
             vague_called = True
             return "This is vague!"
@@ -2151,7 +2155,7 @@ class TestVaguenessSkipForChoiceQuestions:
         """A free-text question should still trigger _check_vague_answer."""
         vague_called = False
 
-        def fake_vague(q, a):
+        def fake_vague(q, a, n=0):
             nonlocal vague_called
             vague_called = True
             return None  # Accept the answer
@@ -2270,7 +2274,7 @@ class TestQ2RepoUrlFollowUp:
 
     @pytest.fixture(autouse=True)
     def _disable_vague_check(self, monkeypatch):
-        monkeypatch.setattr("scrum_agent.agent.nodes._check_vague_answer", lambda q, a: None)
+        monkeypatch.setattr("scrum_agent.agent.nodes._check_vague_answer", lambda q, a, n=0: None)
 
     def _make_state(self, current_q, answers):
         qs = QuestionnaireState(current_question=current_q)
@@ -2399,9 +2403,9 @@ class TestFindEssentialGaps:
         qs.answers = {2: "Greenfield", 6: "3"}
         gaps = _find_essential_gaps(qs, SMART_ESSENTIALS)
         # SMART_ESSENTIALS = {2, 3, 4, 6, 10, 11, 27}; answered: 2, 6
-        # Q8 excluded — always defaults to "2 weeks" in smart mode
-        # → gaps: 3, 4, 10, 11, 27
-        assert gaps == [3, 4, 10, 11, 27]
+        # Conditional: Q6 answered → Q7, Q29 promoted; Q2 answered → Q13 promoted
+        # → gaps: 3, 4, 7, 10, 11, 13, 27, 29
+        assert gaps == [3, 4, 7, 10, 11, 13, 27, 29]
 
     def test_no_gaps_when_all_answered(self):
         qs = QuestionnaireState()
@@ -2410,10 +2414,14 @@ class TestFindEssentialGaps:
             3: "Problem",
             4: "Done state",
             6: "3",
+            7: "Backend, Frontend",
             8: "2 weeks",
             10: "5 sprints",
             11: "React",
+            12: "No integrations",
+            13: "AWS",
             27: "Fresh start (today)",
+            29: "10%",
         }
         gaps = _find_essential_gaps(qs, SMART_ESSENTIALS)
         assert gaps == []
@@ -2496,7 +2504,7 @@ class TestSmartIntakeMode:
     @pytest.fixture(autouse=True)
     def _disable_vague_check(self, monkeypatch):
         """Disable vague-answer checking so smart mode tests don't hit the LLM."""
-        monkeypatch.setattr("scrum_agent.agent.nodes._check_vague_answer", lambda q, a: None)
+        monkeypatch.setattr("scrum_agent.agent.nodes._check_vague_answer", lambda q, a, n=0: None)
 
     @pytest.fixture(autouse=True)
     def _no_scrum_md(self, monkeypatch):
@@ -2681,7 +2689,7 @@ class TestSmartIntakeMode:
         # Override the autouse fixture for this test — we need vague detection active.
         monkeypatch.setattr(
             "scrum_agent.agent.nodes._check_vague_answer",
-            lambda q, a: ("Can you be more specific?", ("Option A", "Option B")),
+            lambda q, a, n=0: ("Can you be more specific?", ("Option A", "Option B")),
         )
         qs = QuestionnaireState(intake_mode="smart", current_question=6)
         qs.answers = {1: "A todo app", 2: "Greenfield", 3: "Problem", 4: "Done"}
@@ -2734,7 +2742,7 @@ class TestSmartIntakeMode:
         """Smart mode: choice question answers should NOT trigger vague checking."""
         tracking = {"called": False}
 
-        def tracking_check(q, a):
+        def tracking_check(q, a, n=0):
             tracking["called"] = True
             return ("follow-up?", ("A", "B"))
 
@@ -2761,7 +2769,7 @@ class TestSmartIntakeMode:
         """Smart mode: a vague Q3 answer should trigger follow-up probing."""
         tracking = {"called": False, "question_text": None}
 
-        def tracking_check(q, a):
+        def tracking_check(q, a, n=0):
             tracking["called"] = True
             tracking["question_text"] = q
             return ("Can you be more specific?", ("Option A", "Option B"))
@@ -2792,7 +2800,7 @@ class TestSmartIntakeMode:
 
     def test_q3_non_vague_advances_to_q4(self, monkeypatch):
         """Smart mode: a detailed Q3 answer advances to Q4 as the next gap."""
-        monkeypatch.setattr("scrum_agent.agent.nodes._check_vague_answer", lambda q, a: None)
+        monkeypatch.setattr("scrum_agent.agent.nodes._check_vague_answer", lambda q, a, n=0: None)
         qs = QuestionnaireState(intake_mode="smart", current_question=3)
         qs.answers = {1: "A todo app", 2: "Greenfield", 6: "3 engineers", 11: "Python, React"}
         qs.extracted_questions = {1, 2}
@@ -2897,7 +2905,7 @@ class TestIntakeSummaryProvenance:
         qs.defaulted_questions = {5, 7, 8}
         summary = _build_intake_summary(qs)
         assert "2 extracted" in summary
-        assert "3 defaults" in summary
+        assert "3 defaulted" in summary
 
     def test_answers_block_extracted_marker(self):
         """_build_answers_block should show extracted marker for extracted questions."""
@@ -2918,7 +2926,7 @@ class TestScrumMdAutoPopulation:
 
     @pytest.fixture(autouse=True)
     def _disable_vague_check(self, monkeypatch):
-        monkeypatch.setattr("scrum_agent.agent.nodes._check_vague_answer", lambda q, a: None)
+        monkeypatch.setattr("scrum_agent.agent.nodes._check_vague_answer", lambda q, a, n=0: None)
 
     def test_scrum_md_extractions_fill_gaps(self, monkeypatch):
         """SCRUM.md extractions fill questions not covered by the user's description."""
@@ -3247,6 +3255,8 @@ class TestPTOSubLoop:
 
     def test_pto_start_date_before_window_rejected(self):
         """Start date before planning window should be rejected."""
+        from datetime import date, timedelta
+
         qs = self._make_qs_at_confirmation("standard")
         qs._awaiting_leave_input = True
         qs._leave_input_stage = "start"
@@ -3254,7 +3264,9 @@ class TestPTOSubLoop:
         # Q8=2 weeks, Q10=2 sprints → window is today + 4 weeks
         qs.answers[8] = "2 weeks"
         qs.answers[10] = "2 sprints"
-        state = {"messages": [HumanMessage(content="01/01/2020")], "questionnaire": qs}
+        # Use a date within 6 months but before the planning window (yesterday)
+        yesterday = (date.today() - timedelta(days=1)).strftime("%d/%m/%Y")
+        state = {"messages": [HumanMessage(content=yesterday)], "questionnaire": qs}
         result = project_intake(state)
         assert "before" in result["messages"][0].content.lower()
         assert result["questionnaire"]._leave_input_stage == "start"
@@ -3308,3 +3320,507 @@ class TestPTOSubLoop:
         assert _parse_date_dmy("06/04/26") == date(2026, 4, 6)
         assert _parse_date_dmy("06-04-2026") == date(2026, 4, 6)
         assert _parse_date_dmy("06-04-26") == date(2026, 4, 6)
+
+    def test_rejects_dates_far_in_past(self):
+        """Dates more than 6 months in the past should be rejected (catches 2-digit year typos)."""
+        from scrum_agent.agent.nodes import _parse_date_dmy
+
+        assert _parse_date_dmy("12/12/12") is None  # 2012 — clearly in the past
+        assert _parse_date_dmy("01/01/2020") is None
+
+
+# ── Smart Intake Improvements tests ─────────────────────────────────
+
+
+class TestAnswerSources:
+    """Tests for answer_sources tracking (Step 1: Answer Confidence Signalling)."""
+
+    def test_direct_answer_sets_source(self):
+        """A direct user answer should set answer_sources to 'direct'."""
+        qs = QuestionnaireState(current_question=1)
+        state = {
+            "messages": [HumanMessage(content="A todo app for tracking tasks")],
+            "questionnaire": qs,
+        }
+        # Disable vague check and extraction
+        from unittest.mock import patch
+
+        with patch("scrum_agent.agent.nodes._check_vague_answer", return_value=None):
+            result = project_intake(state)
+        assert result["questionnaire"].answer_sources.get(1) == "direct"
+
+    def test_extracted_answer_sets_source(self):
+        """Auto-applied extractions should set answer_sources to 'extracted'."""
+        from scrum_agent.agent.nodes import _auto_apply_extractions
+
+        qs = QuestionnaireState()
+        _auto_apply_extractions(qs, {6: "5 engineers", 11: "Python, FastAPI"})
+        assert qs.answer_sources[6] == "extracted"
+        assert qs.answer_sources[11] == "extracted"
+
+    def test_defaulted_answer_sets_source(self):
+        """Defaulted answers should set answer_sources to 'defaulted'."""
+        from scrum_agent.agent.nodes import _auto_default_remaining
+
+        qs = QuestionnaireState()
+        qs.answers[1] = "A project"
+        _auto_default_remaining(qs, frozenset({1, 2, 3, 4, 6, 11}))
+        # Q5 has a default ("No hard deadlines") and is not essential
+        assert qs.answer_sources.get(5) == "defaulted"
+
+    def test_batch_defaults_sets_source(self):
+        """_batch_defaults_for_phase should set answer_sources to 'defaulted'."""
+        qs = QuestionnaireState(current_question=6)
+        summary_lines, count = _batch_defaults_for_phase(qs)
+        # Q8 has a default (2 weeks)
+        assert qs.answer_sources.get(8) == "defaulted"
+
+    def test_summary_shows_confidence_breakdown(self):
+        """_build_intake_summary should show 'direct | extracted | defaulted' breakdown."""
+        qs = QuestionnaireState()
+        qs.answers = {i: f"Answer {i}" for i in range(1, TOTAL_QUESTIONS + 1)}
+        qs.answer_sources = {i: "direct" for i in range(1, TOTAL_QUESTIONS + 1)}
+        qs.answer_sources[1] = "extracted"
+        qs.answer_sources[2] = "extracted"
+        qs.answer_sources[5] = "defaulted"
+        qs.extracted_questions = {1, 2}
+        qs.defaulted_questions = {5}
+        summary = _build_intake_summary(qs)
+        assert "2 extracted" in summary
+        assert "1 defaulted" in summary
+        assert "direct" in summary
+
+    def test_low_confidence_areas_in_prompt_quality(self):
+        """compute_prompt_quality should populate low_confidence_areas for defaulted essentials."""
+        from scrum_agent.agent.nodes import compute_prompt_quality
+
+        qs = QuestionnaireState()
+        qs.answers = {i: f"Answer {i}" for i in range(1, TOTAL_QUESTIONS + 1)}
+        # Default Q2 (essential) and Q6 (essential)
+        qs.defaulted_questions = {2, 6}
+        qs.answer_sources = {i: "direct" for i in range(1, TOTAL_QUESTIONS + 1)}
+        qs.answer_sources[2] = "defaulted"
+        qs.answer_sources[6] = "defaulted"
+        rating = compute_prompt_quality(qs)
+        assert "Project type" in rating.low_confidence_areas
+        assert "Team size" in rating.low_confidence_areas
+
+    def test_no_low_confidence_when_all_direct(self):
+        """No low_confidence_areas when all essentials are direct."""
+        from scrum_agent.agent.nodes import compute_prompt_quality
+
+        qs = QuestionnaireState()
+        qs.answers = {i: f"Answer {i}" for i in range(1, TOTAL_QUESTIONS + 1)}
+        qs.answer_sources = {i: "direct" for i in range(1, TOTAL_QUESTIONS + 1)}
+        rating = compute_prompt_quality(qs)
+        assert rating.low_confidence_areas == ()
+
+
+class TestKeywordExtraction:
+    """Tests for _keyword_extract_fallback (Step 2: Smarter Extraction)."""
+
+    def test_refactor_infers_existing_codebase(self):
+        """'refactor' keyword should infer Q2 as 'Existing codebase'."""
+        from scrum_agent.agent.nodes import _keyword_extract_fallback
+
+        extracted: dict[int, str] = {}
+        _keyword_extract_fallback("We're refactoring our legacy API", extracted)
+        assert extracted[2] == "Existing codebase"
+
+    def test_greenfield_keyword_infers_greenfield(self):
+        """'from scratch' keyword should infer Q2 as 'Greenfield'."""
+        from scrum_agent.agent.nodes import _keyword_extract_fallback
+
+        extracted: dict[int, str] = {}
+        _keyword_extract_fallback("Building a new project from scratch", extracted)
+        assert extracted[2] == "Greenfield"
+
+    def test_llm_extracted_q2_takes_priority(self):
+        """LLM-extracted Q2 should not be overwritten by keyword fallback."""
+        from scrum_agent.agent.nodes import _keyword_extract_fallback
+
+        extracted: dict[int, str] = {2: "Hybrid"}
+        _keyword_extract_fallback("We're refactoring our legacy API", extracted)
+        assert extracted[2] == "Hybrid"  # LLM value preserved
+
+    def test_stripe_extracts_q12(self):
+        """'stripe' keyword should extract Q12 integration."""
+        from scrum_agent.agent.nodes import _keyword_extract_fallback
+
+        extracted: dict[int, str] = {}
+        _keyword_extract_fallback("integrating Stripe for payments and Sentry for monitoring", extracted)
+        assert "Sentry" in extracted[12]
+        assert "Stripe" in extracted[12]
+
+    def test_kubernetes_extracts_q13(self):
+        """'kubernetes' keyword should extract Q13 constraint."""
+        from scrum_agent.agent.nodes import _keyword_extract_fallback
+
+        extracted: dict[int, str] = {}
+        _keyword_extract_fallback("deployed on kubernetes with docker containers", extracted)
+        assert "docker" in extracted[13]
+        assert "kubernetes" in extracted[13]
+
+    def test_no_keywords_no_extraction(self):
+        """Description without any keywords should not add Q2/Q12/Q13."""
+        from scrum_agent.agent.nodes import _keyword_extract_fallback
+
+        extracted: dict[int, str] = {}
+        _keyword_extract_fallback("A simple web application", extracted)
+        assert 2 not in extracted
+        assert 12 not in extracted
+        assert 13 not in extracted
+
+    def test_case_insensitive(self):
+        """Keywords should match case-insensitively."""
+        from scrum_agent.agent.nodes import _keyword_extract_fallback
+
+        extracted: dict[int, str] = {}
+        _keyword_extract_fallback("Running on AWS with Docker", extracted)
+        assert 13 in extracted
+
+
+class TestAdaptiveQuestionText:
+    """Tests for _resolve_adaptive_text (Step 3: Adaptive Question Text)."""
+
+    def test_q7_personalized_with_team_size(self):
+        """Q7 should reference Q6 team size when available."""
+        from scrum_agent.agent.nodes import _resolve_adaptive_text
+
+        qs = QuestionnaireState()
+        qs.answers[6] = "5"
+        text = _resolve_adaptive_text(7, qs)
+        assert "5 engineers" in text
+
+    def test_q12_personalized_with_tech_stack(self):
+        """Q12 should reference Q11 tech stack when available."""
+        from scrum_agent.agent.nodes import _resolve_adaptive_text
+
+        qs = QuestionnaireState()
+        qs.answers[11] = "Python, FastAPI, PostgreSQL"
+        text = _resolve_adaptive_text(12, qs)
+        assert "Python, FastAPI, PostgreSQL" in text
+
+    def test_q13_personalized_with_project_type(self):
+        """Q13 should reference Q2 project type and show appropriate hints."""
+        from scrum_agent.agent.nodes import _resolve_adaptive_text
+
+        qs = QuestionnaireState()
+        qs.answers[2] = "Existing codebase"
+        text = _resolve_adaptive_text(13, qs)
+        assert "Existing codebase" in text
+        assert "backward compatibility" in text
+
+    def test_fallback_when_dependency_missing(self):
+        """Should return default question text when dependency is missing."""
+        from scrum_agent.agent.nodes import _resolve_adaptive_text
+
+        qs = QuestionnaireState()
+        # Q6 not answered — Q7 should fall back to default
+        text = _resolve_adaptive_text(7, qs)
+        assert text == INTAKE_QUESTIONS[7]
+
+    def test_fallback_when_dependency_defaulted(self):
+        """Should return default question text when dependency was defaulted."""
+        from scrum_agent.agent.nodes import _resolve_adaptive_text
+
+        qs = QuestionnaireState()
+        qs.answers[6] = "Roles not specified"
+        qs.defaulted_questions.add(6)
+        text = _resolve_adaptive_text(7, qs)
+        assert text == INTAKE_QUESTIONS[7]
+
+    def test_no_template_returns_default(self):
+        """Questions without templates should return INTAKE_QUESTIONS text."""
+        from scrum_agent.agent.nodes import _resolve_adaptive_text
+
+        qs = QuestionnaireState()
+        text = _resolve_adaptive_text(1, qs)
+        assert text == INTAKE_QUESTIONS[1]
+
+    def test_gap_prompt_uses_adaptive_text(self):
+        """_build_gap_prompt should use adaptive text when available."""
+        qs = QuestionnaireState()
+        qs.answers[6] = "3"
+        prompt, q_nums = _build_gap_prompt([7], qs)
+        assert "3 engineers" in prompt
+
+
+class TestFollowUpTemplates:
+    """Tests for custom follow-up templates (Step 4: Follow-up Quality)."""
+
+    def test_custom_template_injected_for_known_question(self, monkeypatch):
+        """When q_num has a FOLLOW_UP_TEMPLATES entry, it should appear in the LLM prompt."""
+        fake_response = AIMessage(content='{"vague": true, "follow_up": "Who are the users?", "choices": ["A", "B"]}')
+        mock_llm = MagicMock()
+        mock_llm.invoke.return_value = fake_response
+
+        def capturing_llm(**kwargs):
+            return mock_llm
+
+        monkeypatch.setattr("scrum_agent.agent.nodes.get_llm", capturing_llm)
+
+        result = _check_vague_answer("What problem?", "stuff", q_num=3)
+        assert result is not None
+        # The prompt sent to the LLM should contain the custom template hint
+        call_args = mock_llm.invoke.call_args[0][0]
+        prompt_text = call_args[0].content
+        assert "Who experiences this problem?" in prompt_text
+
+    def test_no_template_for_unknown_question(self, monkeypatch):
+        """Questions without a FOLLOW_UP_TEMPLATES entry should NOT get a custom hint."""
+        fake_response = AIMessage(content='{"vague": true, "follow_up": "Tell me more", "choices": ["A", "B"]}')
+        mock_llm = MagicMock()
+        mock_llm.invoke.return_value = fake_response
+        monkeypatch.setattr("scrum_agent.agent.nodes.get_llm", lambda **kwargs: mock_llm)
+
+        _check_vague_answer("What is the project?", "stuff", q_num=1)
+        call_args = mock_llm.invoke.call_args[0][0]
+        prompt_text = call_args[0].content
+        assert "If vague, use this follow-up:" not in prompt_text
+
+    def test_q_num_zero_no_template(self, monkeypatch):
+        """q_num=0 (default) should not inject any custom template."""
+        fake_response = AIMessage(content='{"vague": false}')
+        mock_llm = MagicMock()
+        mock_llm.invoke.return_value = fake_response
+        monkeypatch.setattr("scrum_agent.agent.nodes.get_llm", lambda **kwargs: mock_llm)
+
+        _check_vague_answer("Question?", "answer")
+        call_args = mock_llm.invoke.call_args[0][0]
+        prompt_text = call_args[0].content
+        assert "If vague, use this follow-up:" not in prompt_text
+
+
+class TestCrossQuestionValidation:
+    """Tests for _validate_cross_questions (Step 5: Cross-Question Validation)."""
+
+    def test_greenfield_with_repo_url_warns(self):
+        """Greenfield + repo URL should produce a warning."""
+        from scrum_agent.agent.nodes import _validate_cross_questions
+
+        answers = {2: "Greenfield", 17: "https://github.com/org/repo"}
+        warnings = _validate_cross_questions(answers)
+        assert len(warnings) == 1
+        assert "Greenfield" in warnings[0].message
+        assert "repo URL" in warnings[0].message
+
+    def test_greenfield_case_insensitive(self):
+        """Greenfield check should be case-insensitive."""
+        from scrum_agent.agent.nodes import _validate_cross_questions
+
+        for variant in ("greenfield", "GREENFIELD", "Greenfield", " greenfield "):
+            answers = {2: variant, 17: "https://github.com/org/repo"}
+            warnings = _validate_cross_questions(answers)
+            assert len(warnings) == 1, f"Failed for q2={variant!r}"
+
+    def test_existing_codebase_with_repo_url_no_warning(self):
+        """Existing codebase + repo URL should NOT produce a warning."""
+        from scrum_agent.agent.nodes import _validate_cross_questions
+
+        answers = {2: "Existing codebase", 17: "https://github.com/org/repo"}
+        warnings = _validate_cross_questions(answers)
+        assert all("Greenfield" not in w.message for w in warnings)
+
+    def test_long_timeline_warns(self):
+        """Sprint weeks × sprint count > 26 weeks should produce an info warning."""
+        from scrum_agent.agent.nodes import _validate_cross_questions
+
+        answers = {8: "2 weeks", 10: "15 sprints"}
+        warnings = _validate_cross_questions(answers)
+        assert any("months" in w.message for w in warnings)
+
+    def test_short_timeline_no_warning(self):
+        """Sprint weeks × sprint count ≤ 26 weeks should NOT warn."""
+        from scrum_agent.agent.nodes import _validate_cross_questions
+
+        answers = {8: "2 weeks", 10: "5 sprints"}
+        warnings = _validate_cross_questions(answers)
+        assert not any("months" in w.message for w in warnings)
+
+    def test_velocity_sanity_warns_too_high(self):
+        """Velocity/team_size > 15 should produce a warning."""
+        from scrum_agent.agent.nodes import _validate_cross_questions
+
+        answers = {6: "2 engineers", 9: "50 points"}
+        warnings = _validate_cross_questions(answers)
+        assert any("pts/engineer" in w.message for w in warnings)
+
+    def test_velocity_sanity_warns_too_low(self):
+        """Velocity/team_size < 2 should produce a warning."""
+        from scrum_agent.agent.nodes import _validate_cross_questions
+
+        answers = {6: "10 engineers", 9: "5 points"}
+        warnings = _validate_cross_questions(answers)
+        assert any("pts/engineer" in w.message for w in warnings)
+
+    def test_normal_velocity_no_warning(self):
+        """Velocity/team_size in 2-15 range should NOT warn."""
+        from scrum_agent.agent.nodes import _validate_cross_questions
+
+        answers = {6: "5 engineers", 9: "30 points"}
+        warnings = _validate_cross_questions(answers)
+        assert not any("pts/engineer" in w.message for w in warnings)
+
+    def test_clean_answers_no_warnings(self):
+        """A complete, consistent answer set should produce no warnings."""
+        from scrum_agent.agent.nodes import _validate_cross_questions
+
+        answers = {
+            2: "Existing codebase",
+            6: "5 engineers",
+            8: "2 weeks",
+            9: "30 points",
+            10: "5 sprints",
+            17: "https://github.com/org/repo",
+        }
+        warnings = _validate_cross_questions(answers)
+        assert warnings == []
+
+    def test_warnings_appear_in_summary(self):
+        """Validation warnings should appear in the intake summary."""
+        qs = QuestionnaireState()
+        qs.answers = {i: f"Answer {i}" for i in range(1, TOTAL_QUESTIONS + 1)}
+        qs.answers[2] = "Greenfield"
+        qs.answers[17] = "https://github.com/org/repo"
+        summary = _build_intake_summary(qs)
+        assert "Heads up" in summary
+        assert "Greenfield" in summary
+
+
+class TestConditionalEssentials:
+    """Tests for CONDITIONAL_ESSENTIALS and their integration with _find_essential_gaps."""
+
+    def test_q7_promoted_when_q6_answered(self):
+        """Q7 (team roles) becomes a gap when Q6 (team size) has a real answer."""
+        qs = QuestionnaireState()
+        qs.answers = {6: "5"}
+        gaps = _find_essential_gaps(qs, SMART_ESSENTIALS)
+        assert 7 in gaps
+
+    def test_q7_not_promoted_when_q6_defaulted(self):
+        """Q7 stays defaulted when Q6 was itself defaulted — no point asking roles."""
+        qs = QuestionnaireState()
+        qs.answers = {6: "3"}
+        qs.defaulted_questions.add(6)
+        gaps = _find_essential_gaps(qs, SMART_ESSENTIALS)
+        assert 7 not in gaps
+
+    def test_q12_promoted_when_q11_answered(self):
+        """Q12 (integrations) becomes a gap when Q11 (tech stack) is answered."""
+        qs = QuestionnaireState()
+        qs.answers = {11: "React, FastAPI"}
+        gaps = _find_essential_gaps(qs, SMART_ESSENTIALS)
+        assert 12 in gaps
+
+    def test_q12_not_promoted_when_q11_defaulted(self):
+        qs = QuestionnaireState()
+        qs.answers = {11: "Not specified"}
+        qs.defaulted_questions.add(11)
+        gaps = _find_essential_gaps(qs, SMART_ESSENTIALS)
+        assert 12 not in gaps
+
+    def test_q13_promoted_when_q2_answered(self):
+        """Q13 (constraints) becomes a gap when Q2 (project type) is answered."""
+        qs = QuestionnaireState()
+        qs.answers = {2: "Greenfield"}
+        gaps = _find_essential_gaps(qs, SMART_ESSENTIALS)
+        assert 13 in gaps
+
+    def test_q13_not_promoted_when_q2_defaulted(self):
+        qs = QuestionnaireState()
+        qs.answers = {2: "Greenfield"}
+        qs.defaulted_questions.add(2)
+        gaps = _find_essential_gaps(qs, SMART_ESSENTIALS)
+        assert 13 not in gaps
+
+    def test_conditional_not_promoted_when_directly_answered(self):
+        """If Q7 has a direct (non-defaulted) answer, it should not appear as a gap."""
+        qs = QuestionnaireState()
+        qs.answers = {6: "5", 7: "Backend, Frontend"}
+        gaps = _find_essential_gaps(qs, SMART_ESSENTIALS)
+        assert 7 not in gaps
+
+    def test_conditional_promoted_when_defaulted_and_prereq_answered(self):
+        """Q7 defaulted by _auto_default_remaining should become a gap when Q6 is answered."""
+        qs = QuestionnaireState()
+        qs.answers = {6: "5", 7: "Roles not specified — assuming generalist/fullstack team"}
+        qs.defaulted_questions.add(7)
+        gaps = _find_essential_gaps(qs, SMART_ESSENTIALS)
+        assert 7 in gaps
+
+    def test_q29_promoted_when_q6_answered(self):
+        """Q29 (unplanned leave %) becomes a gap when Q6 (team size) is answered."""
+        qs = QuestionnaireState()
+        qs.answers = {6: "5"}
+        gaps = _find_essential_gaps(qs, SMART_ESSENTIALS)
+        assert 29 in gaps
+
+    def test_q29_not_promoted_when_q6_defaulted(self):
+        qs = QuestionnaireState()
+        qs.answers = {6: "3"}
+        qs.defaulted_questions.add(6)
+        gaps = _find_essential_gaps(qs, SMART_ESSENTIALS)
+        assert 29 not in gaps
+
+    def test_multiple_conditionals_promoted_together(self):
+        """All four conditionals can fire at once when prerequisites are met."""
+        qs = QuestionnaireState()
+        qs.answers = {2: "Existing codebase", 6: "4", 11: "Python, Django"}
+        gaps = _find_essential_gaps(qs, SMART_ESSENTIALS)
+        assert 7 in gaps
+        assert 12 in gaps
+        assert 13 in gaps
+        assert 29 in gaps
+
+    def test_conditional_essentials_mapping_is_complete(self):
+        """Verify the mapping covers Q7→Q6, Q12→Q11, Q13→Q2, Q29→Q6."""
+        assert CONDITIONAL_ESSENTIALS == {7: 6, 12: 11, 13: 2, 29: 6}
+
+
+class TestMultiChoiceMetadata:
+    """Tests for multi_choice question metadata and is_choice_question."""
+
+    def test_q7_is_multi_choice(self):
+        meta = QUESTION_METADATA[7]
+        assert meta.question_type == "multi_choice"
+        assert "Backend" in meta.options
+        assert "Frontend" in meta.options
+        assert "Fullstack" in meta.options
+
+    def test_q13_is_multi_choice(self):
+        meta = QUESTION_METADATA[13]
+        assert meta.question_type == "multi_choice"
+        assert "AWS" in meta.options
+        assert "Microservices" in meta.options
+
+    def test_q19_is_single_choice(self):
+        meta = QUESTION_METADATA[19]
+        assert meta.question_type == "single_choice"
+        assert meta.options == ("Yes", "No", "Partial/in progress")
+        assert meta.default_index == 1
+
+    def test_q25_is_single_choice(self):
+        meta = QUESTION_METADATA[25]
+        assert meta.question_type == "single_choice"
+        assert len(meta.options) == 2
+        assert meta.default_index == 1
+
+    def test_q30_is_single_choice(self):
+        meta = QUESTION_METADATA[30]
+        assert meta.question_type == "single_choice"
+        assert "None" in meta.options
+        assert meta.default_index == 0
+
+    def test_is_choice_question_includes_multi_choice(self):
+        """is_choice_question should return True for both single and multi choice."""
+        assert is_choice_question(7) is True  # multi_choice
+        assert is_choice_question(13) is True  # multi_choice
+        assert is_choice_question(2) is True  # single_choice
+        assert is_choice_question(1) is False  # free text
+
+    def test_multi_choice_has_no_default_index(self):
+        """Multi-choice questions don't use default_index — users toggle selections."""
+        for q_num, meta in QUESTION_METADATA.items():
+            if meta.question_type == "multi_choice":
+                assert meta.default_index is None, f"Q{q_num} multi_choice should have no default_index"

@@ -182,11 +182,15 @@ def _phase_intake_questions(
     while True:
         qs = graph_state.get("questionnaire")
         if isinstance(qs, QuestionnaireState):
-            # Don't exit the intake loop while PTO sub-loop is active —
+            # Don't exit the intake loop while PTO sub-loop or editing is active —
             # _awaiting_leave_input means we're still collecting leave entries
-            # within the confirmation gate, and the user needs to answer PTO
-            # questions before seeing the review screen.
-            if (qs.completed or qs.awaiting_confirmation) and not qs._awaiting_leave_input:
+            # within the confirmation gate, and editing_question means the user
+            # is re-answering a question from the review screen.
+            if (
+                (qs.completed or qs.awaiting_confirmation)
+                and not qs._awaiting_leave_input
+                and qs.editing_question is None
+            ):
                 logger.info("Intake questions complete: completed=%s", qs.completed)
                 return graph_state
 
@@ -218,16 +222,48 @@ def _phase_intake_questions(
                 progress = f"Q{cur_q} of {TOTAL_QUESTIONS}"
             suggestion = _get_active_suggestion(graph_state)
 
-            # Choice options for single-choice questions
-            if is_choice_question(cur_q) and cur_q not in qs.probed_questions:
+            # Choice options for single-choice and multi-choice questions.
+            # When an extracted suggestion matches one of the options, pre-select
+            # it instead of the static default — the user sees the arrow on the
+            # extracted answer and can just press Enter to confirm.
+            is_multi_select = False
+            # Skip static choice rendering when PTO sub-loop is active — it
+            # sets current_question=30 but shows its own Yes/No prompt text.
+            in_pto_subloop = qs._awaiting_leave_input
+            if is_choice_question(cur_q) and cur_q not in qs.probed_questions and not in_pto_subloop:
                 meta = QUESTION_METADATA.get(cur_q)
-                if meta:
-                    choices = [(opt, i == meta.default_index) for i, opt in enumerate(meta.options)]
+                if meta and meta.question_type == "multi_choice":
+                    # Multi-choice: pre-select options that match extracted/suggested values
+                    is_multi_select = True
+                    pre_selected: set[int] = set()
+                    if suggestion:
+                        # Suggestion may be comma-separated (e.g. "Backend, Frontend")
+                        sugg_parts = {s.strip().lower() for s in suggestion.split(",")}
+                        for i, opt in enumerate(meta.options):
+                            if opt.lower() in sugg_parts:
+                                pre_selected.add(i)
+                        if pre_selected:
+                            suggestion = None
+                    choices = [(opt, i in pre_selected) for i, opt in enumerate(meta.options)]
+                elif meta:
+                    # Single-choice: highlight extracted suggestion > static default
+                    pre_select_idx = meta.default_index
+                    if suggestion:
+                        sugg_lower = suggestion.lower().strip()
+                        for i, opt in enumerate(meta.options):
+                            if opt.lower().strip() == sugg_lower:
+                                pre_select_idx = i
+                                break
+                    choices = [(opt, i == pre_select_idx) for i, opt in enumerate(meta.options)]
+                    # Clear the text suggestion — the pre-selected option IS the
+                    # suggestion now, so we don't need the two-step confirm flow.
+                    if suggestion and pre_select_idx is not None:
+                        suggestion = None
 
             # Dynamic choices — follow-up probes or node-generated options (e.g. Q27 sprint selection)
+            # Skip during PTO sub-loop — it uses its own prompt text, not Q28's bank holiday choices.
             follow_up_choices = qs._follow_up_choices.get(cur_q)
-            is_multi_select = False
-            if follow_up_choices:
+            if follow_up_choices and not in_pto_subloop:
                 choices = [(opt, False) for opt in follow_up_choices]
                 is_multi_select = True
 
@@ -318,7 +354,7 @@ def _phase_intake_questions(
             "suggestion": suggestion,
             "progress": progress,
             "phase_label": phase_label,
-            "selected_choice": 0,
+            "selected_choice": next((i for i, (_, is_def) in enumerate(choices) if is_def), 0) if choices else 0,
         }
         if isinstance(qs, QuestionnaireState):
             screen_kwargs["questionnaire"] = qs
@@ -386,7 +422,13 @@ def _question_input_loop(
     # Cursor at start for prefilled suggestions (so user sees beginning of long text),
     # at end for editing existing answers (user typically appends).
     cursor_pos = 0 if prefill else len(input_value)
+    # Start on the pre-selected option (extracted suggestion or static default) if any
     selected_choice = 0
+    if choices:
+        for i, (_opt, is_default) in enumerate(choices):
+            if is_default:
+                selected_choice = i
+                break
     selected_choices: set[int] = set()  # for multi-select mode
     scroll_offset = 0
     use_accordion = questionnaire is not None
