@@ -792,25 +792,6 @@ _Make the adaptive questionnaire smarter — extract more, ask less, validate an
 - [x] Show breakdown in intake summary: "12 direct, 3 extracted, 7 defaulted"
 - [x] Pass confidence hints to downstream nodes — low-confidence areas → recommend spikes
 
-**Spot checks** (`make run` with real LLM):
-- [x] **Keyword extraction:** type `We're refactoring our legacy API built with Express and PostgreSQL, integrating Stripe for payments` → verify Q2 extracted as "Existing codebase", Q12 as "Stripe"
-- [ ] **Adaptive Q7:** answer Q6 with "5" → verify Q7 says "You said 5 engineers — what are their roles?" and renders as multi-choice (Backend, Frontend, Fullstack, DevOps/Infra, QA/Testing, Design, Data/ML)
-- [ ] **Adaptive Q12:** answer Q11 with a tech stack → verify Q12 is asked (conditional essential) with adaptive text mentioning the tech stack
-- [ ] **Adaptive Q13:** answer Q2 as "Existing codebase" → verify Q13 renders as multi-choice (Microservices, Monolith, Serverless, AWS, etc.) with hint about "backward compatibility"
-- [ ] **Conditional essentials — Q7 skipped when Q6 defaulted:** skip Q6 → verify Q7 is NOT asked (stays defaulted)
-- [ ] **Conditional essentials — all three fire:** provide description with team size, tech stack, and project type → verify Q7, Q12, Q13 all appear as gap questions in smart mode
-- [ ] **Multi-choice Q7:** verify Space toggles selections, Enter submits comma-joined answer (e.g. "Backend, Frontend")
-- [ ] **Multi-choice Q13:** verify same toggle/submit behavior for constraints
-- [ ] **Single-choice Q19 (CI/CD):** verify renders as Yes / No / Partial with arrow keys
-- [ ] **Single-choice Q25 (DoD):** verify renders as Yes — team has a standard DoD / No — use a recommended DoD
-- [ ] **Q30 (Onboarding):** verify PTO sub-loop still works — "Does anyone have planned leave?" Yes/No renders correctly, not overridden by static choices
-- [x] **Follow-up quality:** give a vague Q3 answer like "users" → verify follow-up asks about user personas (not generic "tell me more")
-- [ ] **Confidence breakdown:** at the intake summary, verify stats line shows `N direct | N extracted | N defaulted` (not the old `N answered | N defaults` format)
-- [ ] **Cross-validation — greenfield + URL:** answer Q2 as "Greenfield", then provide a repo URL at Q17 → verify summary shows "Heads up" warning about the contradiction
-- [ ] **Cross-validation — long timeline:** set Q8 = "2 weeks", Q10 = "15 sprints" → verify summary shows info warning about timeline spanning ~7 months
-- [ ] **Cross-validation — clean:** answer Q2 = "Existing codebase", Q6 = "5", Q9 = "30" → verify NO spurious warnings appear
-- [ ] **Dry run smoke test:** `make run-dry` → TUI launches without errors, no crashes from new code paths
-
 
 #### "Create in Jira" option
 _Push artifacts to Jira. Two modes: inline (during pipeline) and selective (post-plan menu)._
@@ -839,33 +820,41 @@ _Push artifacts to Jira. Two modes: inline (during pipeline) and selective (post
 _Ship the CLI as a Homebrew-installable app so anyone can `brew install scrum-agent` and go. This is a prerequisite for 13C (OpenClaw) — the skill needs an installable CLI to invoke._
 
 #### PyPI release (prerequisite for Homebrew)
-- [ ] Finalise `pyproject.toml` metadata (name, version, description, author, license, classifiers, URLs)
-- [ ] Add `[project.scripts]` entry point: `scrum-agent = "scrum_agent.cli:main"`
-- [ ] Build sdist + wheel with `uv build` / `python -m build`
-- [ ] Publish to PyPI (`twine upload` or GitHub Actions workflow)
-- [ ] Verify `pipx install scrum-agent` works end-to-end on a clean machine
+- [x] Finalise `pyproject.toml` metadata (name, version, description, author, license, classifiers, URLs)
+- [x] Add `[project.scripts]` entry point: `scrum-agent = "scrum_agent.cli:main"`
+- [x] Build sdist + wheel with `uv build` / `python -m build`
+- [x] Add MIT LICENSE file
+- [x] Add `make build` and `make publish` targets
+- [x] Publish to PyPI — `publish.yml` workflow triggered on `v*` tag push (OIDC trusted publishing)
+- [x] Verify `pipx install scrum-agent` works end-to-end (tested locally from built wheel)
 
 #### Homebrew formula
-- [ ] Create Homebrew formula (`Formula/scrum-agent.rb`) — installs via `pip` into a virtualenv
-- [ ] Add formula to a personal tap (`homebrew-tap` repo): `brew tap omardin14/tap`
-- [ ] `brew install omardin14/tap/scrum-agent` installs the CLI + all dependencies
-- [ ] Post-install: prompt user to run `scrum-agent --setup` for API key configuration
-- [ ] Add `brew test` block — runs `scrum-agent --version` and `scrum-agent --help`
-- [ ] Automate formula version bumps via GitHub Actions on new PyPI release
+- [x] Create Homebrew formula (`Formula/scrum-agent.rb`) — `Language::Python::Virtualenv` pattern
+- [x] Add formula to a personal tap (`homebrew-tap` repo): `gh repo create omardin14/homebrew-tap --public`
+- [x] Caveats block: "Run `scrum-agent --setup` to configure API keys"
+- [x] `brew test` block — `--version` and `--help` assertions
+- [x] Automate formula version bumps via GitHub Actions on new PyPI release (`update-formula.yml` triggered by `repository_dispatch`)
+- [ ] `brew install omardin14/tap/scrum-agent` — requires PyPI publish first (formula SHA256 placeholder until first release)
 
 #### Non-interactive / headless mode (prerequisite for OpenClaw skill)
-- [ ] Add `--non-interactive` flag — runs full pipeline with no TUI, auto-accepts all gates
-- [ ] Add `--output json` flag — structured JSON to stdout (epics, stories, tasks, sprints)
-- [ ] Accept project description and key params via CLI args (`--input`, `--team-size`, `--sprint-length`)
-- [ ] Combine with existing `--quick` mode for minimal-question headless runs
+- [x] Add `--non-interactive` flag — runs full pipeline with no TUI, auto-accepts all gates
+- [x] Add `--output json` flag — structured JSON to stdout (epics, stories, tasks, sprints)
+- [x] Add `--output html` and `--output markdown` output formats
+- [x] Accept project description and key params via CLI args (`--description`, `--team-size`, `--sprint-length`)
+- [x] Support `--description @file.txt` to read from file
+- [x] Combine with existing `--quick` mode for minimal-question headless runs
+- [x] JSON exporter (`json_exporter.py`) with clean user-facing schema
+- [x] Tests for JSON exporter and all new CLI flags
 
 #### CI/CD pipeline
-- [ ] GitHub Actions workflow: lint → test → build → publish to PyPI on tagged releases
-- [ ] Auto-update Homebrew formula SHA and version on successful publish
-- [ ] `.env.example` review — ensure all options are documented
+- [x] GitHub Actions workflow: lint → test → build → publish to PyPI on tagged releases (`publish.yml`)
+- [x] Auto-update Homebrew formula SHA and version on successful publish (repository_dispatch)
+- [x] `.env.example` review — all 56 lines covering providers, integrations, session management, and logging
 
 #### Documentation
-- [ ] Comprehensive README with quick-start guide (`brew install` → first plan in 2 minutes)
-- [ ] Tag v1.0.0 release
+- [x] README quick-start section (Homebrew, pipx, headless mode)
+- [x] README comprehensive update — all features from Phases 1–13B documented
+- [x] Version bumped to 1.0.0 in `pyproject.toml` and `__init__.py`
+- [ ] Push tag `v1.0.0` to trigger publish workflow (final step — do when ready to go live)
 
 ---

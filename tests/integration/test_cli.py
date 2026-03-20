@@ -113,6 +113,139 @@ class TestArgParsing:
             parser.parse_args(["--quick", "--full-intake"])
 
 
+class TestNonInteractiveFlags:
+    """Tests for --non-interactive, --output, --description, --team-size, --sprint-length."""
+
+    def test_non_interactive_flag(self):
+        parser = build_parser()
+        args = parser.parse_args(["--non-interactive", "--description", "Build a todo app"])
+        assert args.non_interactive is True
+        assert args.description == "Build a todo app"
+
+    def test_non_interactive_default_false(self):
+        parser = build_parser()
+        args = parser.parse_args([])
+        assert args.non_interactive is False
+
+    def test_output_json(self):
+        parser = build_parser()
+        args = parser.parse_args(["--output", "json", "--non-interactive", "--description", "x"])
+        assert args.output == "json"
+
+    def test_output_html(self):
+        parser = build_parser()
+        args = parser.parse_args(["--output", "html", "--non-interactive", "--description", "x"])
+        assert args.output == "html"
+
+    def test_output_markdown(self):
+        parser = build_parser()
+        args = parser.parse_args(["--output", "markdown", "--non-interactive", "--description", "x"])
+        assert args.output == "markdown"
+
+    def test_output_invalid_rejected(self):
+        parser = build_parser()
+        with pytest.raises(SystemExit):
+            parser.parse_args(["--output", "csv"])
+
+    def test_team_size_parsed(self):
+        parser = build_parser()
+        args = parser.parse_args(["--team-size", "5"])
+        assert args.team_size == 5
+
+    def test_sprint_length_valid(self):
+        parser = build_parser()
+        args = parser.parse_args(["--sprint-length", "2"])
+        assert args.sprint_length == 2
+
+    def test_sprint_length_invalid_rejected(self):
+        parser = build_parser()
+        with pytest.raises(SystemExit):
+            parser.parse_args(["--sprint-length", "6"])
+
+    def test_description_at_file(self, tmp_path):
+        """--description @file.txt reads from file."""
+        desc_file = tmp_path / "desc.txt"
+        desc_file.write_text("Build a booking system for restaurants")
+        # We test the resolution logic in main(), not in the parser
+        parser = build_parser()
+        args = parser.parse_args(["--description", f"@{desc_file}"])
+        assert args.description == f"@{desc_file}"
+
+    def test_non_interactive_requires_description(self, capsys):
+        """--non-interactive without --description exits with error."""
+        with pytest.raises(SystemExit) as exc_info:
+            main(argv=["--non-interactive"])
+        assert exc_info.value.code == 1
+
+    def test_output_requires_non_interactive_or_export_only(self, capsys):
+        """--output without --non-interactive or --export-only exits with error."""
+        with pytest.raises(SystemExit) as exc_info:
+            main(argv=["--output", "json", "--mode", "project-planning"])
+        assert exc_info.value.code == 1
+
+    @patch("scrum_agent.cli.run_repl")
+    def test_non_interactive_calls_repl_with_params(self, mock_repl, tmp_path, monkeypatch):
+        """--non-interactive passes correct params to run_repl."""
+        main(argv=["--non-interactive", "--description", "Build a todo app", "--team-size", "5"])
+        mock_repl.assert_called_once()
+        call_kwargs = mock_repl.call_args[1]
+        assert call_kwargs["non_interactive"] is True
+        assert call_kwargs["export_only"] is True
+        assert call_kwargs["intake_mode"] == "quick"
+        assert call_kwargs["output_format"] == "markdown"
+        # Questionnaire should have Q1 and Q6 pre-filled
+        qs = call_kwargs["questionnaire"]
+        assert qs.answers[1] == "Build a todo app"
+        assert qs.answers[6] == "5"
+
+    @patch("scrum_agent.cli.run_repl")
+    def test_non_interactive_json_output(self, mock_repl):
+        """--non-interactive --output json passes output_format='json'."""
+        main(argv=["--non-interactive", "--description", "Test", "--output", "json"])
+        call_kwargs = mock_repl.call_args[1]
+        assert call_kwargs["output_format"] == "json"
+
+    @patch("scrum_agent.cli.run_repl")
+    def test_non_interactive_loads_scrum_md(self, mock_repl, tmp_path, monkeypatch):
+        """--non-interactive picks up SCRUM.md from CWD for keyword extraction."""
+        monkeypatch.chdir(tmp_path)
+        # SCRUM.md mentions "greenfield" which should be extracted as Q2
+        (tmp_path / "SCRUM.md").write_text("# Project\nThis is a greenfield project using React and Node.js\n")
+        main(argv=["--non-interactive", "--description", "Build a todo app"])
+        call_kwargs = mock_repl.call_args[1]
+        qs = call_kwargs["questionnaire"]
+        # Q2 should have been filled from SCRUM.md keyword extraction
+        assert 2 in qs.answers
+        assert "greenfield" in qs.answers[2].lower()
+
+    @patch("scrum_agent.cli.run_repl")
+    def test_non_interactive_cli_args_win_over_scrum_md(self, mock_repl, tmp_path, monkeypatch):
+        """CLI args take priority over SCRUM.md extracted answers."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "SCRUM.md").write_text("# Project\nTeam of 10 engineers\n")
+        main(argv=["--non-interactive", "--description", "Build a todo app", "--team-size", "3"])
+        call_kwargs = mock_repl.call_args[1]
+        qs = call_kwargs["questionnaire"]
+        # CLI --team-size=3 should win over SCRUM.md's "10 engineers"
+        assert qs.answers[6] == "3"
+
+    @patch("scrum_agent.cli.run_repl")
+    def test_description_file_resolved(self, mock_repl, tmp_path):
+        """--description @file.txt resolves to file contents."""
+        desc_file = tmp_path / "desc.txt"
+        desc_file.write_text("Build a booking system")
+        main(argv=["--non-interactive", "--description", f"@{desc_file}"])
+        call_kwargs = mock_repl.call_args[1]
+        qs = call_kwargs["questionnaire"]
+        assert qs.answers[1] == "Build a booking system"
+
+    def test_description_file_not_found(self, tmp_path, capsys):
+        """--description @nonexistent.txt exits with error."""
+        with pytest.raises(SystemExit) as exc_info:
+            main(argv=["--non-interactive", "--description", f"@{tmp_path}/nope.txt"])
+        assert exc_info.value.code == 1
+
+
 class TestHelpOutput:
     """Tests for --help epilog with usage examples."""
 

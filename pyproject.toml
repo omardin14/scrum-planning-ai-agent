@@ -4,9 +4,23 @@ build-backend = "hatchling.build"
 
 [project]
 name = "scrum-agent"
-version = "0.1.0"
+version = "1.0.0"
 description = "A terminal-based AI agent that decomposes projects into epics, user stories, tasks, and sprint plans."
+readme = "README.md"
 requires-python = ">=3.11"
+authors = [{name = "Omar Din"}]
+license = {text = "MIT"}
+keywords = ["scrum", "agile", "ai", "project-planning", "jira", "cli"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+]
 dependencies = [
     "langchain",
     "langgraph",
@@ -43,6 +57,11 @@ dev = [
     "ruff",
     "pre-commit",
 ]
+
+[project.urls]
+Homepage = "https://github.com/omardin14/scrum-planning-ai-agent"
+Repository = "https://github.com/omardin14/scrum-planning-ai-agent"
+Issues = "https://github.com/omardin14/scrum-planning-ai-agent/issues"
 
 [project.scripts]
 scrum-agent = "scrum_agent.cli:main"

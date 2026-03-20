@@ -64,4 +64,4 @@ _ls_logger = logging.getLogger("langsmith")
 _ls_logger.addHandler(_ls_handler)
 _ls_logger.propagate = False  # stop records reaching the root StreamHandler
 
-__version__ = "0.1.0"
+__version__ = "1.0.0"

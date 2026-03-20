@@ -1,6 +1,6 @@
 UV := $(or $(shell command -v uv 2>/dev/null),$(HOME)/.local/bin/uv)
 
-.PHONY: install dev test test-fast test-v test-all lint format run run-dry clean env pre-commit graph eval contract record smoke-test snapshot-update budget-report help
+.PHONY: install dev test test-fast test-v test-all lint format run run-dry clean env pre-commit graph eval contract record smoke-test snapshot-update budget-report build publish help
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
@@ -63,6 +63,12 @@ budget-report: ## Show live prompt token counts for trend monitoring (runs token
 
 graph: ## Generate agent graph visualisation PNG
 	$(UV) run python scripts/generate_graph_png.py
+
+build: ## Build sdist + wheel into dist/
+	$(UV) build
+
+publish: ## Publish to PyPI (use GitHub Actions for production releases)
+	$(UV) publish
 
 clean: ## Remove build artifacts and caches
 	rm -rf .venv build dist .pytest_cache .ruff_cache *.egg-info src/*.egg-info

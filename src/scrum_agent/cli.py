@@ -276,7 +276,9 @@ def build_parser() -> argparse.ArgumentParser:
             "  scrum-agent --resume               resume last session (interactive picker)\n"
             "  scrum-agent --resume latest         resume most recent session\n"
             "  scrum-agent --list-sessions         list all saved sessions\n"
-            "  scrum-agent --clear-sessions        delete saved sessions"
+            "  scrum-agent --clear-sessions        delete saved sessions\n"
+            '  scrum-agent --non-interactive --description "Build a todo app"  headless mode\n'
+            '  scrum-agent --non-interactive --description "..." --output json  JSON to stdout'
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -381,7 +383,107 @@ def build_parser() -> argparse.ArgumentParser:
         help="Run the TUI with mock data and fake delays — no LLM calls. For UI development.",
     )
 
+    # ── Non-interactive / headless mode ──────────────────────────────────
+    # Runs the full pipeline without user interaction. Requires --description.
+    # Combine with --output to control output format (default: markdown).
+    parser.add_argument(
+        "--non-interactive",
+        action="store_true",
+        default=False,
+        help="Run the full pipeline headlessly (no user interaction). Requires --description.",
+    )
+    parser.add_argument(
+        "--output",
+        choices=["markdown", "json", "html"],
+        default=None,
+        help="Output format for the generated plan. Only valid with --non-interactive or --export-only.",
+    )
+    parser.add_argument(
+        "--description",
+        metavar="TEXT",
+        default=None,
+        help="Project description for headless mode. Use @file.txt to read from a file.",
+    )
+    parser.add_argument(
+        "--team-size",
+        metavar="N",
+        type=int,
+        default=None,
+        help="Team size (maps to intake Q6). Only used with --non-interactive.",
+    )
+    parser.add_argument(
+        "--sprint-length",
+        metavar="WEEKS",
+        type=int,
+        choices=[1, 2, 3, 4],
+        default=None,
+        help="Sprint length in weeks (maps to intake Q8). Only used with --non-interactive.",
+    )
+
     return parser
+
+
+def _run_headless(args: argparse.Namespace) -> None:
+    """Run the full pipeline headlessly — no TUI, no interactive input.
+
+    Pre-populates a QuestionnaireState from CLI args (--description,
+    --team-size, --sprint-length), then delegates to run_repl() with
+    export_only=True and non_interactive=True.
+
+    When --output json, Rich console output goes to stderr so only
+    JSON is written to stdout.
+
+    # See README: "Architecture" — headless mode for CI/CD pipelines
+    """
+    from scrum_agent.formatters import build_theme
+
+    output_format = args.output or "markdown"
+
+    # When JSON output, redirect console to stderr so stdout is clean JSON
+    if output_format == "json":
+        console = Console(theme=build_theme(args.theme), file=sys.stderr)
+    else:
+        console = Console(theme=build_theme(args.theme))
+
+    # Pre-populate questionnaire from CLI args
+    answers: dict[int, str] = {}
+    # Q1 gets the project description
+    answers[1] = args.description
+    if args.team_size is not None:
+        answers[6] = str(args.team_size)
+    if args.sprint_length is not None:
+        answers[8] = str(args.sprint_length)
+
+    # Load SCRUM.md from working directory if present — fills gaps the CLI
+    # args didn't cover (e.g., tech stack, integrations, constraints).
+    # Uses deterministic keyword extraction only (no LLM call) to stay fast.
+    # CLI args always take priority over SCRUM.md.
+    try:
+        from scrum_agent.agent.nodes import _keyword_extract_fallback, _load_user_context
+
+        scrum_md_content, _ = _load_user_context()
+        if scrum_md_content:
+            scrum_extracted: dict[int, str] = {}
+            _keyword_extract_fallback(scrum_md_content, scrum_extracted)
+            # Merge: CLI args win over SCRUM.md
+            for q_num, answer in scrum_extracted.items():
+                if q_num not in answers:
+                    answers[q_num] = answer
+    except Exception:
+        pass  # best-effort — never block headless mode
+
+    questionnaire = build_questionnaire_from_answers(answers)
+
+    run_repl(
+        console=console,
+        questionnaire=questionnaire,
+        intake_mode="quick",
+        export_only=True,
+        bell=False,
+        theme=args.theme,
+        non_interactive=True,
+        output_format=output_format,
+    )
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -392,6 +494,29 @@ def main(argv: list[str] | None = None) -> None:
     # Load ~/.scrum-agent/.env before any credential reads.
     # override=False means shell env vars and project .env always take precedence.
     load_user_config()
+
+    # ── Validation for --non-interactive mode ────────────────────────────────
+    if args.non_interactive and not args.description:
+        print("Error: --non-interactive requires --description", file=sys.stderr)
+        sys.exit(1)
+
+    if args.output and not args.non_interactive and not args.export_only:
+        print("Error: --output is only valid with --non-interactive or --export-only", file=sys.stderr)
+        sys.exit(1)
+
+    # Resolve --description @file.txt → read file contents
+    if args.description and args.description.startswith("@"):
+        desc_path = Path(args.description[1:])
+        if not desc_path.exists():
+            print(f"Error: description file not found: {desc_path}", file=sys.stderr)
+            sys.exit(1)
+        args.description = desc_path.read_text().strip()
+
+    # ── Non-interactive headless flow ────────────────────────────────────────
+    # Runs the full pipeline without any TUI, splash, or interactive input.
+    if args.non_interactive:
+        _run_headless(args)
+        return
 
     # ── File-based logging ────────────────────────────────────────────────────
     # Writes to ~/.scrum-agent/scrum-agent.log so developers can diagnose
