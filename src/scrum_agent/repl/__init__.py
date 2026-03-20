@@ -178,6 +178,8 @@ def run_repl(
     theme: str = "dark",
     resume_state: dict | None = None,
     resume_session_id: str | None = None,
+    non_interactive: bool = False,
+    output_format: str | None = None,
 ) -> None:
     """Run the interactive REPL loop.
 
@@ -202,6 +204,11 @@ def run_repl(
             # See README: "Memory & State" — session persistence, --resume
         resume_session_id: Session ID of the session being resumed. Used so
             subsequent save_state() calls update the same row.
+        non_interactive: When True, skip all interactive prompts. The
+            --description value is injected as the first HumanMessage.
+        output_format: Output format for non-interactive mode — "json",
+            "html", or "markdown". When set, the corresponding export is
+            written at pipeline completion.
     """
     logger.info("run_repl started: mode=%s export_only=%s", intake_mode, export_only)
 
@@ -1264,10 +1271,22 @@ def run_repl(
             # Still save the result so the conversation doesn't get stuck
             graph_state = result
 
-    # Export markdown plan when --export-only was used.
+    # Export plan when --export-only or --non-interactive was used.
     if export_only:
-        export_path = _export_plan_markdown(graph_state)
-        console.print(f"[success]Plan exported to {export_path}[/success]")
+        if output_format == "json":
+            import sys
+
+            from scrum_agent.json_exporter import export_plan_json
+
+            print(export_plan_json(graph_state), file=sys.stdout)
+        elif output_format == "html":
+            from scrum_agent.html_exporter import export_plan_html
+
+            export_path = export_plan_html(graph_state)
+            console.print(f"[success]Plan exported to {export_path}[/success]")
+        else:
+            export_path = _export_plan_markdown(graph_state)
+            console.print(f"[success]Plan exported to {export_path}[/success]")
 
     # Show a "Session saved" confirmation so the user knows where work went.
     # Only shown when at least one successful invoke occurred and the project
