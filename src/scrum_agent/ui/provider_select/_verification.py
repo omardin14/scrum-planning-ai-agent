@@ -108,9 +108,15 @@ def _verify_api_key(provider: dict[str, Any], api_key: str) -> tuple[bool, str]:
         elif provider_val == "bedrock":
             # Bedrock verification — api_key is actually the region name.
             # Uses IAM credentials from instance role, ~/.aws/credentials, or env vars.
+            # Auto-detects the AWS profile from ~/.aws/config (e.g. Lightsail's
+            # [profile assumed] with credential_source=Ec2InstanceMetadata).
             import boto3
 
-            client = boto3.client("bedrock", region_name=api_key)
+            from scrum_agent.config import get_aws_profile
+
+            profile = get_aws_profile()
+            session = boto3.Session(profile_name=profile, region_name=api_key)
+            client = session.client("bedrock", region_name=api_key)
             resp = client.list_foundation_models(byOutputModality="TEXT")
             if resp.get("modelSummaries") is not None:
                 return True, "AWS credentials verified"

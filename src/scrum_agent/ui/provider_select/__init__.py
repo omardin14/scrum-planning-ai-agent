@@ -35,47 +35,44 @@ from scrum_agent.ui.shared._input import read_key as _read_key  # noqa: F401 —
 
 
 def _detect_aws_region() -> str | None:
-    """Auto-detect AWS region from environment, config file, or IMDS.
+    """Auto-detect AWS region from environment, config, or instance metadata.
 
-    Checks in order:
-    1. AWS_REGION or AWS_DEFAULT_REGION env vars
-    2. ~/.aws/config (parses region from default or assumed profile)
-    3. EC2 instance metadata service (IMDS) — works on Lightsail/EC2
+    Uses boto3's built-in resolution chain which covers:
+    1. AWS_REGION / AWS_DEFAULT_REGION env vars
+    2. ~/.aws/config (all profile formats including [profile name])
+    3. EC2/Lightsail instance metadata (IMDSv1 + IMDSv2)
+
+    Falls back to manual parsing if boto3 is not installed.
     """
     import os
 
-    # 1. Env vars
+    # 1. Env vars (fast path, no imports needed)
     region = os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION")
     if region:
         return region
 
-    # 2. ~/.aws/config
+    # 2. boto3 session — handles ~/.aws/config and IMDS natively
+    try:
+        import boto3
+
+        session = boto3.session.Session()
+        if session.region_name:
+            return session.region_name
+    except Exception:
+        pass
+
+    # 3. Manual fallback — parse ~/.aws/config directly
     try:
         from pathlib import Path
 
         config_path = Path.home() / ".aws" / "config"
         if config_path.exists():
-            import configparser
-
-            cfg = configparser.ConfigParser()
-            cfg.read(config_path)
-            # Check [default] first, then any profile section
-            for section in cfg.sections():
-                if cfg.has_option(section, "region"):
-                    return cfg.get(section, "region")
-    except Exception:
-        pass
-
-    # 3. IMDS (EC2/Lightsail instance metadata)
-    try:
-        import httpx
-
-        resp = httpx.get(
-            "http://169.254.169.254/latest/meta-data/placement/region",
-            timeout=2,
-        )
-        if resp.status_code == 200 and resp.text.strip():
-            return resp.text.strip()
+            for line in config_path.read_text().splitlines():
+                stripped = line.strip()
+                if stripped.startswith("region"):
+                    _, _, value = stripped.partition("=")
+                    if value.strip():
+                        return value.strip()
     except Exception:
         pass
 

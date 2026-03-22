@@ -125,13 +125,24 @@ def get_llm(model: str | None = None, temperature: float = 0.0) -> BaseChatModel
         except ImportError as e:
             raise ImportError("langchain-aws is not installed. Run: uv sync --extra bedrock") from e
 
-        from scrum_agent.config import get_bedrock_region
+        import boto3
+
+        from scrum_agent.config import get_aws_profile, get_bedrock_region
 
         region = get_bedrock_region()
-        logger.info("LLM ready: provider=bedrock, model=%s, region=%s", resolved_model, region)
+        profile = get_aws_profile()
+
+        # Create a boto3 session with the detected profile so IAM role
+        # credentials from ~/.aws/config are used (e.g. Lightsail's
+        # [profile assumed] with credential_source=Ec2InstanceMetadata).
+        session = boto3.Session(profile_name=profile, region_name=region)
+        bedrock_client = session.client("bedrock-runtime", region_name=region)
+
+        logger.info("LLM ready: provider=bedrock, model=%s, region=%s, profile=%s", resolved_model, region, profile)
         return ChatBedrockConverse(
             model=resolved_model,
             region_name=region,
+            client=bedrock_client,
             temperature=temperature,
         )
 
