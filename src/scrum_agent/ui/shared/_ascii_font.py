@@ -9,7 +9,7 @@ from __future__ import annotations
 # fmt: off
 _LETTERS: dict[str, list[str]] = {
     "A": ["▄▀█", "█▀█"],
-    "B": ["█▄▄", "█▄█"],
+    "B": ["█▀▄", "█▄█"],
     "C": ["█▀▀", "█▄▄"],
     "D": ["█▀▄", "█▄▀"],
     "E": ["█▀▀", "██▄"],
