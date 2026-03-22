@@ -499,14 +499,17 @@ def _run_headless(args: argparse.Namespace) -> None:
 def _install_skill(target_arg: str) -> None:
     """Install the bundled scrum-planner skill into an OpenClaw skills directory.
 
-    Copies SKILL.md and README.md from the package's bundled skills/scrum-planner/
-    into the target directory. Creates the directory if it doesn't exist.
+    Full installation flow:
+    1. Copy SKILL.md and README.md into the OpenClaw skills directory
+    2. Symlink scrum-agent into /usr/local/bin/ so the OpenClaw sandbox can find it
+    3. Offer to restart the OpenClaw gateway to pick up the new skill
 
     Args:
         target_arg: "__auto__" to use ~/.openclaw/skills/, or a custom path.
     """
     import importlib.resources
     import shutil
+    import subprocess
 
     if target_arg == "__auto__":
         target_dir = Path.home() / ".openclaw" / "skills" / "scrum-planner"
@@ -531,6 +534,7 @@ def _install_skill(target_arg: str) -> None:
             print(f"Error: bundled skill not found at {source_path}", file=sys.stderr)
             sys.exit(1)
 
+    # ── Step 1: Copy skill files ─────────────────────────────────────────────
     target_dir.mkdir(parents=True, exist_ok=True)
 
     copied = 0
@@ -539,7 +543,60 @@ def _install_skill(target_arg: str) -> None:
             shutil.copy2(src_file, target_dir / src_file.name)
             copied += 1
 
-    print(f"Installed scrum-planner skill ({copied} files) to {target_dir}")
+    print(f"[1/3] Installed scrum-planner skill ({copied} files) to {target_dir}")
+
+    # ── Step 2: Symlink scrum-agent into /usr/local/bin/ ─────────────────────
+    # The OpenClaw sandbox may not see ~/.local/bin/ or pipx paths.
+    # A symlink in /usr/local/bin/ makes the binary accessible from the sandbox.
+    symlink_path = Path("/usr/local/bin/scrum-agent")
+    scrum_agent_bin = shutil.which("scrum-agent")
+
+    if scrum_agent_bin and symlink_path.exists() and symlink_path.resolve() == Path(scrum_agent_bin).resolve():
+        print("[2/3] scrum-agent already symlinked in /usr/local/bin/ — skipped")
+    elif scrum_agent_bin:
+        try:
+            if symlink_path.exists() or symlink_path.is_symlink():
+                symlink_path.unlink()
+            symlink_path.symlink_to(scrum_agent_bin)
+            print(f"[2/3] Symlinked scrum-agent → {symlink_path}")
+        except PermissionError:
+            # Try with sudo
+            try:
+                subprocess.run(
+                    ["sudo", "ln", "-sf", scrum_agent_bin, str(symlink_path)],
+                    check=True,
+                    capture_output=True,
+                )
+                print(f"[2/3] Symlinked scrum-agent → {symlink_path} (via sudo)")
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                print(
+                    f"[2/3] Warning: could not symlink to {symlink_path} — "
+                    f"run manually: sudo ln -s {scrum_agent_bin} {symlink_path}"
+                )
+    else:
+        print("[2/3] Warning: scrum-agent not found on PATH — skipping symlink")
+
+    # ── Step 3: Restart OpenClaw gateway ─────────────────────────────────────
+    # OpenClaw loads skills at startup, so a gateway restart is needed.
+    gateway_available = shutil.which("openclaw") is not None
+    if not gateway_available:
+        print("[3/3] OpenClaw CLI not found — skip gateway restart (run 'openclaw gateway restart' manually)")
+        return
+
+    try:
+        answer = input("\n[3/3] Restart OpenClaw gateway to load the skill? [Y/n] ").strip().lower()
+    except (KeyboardInterrupt, EOFError):
+        print("\nSkipped gateway restart. Run 'openclaw gateway restart' manually.")
+        return
+
+    if answer in ("", "y", "yes"):
+        try:
+            subprocess.run(["openclaw", "gateway", "restart"], check=True)
+            print("\nOpenClaw gateway restarted. The scrum-planner skill is ready to use.")
+        except subprocess.CalledProcessError as e:
+            print(f"\nGateway restart failed (exit code {e.returncode}). Try: openclaw gateway restart")
+    else:
+        print("Skipped. Run 'openclaw gateway restart' when ready.")
 
 
 def main(argv: list[str] | None = None) -> None:

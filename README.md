@@ -275,32 +275,80 @@ scrum-agent --non-interactive --description "Build a todo app" --output json
 
 The `scrum-planner` skill lets OpenClaw conduct conversational scrum planning — it asks 7 intake questions, generates a temp SCRUM.md, invokes `scrum-agent --non-interactive --output json`, and presents the results as a Slack Canvas.
 
+A single command handles the full setup:
+
 ```bash
-# Install the bundled skill to ~/.openclaw/skills/scrum-planner/
 scrum-agent --install-skill
 ```
 
-Or specify a custom target directory:
+This will:
+1. Copy the skill files (SKILL.md, README.md) to `~/.openclaw/skills/scrum-planner/`
+2. Symlink `scrum-agent` into `/usr/local/bin/` so the OpenClaw sandbox can find it (may prompt for sudo)
+3. Ask to restart the OpenClaw gateway to load the new skill
+
+```
+[1/3] Installed scrum-planner skill (2 files) to ~/.openclaw/skills/scrum-planner
+[2/3] Symlinked scrum-agent → /usr/local/bin/scrum-agent
+[3/3] Restart OpenClaw gateway to load the skill? [Y/n]
+```
+
+To install to a custom skills directory:
 
 ```bash
 scrum-agent --install-skill /path/to/openclaw/skills
 ```
 
-### 9. Verify the skill
+![Install the OpenClaw skill](docs/lightsail-setup/09-install-skill.png)
 
-Open the OpenClaw dashboard and start a conversation with the scrum-planner skill. Try a simple project to confirm the full flow works end-to-end:
+### 9. Test the skill
+
+Open the OpenClaw dashboard and start a new conversation. Try a simple project to confirm the full flow works end-to-end:
 
 > "Plan a REST API for a task management app — Python, FastAPI, PostgreSQL, 3 engineers, 2-week sprints"
 
 You should see:
 1. The skill asks any missing intake questions (project type, definition of done, etc.)
 2. A confirmation summary table before generating
-3. JSON output from `scrum-agent` parsed into features, stories, tasks, and sprints
-4. Results posted as a Slack Canvas (if Slack is connected) or displayed inline
+3. The skill writes a temp SCRUM.md and runs `scrum-agent --non-interactive --output json`
+4. Results presented with features, stories, tasks, and sprint plan
+
+![Skill intake conversation](docs/lightsail-setup/11-skill-intake.png)
+
+![Skill output — generated sprint plan](docs/lightsail-setup/12-skill-output.png)
+
+### 10. Troubleshooting
+
+If the skill doesn't appear after restarting the gateway:
+
+```bash
+# Check where OpenClaw looks for skills
+cat ~/.openclaw/config.* 2>/dev/null
+ls ~/.openclaw/
+
+# Re-install to the correct path if different
+scrum-agent --install-skill /correct/openclaw/skills/path
+
+# Restart again
+openclaw gateway restart
+```
+
+If `scrum-agent` fails inside the skill:
+
+```bash
+# Test headless mode directly
+scrum-agent --non-interactive --description "Build a todo app" --team-size 3 --sprint-length 2 --output json
+
+# Check logs
+ls -lt ~/.scrum-agent/logs/ | head -5
+tail -50 ~/.scrum-agent/logs/*.log
+
+# Check credentials
+grep LLM_PROVIDER ~/.scrum-agent/.env
+```
 
 ![End-to-end test via OpenClaw skill](docs/lightsail-setup/08-e2e-test.png)
 
-### 10. Next steps
+### 11. Next steps
 
 - **Connect Slack** — Set up a Slack App with Socket Mode to trigger the skill via `@mention` or slash command. See [Phase 14B in TODO.md](TODO.md) for the full Slack integration checklist.
 - **Customize the skill** — Edit `~/.openclaw/skills/scrum-planner/SKILL.md` to adjust question flow, add domain-specific defaults, or change the output format.
