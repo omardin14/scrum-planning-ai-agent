@@ -1,0 +1,45 @@
+name: Auto-tag on version bump
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "pyproject.toml"
+
+jobs:
+  auto-tag:
+    name: Create tag if version changed
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2  # need previous commit to diff
+
+      - name: Check for version change
+        id: version
+        run: |
+          # Get version from current commit
+          CURRENT=$(grep '^version' pyproject.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          # Get version from previous commit
+          PREVIOUS=$(git show HEAD~1:pyproject.toml | grep '^version' | head -1 | sed 's/.*"\(.*\)".*/\1/')
+
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
+          echo "previous=$PREVIOUS" >> "$GITHUB_OUTPUT"
+
+          if [ "$CURRENT" != "$PREVIOUS" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Version changed: $PREVIOUS → $CURRENT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Version unchanged: $CURRENT"
+          fi
+
+      - name: Create and push tag
+        if: steps.version.outputs.changed == 'true'
+        run: |
+          TAG="v${{ steps.version.outputs.current }}"
+          git tag "$TAG"
+          git push origin "$TAG"
+          echo "Tagged $TAG — this will trigger the publish workflow"
