@@ -24,7 +24,7 @@ def _validate_key(provider: dict[str, Any], value: str) -> tuple[str, str]:
             return "empty", ""
         # Basic region format check: e.g. us-east-1, eu-west-2
         if "-" in value and len(value) >= 7:
-            return "valid_format", "Press Enter to verify AWS credentials"
+            return "valid_format", "Press Enter to verify \u2014 edit region or confirm"
         return "too_short", "Enter an AWS region (e.g. us-east-1, eu-west-2)"
 
     prefix = provider["prefix"]

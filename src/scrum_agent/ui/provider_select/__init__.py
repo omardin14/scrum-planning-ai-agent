@@ -33,6 +33,55 @@ from scrum_agent.ui.shared._animations import COLOR_RGB, FADE_IN_LEVELS, FADE_OU
 from scrum_agent.ui.shared._input import disable_bracketed_paste, enable_bracketed_paste
 from scrum_agent.ui.shared._input import read_key as _read_key  # noqa: F401 — re-export for compat
 
+
+def _detect_aws_region() -> str | None:
+    """Auto-detect AWS region from environment, config file, or IMDS.
+
+    Checks in order:
+    1. AWS_REGION or AWS_DEFAULT_REGION env vars
+    2. ~/.aws/config (parses region from default or assumed profile)
+    3. EC2 instance metadata service (IMDS) — works on Lightsail/EC2
+    """
+    import os
+
+    # 1. Env vars
+    region = os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION")
+    if region:
+        return region
+
+    # 2. ~/.aws/config
+    try:
+        from pathlib import Path
+
+        config_path = Path.home() / ".aws" / "config"
+        if config_path.exists():
+            import configparser
+
+            cfg = configparser.ConfigParser()
+            cfg.read(config_path)
+            # Check [default] first, then any profile section
+            for section in cfg.sections():
+                if cfg.has_option(section, "region"):
+                    return cfg.get(section, "region")
+    except Exception:
+        pass
+
+    # 3. IMDS (EC2/Lightsail instance metadata)
+    try:
+        import httpx
+
+        resp = httpx.get(
+            "http://169.254.169.254/latest/meta-data/placement/region",
+            timeout=2,
+        )
+        if resp.status_code == 200 and resp.text.strip():
+            return resp.text.strip()
+    except Exception:
+        pass
+
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -93,6 +142,9 @@ def select_provider(
         # ── Phase 2: API key input ────────────────────────────────────────
         _cfg = existing_config or {}
         input_value = _cfg.get(provider["env_var"], "")
+        # Bedrock: auto-detect region from AWS config / env / IMDS
+        if provider.get("is_region_input") and not input_value:
+            input_value = _detect_aws_region() or ""
         error = ""
         verified: bool | None = None
 
