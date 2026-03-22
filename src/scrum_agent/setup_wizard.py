@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 from pathlib import Path
 
 from prompt_toolkit import prompt
@@ -239,18 +240,16 @@ def run_setup_wizard(console: Console) -> bool:
     # OpenClaw's models.json has the exact Bedrock model ID (e.g.
     # global.anthropic.claude-sonnet-4-6). Without this, scrum-agent falls
     # back to a hardcoded default that may not exist in the user's region.
-    logger.info(
-        "Bedrock detection check: LLM_PROVIDER=%s, LLM_MODEL in collected=%s",
-        collected.get("LLM_PROVIDER"),
-        "LLM_MODEL" in collected,
+    print(
+        f"DEBUG: LLM_PROVIDER={collected.get('LLM_PROVIDER')}, has LLM_MODEL={'LLM_MODEL' in collected}",
+        file=sys.stderr,
     )
     if collected.get("LLM_PROVIDER") == "bedrock" and "LLM_MODEL" not in collected:
         detected_model = _detect_openclaw_bedrock_model()
-        logger.info("OpenClaw Bedrock model detection result: %s", detected_model)
+        print(f"DEBUG: detected_model={detected_model}", file=sys.stderr)
         if detected_model:
             collected["LLM_MODEL"] = detected_model
-            console.print(f"  [dim]Detected OpenClaw model: {detected_model}[/dim]")
-    logger.info("Final collected keys before save: %s", list(collected.keys()))
+    print(f"DEBUG: final collected keys={list(collected.keys())}", file=sys.stderr)
 
     # ── Merge with existing config and save ─────────────────────────────────
     # collected values win over existing so --setup re-runs update keys
