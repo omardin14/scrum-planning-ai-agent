@@ -134,6 +134,7 @@ scrum-agent --non-interactive --description @project-brief.txt --output html --t
   - [Anthropic](https://console.anthropic.com/settings/keys) (recommended)
   - [OpenAI](https://platform.openai.com/api-keys)
   - [Google AI Studio](https://aistudio.google.com/app/apikey)
+  - [AWS Bedrock](https://aws.amazon.com/bedrock/) (IAM credentials — no API key needed on EC2/Lightsail)
 
 ### Installation (development)
 
@@ -235,7 +236,7 @@ Replace `OpenClaw-1` with your instance name and `eu-west-2` with your region.
 
 ### 5. Install scrum-agent on the instance
 
-SSH into the instance and install scrum-agent:
+SSH into the instance and install scrum-agent with Bedrock support:
 
 ```bash
 # Install pipx if not present
@@ -243,26 +244,36 @@ sudo apt update && sudo apt install -y pipx
 pipx ensurepath
 source ~/.bashrc   # reload PATH so pipx-installed binaries are found
 
-# Install scrum-agent
-pipx install scrum-agent
-
-# Configure credentials (Bedrock credentials are already available via the IAM role)
-# For direct Anthropic API usage instead of Bedrock, set:
-# export ANTHROPIC_API_KEY=sk-ant-...
-
-# Verify headless mode works
-scrum-agent --non-interactive --description "Build a todo app" --output json
+# Install scrum-agent with Bedrock provider
+pipx install "scrum-agent[bedrock]"
 ```
 
 > **Tip:** If `scrum-agent: command not found` after install, run `source ~/.bashrc` (or start a new SSH session) to pick up the updated PATH.
 
 ![Install scrum-agent and verify headless mode](docs/lightsail-setup/06-install-scrum-agent.png)
 
-### 6. Test end-to-end
+### 6. Run the setup wizard
+
+```bash
+scrum-agent --setup
+```
+
+1. Select **Bedrock** as your LLM provider
+2. The AWS region is auto-detected from `~/.aws/config` (e.g., `eu-west-2`) — press Enter to confirm
+3. The wizard verifies Bedrock access using the IAM role attached by the Bedrock setup script — no API key needed
+
+![Setup wizard — Bedrock provider](docs/lightsail-setup/07-setup-bedrock.png)
+
+### 7. Test end-to-end
+
+```bash
+# Verify headless mode works
+scrum-agent --non-interactive --description "Build a todo app" --output json
+```
 
 From the OpenClaw dashboard, create a skill that invokes the scrum-agent CLI in headless mode. Verify the JSON output is returned correctly.
 
-![End-to-end test via OpenClaw skill](docs/lightsail-setup/07-e2e-test.png)
+![End-to-end test via OpenClaw skill](docs/lightsail-setup/08-e2e-test.png)
 
 ---
 
@@ -1235,15 +1246,18 @@ Every pipeline stage has an accept/edit/reject checkpoint. High-risk tool calls 
 
 ## Multi-Provider LLM Support
 
-The agent supports three LLM providers. Set via `LLM_PROVIDER` in `.env`:
+The agent supports four LLM providers. Set via `LLM_PROVIDER` in `.env`:
 
 | Provider | Env Var | Key Format | Value |
 |----------|---------|------------|-------|
 | Anthropic (default) | `ANTHROPIC_API_KEY` | `sk-ant-...` | `anthropic` |
 | OpenAI | `OPENAI_API_KEY` | `sk-...` | `openai` |
 | Google | `GOOGLE_API_KEY` | `AIza...` | `google` |
+| AWS Bedrock | `AWS_REGION` | IAM credentials (no key) | `bedrock` |
 
-OpenAI and Google are lazy-imported — install with `uv sync --extra all-providers` or individually with `--extra openai` / `--extra google`.
+OpenAI, Google, and Bedrock are lazy-imported — install with `uv sync --extra all-providers` or individually with `--extra openai` / `--extra google` / `--extra bedrock`.
+
+Bedrock uses IAM credentials automatically (instance role, `~/.aws/credentials`, or env vars). On Lightsail/EC2, the AWS profile is auto-detected from `~/.aws/config`. No API key required.
 
 ---
 
