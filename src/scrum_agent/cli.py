@@ -505,14 +505,22 @@ def _install_skill(target_arg: str) -> None:
     3. Offer to restart the OpenClaw gateway to pick up the new skill
 
     Args:
-        target_arg: "__auto__" to use ~/.openclaw/skills/, or a custom path.
+        target_arg: "__auto__" to auto-detect, or a custom path.
     """
     import importlib.resources
     import shutil
     import subprocess
 
+    # OpenClaw's built-in skills live at /usr/lib/node_modules/openclaw/skills/.
+    # This is where the sandbox can read SKILL.md files from.
+    openclaw_skills_dir = Path("/usr/lib/node_modules/openclaw/skills")
+
     if target_arg == "__auto__":
-        target_dir = Path.home() / ".openclaw" / "skills" / "scrum-planner"
+        if openclaw_skills_dir.is_dir():
+            target_dir = openclaw_skills_dir / "scrum-planner"
+        else:
+            # Fallback for non-Lightsail installs
+            target_dir = Path.home() / ".openclaw" / "skills" / "scrum-planner"
     else:
         target_dir = Path(target_arg) / "scrum-planner"
 
@@ -535,13 +543,23 @@ def _install_skill(target_arg: str) -> None:
             sys.exit(1)
 
     # ── Step 1: Copy skill files ─────────────────────────────────────────────
-    target_dir.mkdir(parents=True, exist_ok=True)
-
-    copied = 0
-    for src_file in source_path.iterdir():
-        if src_file.is_file():
-            shutil.copy2(src_file, target_dir / src_file.name)
-            copied += 1
+    # The OpenClaw skills directory (/usr/lib/node_modules/openclaw/skills/) is
+    # owned by root, so we may need sudo to copy files there.
+    try:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        copied = 0
+        for src_file in source_path.iterdir():
+            if src_file.is_file():
+                shutil.copy2(src_file, target_dir / src_file.name)
+                copied += 1
+    except PermissionError:
+        # Target is root-owned — use sudo to copy
+        subprocess.run(["sudo", "mkdir", "-p", str(target_dir)], check=True)
+        copied = 0
+        for src_file in source_path.iterdir():
+            if src_file.is_file():
+                subprocess.run(["sudo", "cp", str(src_file), str(target_dir / src_file.name)], check=True)
+                copied += 1
 
     print(f"[1/3] Installed scrum-planner skill ({copied} files) to {target_dir}")
 

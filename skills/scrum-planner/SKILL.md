@@ -1,9 +1,7 @@
 ---
 name: scrum-planner
-description: AI Scrum Master — decomposes projects into epics, stories, tasks, and sprint plans
-version: 1.1.0
-tools:
-  - bash
+description: "AI Scrum Master — decomposes projects into epics, stories, tasks, and sprint plans. Use when: user asks to plan a project, create a sprint plan, break down work into stories/tasks, or do scrum planning. NOT for: code review, deployment, or monitoring."
+metadata: { "openclaw": { "emoji": "📋", "requires": { "bins": ["scrum-agent"] } } }
 ---
 
 # Scrum Planner Skill

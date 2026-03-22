@@ -282,12 +282,12 @@ scrum-agent --install-skill
 ```
 
 This will:
-1. Copy the skill files (SKILL.md, README.md) to `~/.openclaw/skills/scrum-planner/`
-2. Symlink `scrum-agent` into `/usr/local/bin/` so the OpenClaw sandbox can find it (may prompt for sudo)
+1. Copy the skill files (SKILL.md, README.md) to `/usr/lib/node_modules/openclaw/skills/scrum-planner/` (may prompt for sudo)
+2. Symlink `scrum-agent` into `/usr/local/bin/` so the OpenClaw sandbox can find it
 3. Ask to restart the OpenClaw gateway to load the new skill
 
 ```
-[1/3] Installed scrum-planner skill (2 files) to ~/.openclaw/skills/scrum-planner
+[1/3] Installed scrum-planner skill (2 files) to /usr/lib/node_modules/openclaw/skills/scrum-planner
 [2/3] Symlinked scrum-agent → /usr/local/bin/scrum-agent
 [3/3] Restart OpenClaw gateway to load the skill? [Y/n]
 ```
