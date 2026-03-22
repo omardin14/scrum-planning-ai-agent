@@ -218,6 +218,9 @@ def _build_input_screen(
     # Input box content — env var label goes in the panel border title.
     # Scroll: only show the rightmost chars that fit in one line.
     box_inner_w = min(70, width - 10) - 2 - 4  # panel border(2) + padding(4)
+    # Bedrock uses a region name (not a secret) — never mask it
+    if provider.get("is_region_input"):
+        masked = False
     display_val = "\u2022" * len(input_value) if masked else input_value
     cursor = "\u2588" if not verifying else ""
     full_text = display_val + cursor

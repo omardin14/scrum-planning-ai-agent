@@ -40,6 +40,16 @@ _PROVIDER_CARDS: list[dict[str, Any]] = [
         "instructions": "Get yours at: https://platform.openai.com \u2192 API keys",
         "color": "rgb(70,100,180)",
     },
+    {
+        "name": "Bedrock",
+        "full_name": "AWS (Bedrock)",
+        "env_var": "AWS_REGION",
+        "provider_val": "bedrock",
+        "prefix": "",
+        "instructions": "Uses IAM credentials from instance role, ~/.aws/credentials, or env vars",
+        "color": "rgb(70,100,180)",
+        "is_region_input": True,
+    },
 ]
 
 # Version control providers — step 3

@@ -29,6 +29,7 @@ _PROVIDER_DEFAULTS: dict[str, str] = {
     "anthropic": "claude-sonnet-4-20250514",
     "openai": "gpt-4o",
     "google": "gemini-2.0-flash",
+    "bedrock": "us.anthropic.claude-sonnet-4-20250514-v1:0",
 }
 
 # Kept for backward compatibility — callers that imported DEFAULT_MODEL still work.
@@ -114,4 +115,37 @@ def get_llm(model: str | None = None, temperature: float = 0.0) -> BaseChatModel
         logger.info("LLM ready: provider=google, model=%s", resolved_model)
         return ChatGoogleGenerativeAI(model=resolved_model, google_api_key=api_key, temperature=temperature)
 
-    raise ValueError(f"Unknown LLM_PROVIDER: {provider!r}. Valid options are: anthropic (default), openai, google.")
+    if provider == "bedrock":
+        # langchain-aws is an optional dependency (install with: uv sync --extra bedrock)
+        # # See README: "Deploy on AWS Lightsail (OpenClaw)" — Bedrock uses IAM credentials
+        # from the instance role, ~/.aws/credentials, or AWS_ACCESS_KEY_ID env vars.
+        # No API key needed on Lightsail — the IAM role is attached automatically.
+        try:
+            from langchain_aws import ChatBedrockConverse
+        except ImportError as e:
+            raise ImportError("langchain-aws is not installed. Run: uv sync --extra bedrock") from e
+
+        import boto3
+
+        from scrum_agent.config import get_aws_profile, get_bedrock_region
+
+        region = get_bedrock_region()
+        profile = get_aws_profile()
+
+        # Create a boto3 session with the detected profile so IAM role
+        # credentials from ~/.aws/config are used (e.g. Lightsail's
+        # [profile assumed] with credential_source=Ec2InstanceMetadata).
+        session = boto3.Session(profile_name=profile, region_name=region)
+        bedrock_client = session.client("bedrock-runtime", region_name=region)
+
+        logger.info("LLM ready: provider=bedrock, model=%s, region=%s, profile=%s", resolved_model, region, profile)
+        return ChatBedrockConverse(
+            model=resolved_model,
+            region_name=region,
+            client=bedrock_client,
+            temperature=temperature,
+        )
+
+    raise ValueError(
+        f"Unknown LLM_PROVIDER: {provider!r}. Valid options are: anthropic (default), openai, google, bedrock."
+    )

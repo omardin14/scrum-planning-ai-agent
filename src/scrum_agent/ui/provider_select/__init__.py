@@ -33,6 +33,52 @@ from scrum_agent.ui.shared._animations import COLOR_RGB, FADE_IN_LEVELS, FADE_OU
 from scrum_agent.ui.shared._input import disable_bracketed_paste, enable_bracketed_paste
 from scrum_agent.ui.shared._input import read_key as _read_key  # noqa: F401 — re-export for compat
 
+
+def _detect_aws_region() -> str | None:
+    """Auto-detect AWS region from environment, config, or instance metadata.
+
+    Uses boto3's built-in resolution chain which covers:
+    1. AWS_REGION / AWS_DEFAULT_REGION env vars
+    2. ~/.aws/config (all profile formats including [profile name])
+    3. EC2/Lightsail instance metadata (IMDSv1 + IMDSv2)
+
+    Falls back to manual parsing if boto3 is not installed.
+    """
+    import os
+
+    # 1. Env vars (fast path, no imports needed)
+    region = os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION")
+    if region:
+        return region
+
+    # 2. boto3 session — handles ~/.aws/config and IMDS natively
+    try:
+        import boto3
+
+        session = boto3.session.Session()
+        if session.region_name:
+            return session.region_name
+    except Exception:
+        pass
+
+    # 3. Manual fallback — parse ~/.aws/config directly
+    try:
+        from pathlib import Path
+
+        config_path = Path.home() / ".aws" / "config"
+        if config_path.exists():
+            for line in config_path.read_text().splitlines():
+                stripped = line.strip()
+                if stripped.startswith("region"):
+                    _, _, value = stripped.partition("=")
+                    if value.strip():
+                        return value.strip()
+    except Exception:
+        pass
+
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -93,8 +139,22 @@ def select_provider(
         # ── Phase 2: API key input ────────────────────────────────────────
         _cfg = existing_config or {}
         input_value = _cfg.get(provider["env_var"], "")
+        # Bedrock: auto-detect region from AWS config / env / IMDS
+        if provider.get("is_region_input") and not input_value:
+            input_value = _detect_aws_region() or ""
         error = ""
         verified: bool | None = None
+
+        # Initial render so pre-filled values (e.g. auto-detected region) are visible
+        w, h = console.size
+        live.update(
+            _build_input_screen(
+                provider,
+                input_value,
+                width=w,
+                height=h,
+            )
+        )
 
         while True:
             key = read_key()
