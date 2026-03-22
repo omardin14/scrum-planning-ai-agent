@@ -145,6 +145,17 @@ def select_provider(
         error = ""
         verified: bool | None = None
 
+        # Initial render so pre-filled values (e.g. auto-detected region) are visible
+        w, h = console.size
+        live.update(
+            _build_input_screen(
+                provider,
+                input_value,
+                width=w,
+                height=h,
+            )
+        )
+
         while True:
             key = read_key()
             if key == "enter":
