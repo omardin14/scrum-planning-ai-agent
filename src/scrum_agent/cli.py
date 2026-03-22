@@ -518,8 +518,10 @@ def _sync_bedrock_config() -> None:
         print("[3/5] Could not parse OpenClaw models.json — skipped")
         return
 
-    # Extract Bedrock model ID and region from OpenClaw config
-    bedrock = config.get("providers", {}).get("bedrock", {})
+    # Extract Bedrock model ID and region from OpenClaw config.
+    # The provider key may be "bedrock" or "amazon-bedrock" depending on OpenClaw version.
+    providers = config.get("providers", {})
+    bedrock = providers.get("bedrock") or providers.get("amazon-bedrock") or {}
     models = bedrock.get("models", [])
     base_url = bedrock.get("baseUrl", "")
 
@@ -538,7 +540,19 @@ def _sync_bedrock_config() -> None:
             pass
 
     if not model_id:
-        print("[3/5] No Bedrock model ID found — skipped")
+        # Fallback: scan all providers for any model with "anthropic" or "claude" in the ID
+        for prov in providers.values():
+            if isinstance(prov, dict):
+                for m in prov.get("models", []):
+                    mid = m.get("id", "")
+                    if "anthropic" in mid or "claude" in mid:
+                        model_id = mid
+                        break
+                if model_id:
+                    break
+
+    if not model_id:
+        print("[3/5] No Bedrock model ID found in OpenClaw config — skipped")
         return
 
     # Read existing .env to avoid overwriting user settings
@@ -548,6 +562,8 @@ def _sync_bedrock_config() -> None:
     additions = []
     if "LLM_PROVIDER" not in existing:
         additions.append("LLM_PROVIDER=bedrock")
+
+    # Always ensure LLM_MODEL is set to the OpenClaw model
     if "LLM_MODEL" not in existing:
         additions.append(f"LLM_MODEL={model_id}")
     elif model_id not in existing:
@@ -556,6 +572,7 @@ def _sync_bedrock_config() -> None:
         lines = [f"LLM_MODEL={model_id}" if line.startswith("LLM_MODEL=") else line for line in lines]
         existing = "\n".join(lines) + "\n"
         env_path.write_text(existing)
+
     if region and "PLACEHOLDER" not in region and "AWS_REGION" not in existing:
         additions.append(f"AWS_REGION={region}")
 
