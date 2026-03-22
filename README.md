@@ -264,7 +264,36 @@ scrum-agent --setup
 
 ![Setup wizard — Bedrock provider](docs/lightsail-setup/07-setup-bedrock.png)
 
-### 7. Test headless mode
+### 7. Grant Bedrock inference-profile access
+
+OpenClaw uses `global.*` model IDs (cross-region inference profiles), which require a separate IAM permission from the standard `foundation-model/*` access. Run this in **AWS CloudShell** to grant the Lightsail instance role access to inference profiles:
+
+```bash
+aws iam put-role-policy \
+  --role-name LightsailRoleFor-i-YOUR_INSTANCE_ID \
+  --policy-name BedrockInferenceProfileAccess \
+  --policy-document '{
+    "Version": "2012-10-17",
+    "Statement": [{
+      "Effect": "Allow",
+      "Action": "bedrock:InvokeModel",
+      "Resource": [
+        "arn:aws:bedrock:*:*:inference-profile/global.anthropic.*",
+        "arn:aws:bedrock:*:*:foundation-model/anthropic.*"
+      ]
+    }]
+  }'
+```
+
+Replace `LightsailRoleFor-i-YOUR_INSTANCE_ID` with your instance's role name. Find it with:
+
+```bash
+# Run on the Lightsail instance
+aws sts get-caller-identity --query 'Arn' --output text
+# Returns: arn:aws:sts::ACCOUNT:assumed-role/ROLE_NAME/INSTANCE_ID
+```
+
+### 8. Test headless mode
 
 Verify scrum-agent works end-to-end before installing the skill:
 
@@ -276,7 +305,7 @@ You should see JSON output with features, stories, tasks, and sprints.
 
 ![Headless mode test](docs/lightsail-setup/08-headless-test.png)
 
-### 8. Install the OpenClaw skill
+### 9. Install the OpenClaw skill
 
 The `scrum-planner` skill lets OpenClaw conduct conversational scrum planning — it asks 7 intake questions, generates a temp SCRUM.md, invokes `scrum-agent --non-interactive --output json`, and presents the results as a Slack Canvas.
 
@@ -291,16 +320,14 @@ This will:
 2. Copy the skill files into the sandbox workspace at `~/.openclaw/workspace/skills/scrum-planner/` (so the agent can read them at runtime)
 3. Sync the Bedrock model ID and region from OpenClaw's config into `~/.scrum-agent/.env`
 4. Symlink `scrum-agent` into `/usr/local/bin/` so the OpenClaw sandbox can find the binary
-5. Test Bedrock access and add IAM `inference-profile` permissions if needed
-6. Ask to restart the OpenClaw gateway to load the new skill
+5. Ask to restart the OpenClaw gateway to load the new skill
 
 ```
-[1/6] Skill registry: /usr/lib/node_modules/openclaw/skills/scrum-planner
-[2/6] Sandbox workspace: /home/ubuntu/.openclaw/workspace/skills/scrum-planner
-[3/6] Bedrock config synced: model=global.anthropic.claude-sonnet-4-6, region=eu-west-2
-[4/6] Symlinked scrum-agent → /usr/local/bin/scrum-agent
-[5/6] Bedrock access verified: global.anthropic.claude-sonnet-4-6
-[6/6] Restart OpenClaw gateway to load the skill? [Y/n]
+[1/5] Skill registry: /usr/lib/node_modules/openclaw/skills/scrum-planner
+[2/5] Sandbox workspace: /home/ubuntu/.openclaw/workspace/skills/scrum-planner
+[3/5] Bedrock config synced: model=global.anthropic.claude-sonnet-4-6, region=eu-west-2
+[4/5] Symlinked scrum-agent → /usr/local/bin/scrum-agent
+[5/5] Restart OpenClaw gateway to load the skill? [Y/n]
 ```
 
 To install to a custom skills directory:
@@ -311,13 +338,13 @@ scrum-agent --install-skill /path/to/openclaw/skills
 
 ![Install the OpenClaw skill](docs/lightsail-setup/09-install-skill.png)
 
-### 9. Verify the skill is loaded
+### 10. Verify the skill is loaded
 
 Open the OpenClaw dashboard and check the **Skills** page. You should see `scrum-planner` listed under **Installed Skills** with an "eligible" badge.
 
 ![Skill visible in OpenClaw dashboard](docs/lightsail-setup/10-skill-dashboard.png)
 
-### 10. Test the skill
+### 11. Test the skill
 
 Start a new conversation in the OpenClaw dashboard. Try a simple project:
 
@@ -333,7 +360,7 @@ You should see:
 
 ![Skill output — generated sprint plan](docs/lightsail-setup/12-skill-output.png)
 
-### 11. Troubleshooting
+### 12. Troubleshooting
 
 If the skill doesn't appear in the dashboard:
 
@@ -356,7 +383,7 @@ tail -50 ~/.scrum-agent/logs/*.log
 grep LLM_PROVIDER ~/.scrum-agent/.env
 ```
 
-### 12. Next steps
+### 13. Next steps
 
 - **Connect Slack** — Set up a Slack App with Socket Mode to trigger the skill via `@mention` or slash command. See [Phase 14B in TODO.md](TODO.md) for the full Slack integration checklist.
 - **Customize the skill** — Edit the SKILL.md to adjust question flow, add domain-specific defaults, or change the output format.
