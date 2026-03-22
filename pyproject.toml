@@ -70,6 +70,12 @@ scrum-agent = "scrum_agent.cli:main"
 [tool.hatch.build.targets.wheel]
 packages = ["src/scrum_agent"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"skills/scrum-planner" = "scrum_agent/skills/scrum-planner"
+
+[tool.hatch.build.targets.sdist.force-include]
+"skills/scrum-planner" = "scrum_agent/skills/scrum-planner"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"

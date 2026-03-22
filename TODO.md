@@ -869,13 +869,13 @@ _OpenClaw comes pre-installed on the Lightsail OpenClaw blueprint. Use Claude wi
 
 #### Lightsail Instance (via Claude + AWS MCP)
 
-- [ ] Create Lightsail instance using OpenClaw blueprint (pre-installed, Bedrock-configured)
-- [ ] Attach static IP to the instance
-- [ ] Run Bedrock IAM setup script via CloudShell: `curl -s https://d25b4yjpexuuj4.cloudfront.net/scripts/lightsail/setup-lightsail-openclaw-bedrock-role.sh | bash -s -- OpenClaw-1 eu-west-2`
-- [ ] Complete Anthropic FTU (First Time Use) form for Bedrock access if first time
-- [ ] SSH in and pair browser with OpenClaw dashboard
-- [ ] Verify OpenClaw runs a basic skill end-to-end via dashboard
-- [ ] Add "Deploy on AWS Lightsail" section to README.md with manual setup instructions
+- [x] Create Lightsail instance using OpenClaw blueprint (pre-installed, Bedrock-configured)
+- [x] Attach static IP to the instance
+- [x] Run Bedrock IAM setup script via CloudShell: `curl -s https://d25b4yjpexuuj4.cloudfront.net/scripts/lightsail/setup-lightsail-openclaw-bedrock-role.sh | bash -s -- OpenClaw-1 eu-west-2`
+- [x] Complete Anthropic FTU (First Time Use) form for Bedrock access if first time
+- [x] SSH in and pair browser with OpenClaw dashboard
+- [x] Verify OpenClaw runs a basic skill end-to-end via dashboard
+- [x] Add "Deploy on AWS Lightsail" section to README.md with manual setup instructions
 
 #### Slack Connection (Socket Mode)
 
@@ -927,56 +927,56 @@ _Build the skill that conducts conversational scrum planning intake in Slack, ca
 
 #### Skill Definition (SKILL.md)
 
-- [ ] Create `SKILL.md` for the scrum-planner skill (OpenClaw skill format)
-- [ ] Define trigger: Slack mention or slash command with project description (becomes Q1)
-- [ ] Define skill persona: friendly Scrum Master conducting a quick intake
+- [x] Create `SKILL.md` for the scrum-planner skill (OpenClaw skill format)
+- [x] Define trigger: Slack mention or slash command with project description (becomes Q1)
+- [x] Define skill persona: friendly Scrum Master conducting a quick intake
 
 #### Conversational Intake
 
 _Ask ~5-7 essential questions conversationally in a Slack thread. Q1 comes from the trigger message._
 
-- [ ] Map essential questions to Slack thread conversation:
+- [x] Map essential questions to Slack thread conversation:
   - Q1: project description (from trigger message)
   - Q2: greenfield / existing / hybrid (choice buttons)
   - Q3+Q4 merged: problem, users, and definition of done (single free-text)
   - Q6: team size (free-text or buttons: 1-3, 4-6, 7-10, 10+)
   - Q8: sprint length (buttons: 1 week, 2 weeks, 3 weeks, 4 weeks)
   - Q11: tech stack (free-text)
-- [ ] Implement question flow with Slack Block Kit interactive messages
-- [ ] Support "skip" / "use defaults" to fast-track remaining questions
-- [ ] Collect answers into a structured dict matching scrum-agent's intake format
+- [x] Implement question flow with Slack Block Kit interactive messages
+- [x] Support "skip" / "use defaults" to fast-track remaining questions
+- [x] Collect answers into a structured dict matching scrum-agent's intake format
 
 #### SCRUM.md Bridge
 
 _Write non-CLI answers to a temp SCRUM.md so `scrum-agent --non-interactive` picks them up via keyword extraction._
 
-- [ ] Generate temp SCRUM.md from collected answers (tech stack → `## Tech Stack`, constraints → `## Constraints`, etc.)
-- [ ] Map Q6 → `--team-size`, Q8 → `--sprint-length` as CLI args
-- [ ] Map Q1 → `--description` as CLI arg
-- [ ] Write remaining answers to temp SCRUM.md in working directory
-- [ ] Call: `scrum-agent --non-interactive --description "<Q1>" --team-size <Q6> --sprint-length <Q8> --output json`
-- [ ] Parse JSON output into structured plan data
-- [ ] Clean up temp SCRUM.md after run
+- [x] Generate temp SCRUM.md from collected answers (tech stack → `## Tech Stack`, constraints → `## Constraints`, etc.)
+- [x] Map Q6 → `--team-size`, Q8 → `--sprint-length` as CLI args
+- [x] Map Q1 → `--description` as CLI arg
+- [x] Write remaining answers to temp SCRUM.md in working directory
+- [x] Call: `scrum-agent --non-interactive --description "<Q1>" --team-size <Q6> --sprint-length <Q8> --output json`
+- [x] Parse JSON output into structured plan data
+- [x] Clean up temp SCRUM.md after run
 
 #### Slack Canvas Output
 
 _Plans exceed the 50-block message limit; Canvas has no limit. Fallback chain: Canvas → threaded messages → file upload._
 
-- [ ] Format plan JSON into Slack Canvas document (rich text with headers, tables, bullet points)
-- [ ] Canvas sections: Project Summary, Epics, User Stories (grouped by epic), Tasks, Sprint Plan
-- [ ] Create Canvas in the channel via `canvases.create` API
-- [ ] Implement fallback chain:
+- [x] Format plan JSON into Slack Canvas document (rich text with headers, tables, bullet points)
+- [x] Canvas sections: Project Summary, Epics, User Stories (grouped by epic), Tasks, Sprint Plan
+- [x] Create Canvas in the channel via `canvases.create` API
+- [x] Implement fallback chain:
   1. Try Canvas → if API unavailable or permissions missing
   2. Fall back to threaded messages (chunked to stay under 50 blocks per message)
   3. Final fallback: upload as formatted Markdown file
-- [ ] Post summary message in channel linking to Canvas: "Sprint plan ready — X epics, Y stories across Z sprints"
+- [x] Post summary message in channel linking to Canvas: "Sprint plan ready — X epics, Y stories across Z sprints"
 
 #### Error Handling
 
-- [ ] Handle scrum-agent CLI failures (non-zero exit, timeout after 5 minutes)
+- [x] Handle scrum-agent CLI failures (non-zero exit, timeout after 5 minutes)
 - [ ] Handle Slack API errors (rate limits, permissions, Canvas API unavailability)
 - [ ] Show progress updates in thread: "Analysing project...", "Generating stories...", "Building sprint plan..."
-- [ ] Surface actionable error messages in Slack (e.g., "API key not configured — ask an admin")
+- [x] Surface actionable error messages in Slack (e.g., "API key not configured — ask an admin")
 
 ---
 

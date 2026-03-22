@@ -169,6 +169,7 @@ Key flags to know about when modifying the CLI:
 | `--theme {dark,light}` | Terminal colour theme |
 | `--dry-run` | TUI with mock data, no LLM calls |
 | `--setup` | Re-run first-time setup wizard |
+| `--install-skill [DIR]` | Install bundled OpenClaw skill to `~/.openclaw/skills/` (or custom dir) |
 
 Validation rules in `main()`:
 - `--non-interactive` requires `--description`

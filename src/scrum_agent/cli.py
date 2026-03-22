@@ -377,6 +377,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
+        "--install-skill",
+        metavar="DIR",
+        nargs="?",
+        const="__auto__",
+        default=None,
+        help="Install the bundled OpenClaw scrum-planner skill. "
+        "Optionally specify a target directory (default: ~/.openclaw/skills/).",
+    )
+
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         default=False,
@@ -486,10 +496,61 @@ def _run_headless(args: argparse.Namespace) -> None:
     )
 
 
+def _install_skill(target_arg: str) -> None:
+    """Install the bundled scrum-planner skill into an OpenClaw skills directory.
+
+    Copies SKILL.md and README.md from the package's bundled skills/scrum-planner/
+    into the target directory. Creates the directory if it doesn't exist.
+
+    Args:
+        target_arg: "__auto__" to use ~/.openclaw/skills/, or a custom path.
+    """
+    import importlib.resources
+    import shutil
+
+    if target_arg == "__auto__":
+        target_dir = Path.home() / ".openclaw" / "skills" / "scrum-planner"
+    else:
+        target_dir = Path(target_arg) / "scrum-planner"
+
+    # Locate the bundled skill files inside the installed package.
+    # hatch force-include puts them at scrum_agent/skills/scrum-planner/.
+    try:
+        skill_pkg = importlib.resources.files("scrum_agent") / "skills" / "scrum-planner"
+    except (TypeError, ModuleNotFoundError):
+        # Fallback: resolve relative to this source file (development install).
+        skill_pkg = Path(__file__).resolve().parent.parent.parent / "skills" / "scrum-planner"
+
+    # Verify source exists
+    source_path = Path(str(skill_pkg))
+    if not source_path.is_dir():
+        # Try the repo-root fallback for editable installs
+        repo_root = Path(__file__).resolve().parent.parent.parent
+        source_path = repo_root / "skills" / "scrum-planner"
+        if not source_path.is_dir():
+            print(f"Error: bundled skill not found at {source_path}", file=sys.stderr)
+            sys.exit(1)
+
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    copied = 0
+    for src_file in source_path.iterdir():
+        if src_file.is_file():
+            shutil.copy2(src_file, target_dir / src_file.name)
+            copied += 1
+
+    print(f"Installed scrum-planner skill ({copied} files) to {target_dir}")
+
+
 def main(argv: list[str] | None = None) -> None:
     """Entry point for the scrum-agent CLI."""
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    # ── --install-skill: copy bundled skill and exit ─────────────────────────
+    if args.install_skill is not None:
+        _install_skill(args.install_skill)
+        return
 
     # Load ~/.scrum-agent/.env before any credential reads.
     # override=False means shell env vars and project .env always take precedence.

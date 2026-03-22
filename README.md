@@ -271,9 +271,43 @@ scrum-agent --setup
 scrum-agent --non-interactive --description "Build a todo app" --output json
 ```
 
-From the OpenClaw dashboard, create a skill that invokes the scrum-agent CLI in headless mode. Verify the JSON output is returned correctly.
+### 8. Install the OpenClaw skill
+
+The `scrum-planner` skill lets OpenClaw conduct conversational scrum planning — it asks 7 intake questions, generates a temp SCRUM.md, invokes `scrum-agent --non-interactive --output json`, and presents the results as a Slack Canvas.
+
+```bash
+# Install the bundled skill to ~/.openclaw/skills/scrum-planner/
+scrum-agent --install-skill
+```
+
+Or specify a custom target directory:
+
+```bash
+scrum-agent --install-skill /path/to/openclaw/skills
+```
+
+### 9. Verify the skill
+
+Open the OpenClaw dashboard and start a conversation with the scrum-planner skill. Try a simple project to confirm the full flow works end-to-end:
+
+> "Plan a REST API for a task management app — Python, FastAPI, PostgreSQL, 3 engineers, 2-week sprints"
+
+You should see:
+1. The skill asks any missing intake questions (project type, definition of done, etc.)
+2. A confirmation summary table before generating
+3. JSON output from `scrum-agent` parsed into features, stories, tasks, and sprints
+4. Results posted as a Slack Canvas (if Slack is connected) or displayed inline
 
 ![End-to-end test via OpenClaw skill](docs/lightsail-setup/08-e2e-test.png)
+
+### 10. Next steps
+
+- **Connect Slack** — Set up a Slack App with Socket Mode to trigger the skill via `@mention` or slash command. See [Phase 14B in TODO.md](TODO.md) for the full Slack integration checklist.
+- **Customize the skill** — Edit `~/.openclaw/skills/scrum-planner/SKILL.md` to adjust question flow, add domain-specific defaults, or change the output format.
+- **Review diagnostics** — The Slack Canvas includes a diagnostics appendix with the generated SCRUM.md, session logs, and config. Check `~/.scrum-agent/logs/` for detailed run logs if anything looks off.
+- **Secure with Teleport** — For production use, add Teleport for identity-aware access to the Lightsail instance and OpenClaw dashboard.
+
+See [`skills/scrum-planner/README.md`](skills/scrum-planner/README.md) for full skill documentation, question-to-CLI mapping, and troubleshooting.
 
 ---
 
