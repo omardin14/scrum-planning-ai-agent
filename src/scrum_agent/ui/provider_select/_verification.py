@@ -10,7 +10,7 @@ from typing import Any
 
 
 def _validate_key(provider: dict[str, Any], value: str) -> tuple[str, str]:
-    """Realtime format validation of an API key.
+    """Realtime format validation of an API key (or region for Bedrock).
 
     Returns (status, hint_message) where status is one of:
     - "empty": no input yet
@@ -18,6 +18,15 @@ def _validate_key(provider: dict[str, Any], value: str) -> tuple[str, str]:
     - "too_short": right prefix but too short
     - "valid_format": passes format checks (needs live verification)
     """
+    # Bedrock uses a region name, not an API key
+    if provider.get("is_region_input"):
+        if not value:
+            return "empty", ""
+        # Basic region format check: e.g. us-east-1, eu-west-2
+        if "-" in value and len(value) >= 7:
+            return "valid_format", "Press Enter to verify AWS credentials"
+        return "too_short", "Enter an AWS region (e.g. us-east-1, eu-west-2)"
+
     prefix = provider["prefix"]
     name = provider["full_name"]
 
@@ -96,7 +105,23 @@ def _verify_api_key(provider: dict[str, Any], api_key: str) -> tuple[bool, str]:
                 return False, "Invalid API key"
             return False, f"Unexpected response: {resp.status_code}"
 
+        elif provider_val == "bedrock":
+            # Bedrock verification — api_key is actually the region name.
+            # Uses IAM credentials from instance role, ~/.aws/credentials, or env vars.
+            import boto3
+
+            client = boto3.client("bedrock", region_name=api_key)
+            resp = client.list_foundation_models(byOutputModality="TEXT")
+            if resp.get("modelSummaries") is not None:
+                return True, "AWS credentials verified"
+            return False, "Unexpected response from Bedrock"
+
     except Exception as e:
+        err_str = str(e)
+        if "NoCredentialsError" in type(e).__name__ or "NoCredentialsError" in err_str:
+            return False, "No AWS credentials found \u2014 configure IAM role, ~/.aws/credentials, or env vars"
+        if "InvalidIdentityToken" in err_str or "AccessDenied" in err_str or "403" in err_str:
+            return False, "AWS credentials lack Bedrock permissions"
         return False, f"Connection error: {e}"
 
     return False, "Unknown provider"

@@ -139,6 +139,14 @@ def get_llm_model() -> str | None:
     return os.getenv("LLM_MODEL") or None
 
 
+def get_bedrock_region() -> str:
+    """Return the AWS region for Bedrock API calls.
+
+    Reads AWS_REGION, then AWS_DEFAULT_REGION from env. Defaults to 'us-east-1'.
+    """
+    return os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION") or "us-east-1"
+
+
 def get_openai_api_key() -> str | None:
     """Return the OpenAI API key, or None if not set."""
     return os.getenv("OPENAI_API_KEY") or None

@@ -50,6 +50,13 @@ _PROVIDERS: dict[str, dict[str, str]] = {
         "prefix": "AIza",
         "instructions": "Get yours at: https://aistudio.google.com → Get API key",
     },
+    "4": {
+        "name": "AWS (Bedrock)",
+        "env_var": "AWS_REGION",
+        "provider_val": "bedrock",
+        "prefix": "",
+        "instructions": "Uses IAM credentials from instance role, ~/.aws/credentials, or env vars",
+    },
 }
 
 

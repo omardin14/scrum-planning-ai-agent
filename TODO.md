@@ -858,3 +858,234 @@ _Ship the CLI as a Homebrew-installable app so anyone can `brew install scrum-ag
 - [ ] Push tag `v1.0.0` to trigger publish workflow (final step — do when ready to go live)
 
 ---
+
+## Phase 14: OpenClaw x Slack
+
+_Deploy OpenClaw on AWS Lightsail, secure with Teleport, and build a skill that runs scrum-agent planning via Slack conversations — posting results as a Slack Canvas. Manual setup first (Phases 14A–C), then IaC (14D), then polish (14E–F)._
+
+### 14A: OpenClaw on Lightsail
+
+_OpenClaw comes pre-installed on the Lightsail OpenClaw blueprint. Use Claude with AWS MCP to provision and configure._
+
+#### Lightsail Instance (via Claude + AWS MCP)
+
+- [ ] Create Lightsail instance using OpenClaw blueprint (pre-installed, Bedrock-configured)
+- [ ] Attach static IP to the instance
+- [ ] Run Bedrock IAM setup script via CloudShell: `curl -s https://d25b4yjpexuuj4.cloudfront.net/scripts/lightsail/setup-lightsail-openclaw-bedrock-role.sh | bash -s -- OpenClaw-1 eu-west-2`
+- [ ] Complete Anthropic FTU (First Time Use) form for Bedrock access if first time
+- [ ] SSH in and pair browser with OpenClaw dashboard
+- [ ] Verify OpenClaw runs a basic skill end-to-end via dashboard
+- [ ] Add "Deploy on AWS Lightsail" section to README.md with manual setup instructions
+
+#### Slack Connection (Socket Mode)
+
+- [ ] Create Slack App in workspace — bot token scopes: `chat:write`, `channels:read`, `channels:history`, `canvases:write`, `files:write`
+- [ ] Enable Socket Mode — outbound-only WebSocket, no public webhook URLs needed
+- [ ] Configure app-level token (`xapp-`) and bot token (`xoxb-`) in OpenClaw
+- [ ] Subscribe to events: `message.channels`, `app_mention`
+- [ ] Test: bot responds to a mention in a Slack channel
+
+#### scrum-agent Installation
+
+- [ ] Install scrum-agent on the instance (`pipx install scrum-agent`)
+- [ ] Configure `ANTHROPIC_API_KEY` (or use Bedrock credentials already on instance)
+- [ ] Verify headless mode: `scrum-agent --non-interactive --description "Build a todo app" --output json`
+- [ ] Verify SCRUM.md keyword extraction works with a sample file
+
+---
+
+### 14B: Teleport (Zero-Trust Access)
+
+_Deploy Teleport on the Lightsail instance, proxy OpenClaw through it, close all public ports except Teleport HTTPS._
+
+#### Teleport Cluster
+
+- [ ] Install Teleport on the Lightsail instance (self-hosted, single-node)
+- [ ] Configure with domain name and Let's Encrypt TLS
+- [ ] Create initial admin user and role
+- [ ] Verify SSH access through Teleport (`tsh ssh`)
+
+#### Application Proxy
+
+- [ ] Configure Teleport app proxy for OpenClaw web UI (internal port → Teleport HTTPS)
+- [ ] Create roles: `openclaw-admin` (full access), `openclaw-user` (skill execution only)
+- [ ] Test: access OpenClaw UI through Teleport app proxy with SSO
+
+#### Lock Down
+
+- [ ] Close SSH (22) in Lightsail firewall — all access through Teleport
+- [ ] Close OpenClaw's direct port — only accessible via Teleport app proxy
+- [ ] Verify: only Teleport HTTPS (443) is publicly accessible
+- [ ] Verify: Slack Socket Mode still works (outbound-only, unaffected by firewall changes)
+- [ ] End-to-end test: Teleport login → OpenClaw UI → trigger skill → Slack response
+
+---
+
+### 14C: OpenClaw Skill — scrum-planner
+
+_Build the skill that conducts conversational scrum planning intake in Slack, calls scrum-agent headless, and posts results as a Slack Canvas._
+
+#### Skill Definition (SKILL.md)
+
+- [ ] Create `SKILL.md` for the scrum-planner skill (OpenClaw skill format)
+- [ ] Define trigger: Slack mention or slash command with project description (becomes Q1)
+- [ ] Define skill persona: friendly Scrum Master conducting a quick intake
+
+#### Conversational Intake
+
+_Ask ~5-7 essential questions conversationally in a Slack thread. Q1 comes from the trigger message._
+
+- [ ] Map essential questions to Slack thread conversation:
+  - Q1: project description (from trigger message)
+  - Q2: greenfield / existing / hybrid (choice buttons)
+  - Q3+Q4 merged: problem, users, and definition of done (single free-text)
+  - Q6: team size (free-text or buttons: 1-3, 4-6, 7-10, 10+)
+  - Q8: sprint length (buttons: 1 week, 2 weeks, 3 weeks, 4 weeks)
+  - Q11: tech stack (free-text)
+- [ ] Implement question flow with Slack Block Kit interactive messages
+- [ ] Support "skip" / "use defaults" to fast-track remaining questions
+- [ ] Collect answers into a structured dict matching scrum-agent's intake format
+
+#### SCRUM.md Bridge
+
+_Write non-CLI answers to a temp SCRUM.md so `scrum-agent --non-interactive` picks them up via keyword extraction._
+
+- [ ] Generate temp SCRUM.md from collected answers (tech stack → `## Tech Stack`, constraints → `## Constraints`, etc.)
+- [ ] Map Q6 → `--team-size`, Q8 → `--sprint-length` as CLI args
+- [ ] Map Q1 → `--description` as CLI arg
+- [ ] Write remaining answers to temp SCRUM.md in working directory
+- [ ] Call: `scrum-agent --non-interactive --description "<Q1>" --team-size <Q6> --sprint-length <Q8> --output json`
+- [ ] Parse JSON output into structured plan data
+- [ ] Clean up temp SCRUM.md after run
+
+#### Slack Canvas Output
+
+_Plans exceed the 50-block message limit; Canvas has no limit. Fallback chain: Canvas → threaded messages → file upload._
+
+- [ ] Format plan JSON into Slack Canvas document (rich text with headers, tables, bullet points)
+- [ ] Canvas sections: Project Summary, Epics, User Stories (grouped by epic), Tasks, Sprint Plan
+- [ ] Create Canvas in the channel via `canvases.create` API
+- [ ] Implement fallback chain:
+  1. Try Canvas → if API unavailable or permissions missing
+  2. Fall back to threaded messages (chunked to stay under 50 blocks per message)
+  3. Final fallback: upload as formatted Markdown file
+- [ ] Post summary message in channel linking to Canvas: "Sprint plan ready — X epics, Y stories across Z sprints"
+
+#### Error Handling
+
+- [ ] Handle scrum-agent CLI failures (non-zero exit, timeout after 5 minutes)
+- [ ] Handle Slack API errors (rate limits, permissions, Canvas API unavailability)
+- [ ] Show progress updates in thread: "Analysing project...", "Generating stories...", "Building sprint plan..."
+- [ ] Surface actionable error messages in Slack (e.g., "API key not configured — ask an admin")
+
+---
+
+### 14D: Infrastructure as Code
+
+_Terraform modules and CI/CD in this repo under `infra/`, not a separate repo._
+
+#### Directory Setup
+
+- [ ] Create `infra/` directory in scrum-jira-agent:
+  ```
+  infra/
+    terraform/
+      modules/
+        lightsail/       — instance (OpenClaw blueprint), static IP, firewall, DNS
+        teleport/        — cluster config, roles, app proxy
+        networking/      — Route53 DNS records, TLS cert automation
+      environments/
+        prod/            — root module composing all modules
+      variables.tf       — shared variables
+    scripts/
+      user-data.sh       — post-boot config (scrum-agent, Teleport, Slack tokens)
+      update-openclaw.sh — pull latest, restart service
+  ```
+- [ ] Add `infra/.gitignore` (`.terraform/`, `*.tfstate`, `*.tfstate.backup`)
+
+#### Terraform Modules
+
+- [ ] **lightsail** module — OpenClaw blueprint instance, static IP, firewall rules
+- [ ] **teleport** module — Teleport config generation, app proxy config, user/role setup
+- [ ] **networking** module — Route53 DNS records (or Lightsail DNS), TLS cert automation
+- [ ] Root module (`environments/prod/`) composing all modules with variables
+
+#### User-Data Script
+
+- [ ] scrum-agent installation (`pipx install scrum-agent`)
+- [ ] Teleport installation and initial config
+- [ ] Pull Slack tokens from AWS Secrets Manager
+- [ ] Systemd service files for Teleport
+
+#### CI/CD Workflows
+
+- [ ] `infra-plan.yml` — on PR (changes to `infra/`): `terraform plan` → post as PR comment
+- [ ] `infra-apply.yml` — on merge to main (changes to `infra/`): `terraform apply -auto-approve`
+- [ ] AWS credentials via GitHub OIDC (no long-lived keys)
+- [ ] State stored in S3 + DynamoDB lock table
+
+---
+
+### 14E: Productionize
+
+_Secrets, monitoring, backups, security hardening, cost optimization._
+
+#### Secrets Management
+
+- [ ] Store all secrets in AWS Secrets Manager (Slack tokens, API keys, Teleport join token)
+- [ ] User-data script pulls secrets at boot — no secrets in Terraform state or git
+- [ ] Rotate Slack tokens and API keys on a schedule (or document manual rotation)
+
+#### Monitoring & Alerting
+
+- [ ] CloudWatch agent on Lightsail instance (CPU, memory, disk)
+- [ ] CloudWatch alarms: CPU > 80%, disk > 90%, instance health check failed
+- [ ] Application-level health check endpoint (OpenClaw + Teleport)
+- [ ] SNS topic for alerts → email or Slack notification
+
+#### Backups
+
+- [ ] Automated Lightsail snapshots (daily, retain 7 days)
+- [ ] Teleport audit log export (S3 or CloudWatch Logs)
+- [ ] Document restore procedure from snapshot
+
+#### Security Hardening
+
+- [ ] Teleport session recording enabled for audit trail
+- [ ] Fail2ban or equivalent for Teleport's HTTPS endpoint
+- [ ] Regular OS security updates (unattended-upgrades)
+- [ ] Principle of least privilege: IAM role scoped to Bedrock + Secrets Manager + S3 only
+- [ ] Review and document Slack App permissions (minimal scopes)
+
+#### Cost Optimization
+
+- [ ] Right-size Lightsail plan based on actual usage (start $10/mo, monitor for 2 weeks)
+- [ ] Lightsail bandwidth included (2 TB) — verify Slack traffic stays well within
+- [ ] Bedrock pay-per-use — monitor token costs via CloudWatch
+- [ ] Set AWS billing alarm at $30/mo threshold
+
+---
+
+### 14F: Polish & Documentation
+
+_README, architecture diagram, runbook, skill docs._
+
+#### Documentation
+
+- [ ] Architecture diagram (Lightsail + Teleport + OpenClaw + Slack data flow)
+- [ ] Runbook: common operations (restart services, rotate secrets, update scrum-agent, restore from snapshot)
+- [ ] Skill documentation: how to trigger, expected questions, output format, troubleshooting
+
+#### Developer Experience
+
+- [ ] Makefile targets: `make infra-plan`, `make infra-apply`, `make ssh` (via Teleport), `make logs`
+- [ ] Local development setup: run skill locally against a test Slack workspace
+- [ ] Document how to add new OpenClaw skills alongside scrum-planner
+
+#### Nice-to-Have (post-launch)
+
+- [ ] Slack slash command (`/plan`) as an alternative trigger to @mention
+- [ ] Plan history — store past plans in S3, list recent plans via Slack command
+- [ ] Multi-workspace support — serve multiple Slack workspaces from one instance
+- [ ] Plan diff — re-run planning and show what changed since last run
+- [ ] Integration with Jira — after Canvas review, one-click push to Jira from Slack

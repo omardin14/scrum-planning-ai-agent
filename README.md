@@ -189,6 +189,83 @@ LANGSMITH_PROJECT=scrum-agent
 
 ---
 
+## Deploy on AWS Lightsail (OpenClaw)
+
+Run scrum-agent as a cloud service via [OpenClaw](https://aws.amazon.com/lightsail/openclaw/) on AWS Lightsail. OpenClaw comes pre-installed on the Lightsail blueprint and uses Amazon Bedrock (Claude Sonnet 4.6) as its model provider.
+
+### 1. Create the instance
+
+1. Open the [AWS Lightsail console](https://lightsail.aws.amazon.com/)
+2. **Create instance** → choose the **OpenClaw** blueprint under "Apps + OS"
+3. Select your region (e.g., `eu-west-2`) and instance plan (2 GB RAM minimum recommended)
+4. Name the instance (e.g., `OpenClaw-1`) and create it
+
+![Create instance — select OpenClaw blueprint](docs/lightsail-setup/01-create-instance.png)
+
+### 2. Attach a static IP
+
+Your public IP changes on every stop/start. Attach a static IP in the Lightsail **Networking** tab to keep it stable.
+
+![Attach static IP](docs/lightsail-setup/02-static-ip.png)
+
+### 3. Enable Bedrock access
+
+OpenClaw uses Amazon Bedrock as its default AI model provider. Grant Bedrock API access by running the setup script in **AWS CloudShell**:
+
+```bash
+curl -s https://d25b4yjpexuuj4.cloudfront.net/scripts/lightsail/setup-lightsail-openclaw-bedrock-role.sh \
+  | bash -s -- OpenClaw-1 eu-west-2
+```
+
+Replace `OpenClaw-1` with your instance name and `eu-west-2` with your region.
+
+> **Note:** If this is your first time using Anthropic models in Amazon Bedrock, you'll need to complete the [First Time Use (FTU) form](https://console.aws.amazon.com/bedrock/home#/modelaccess) to gain access.
+
+![Run Bedrock setup script in CloudShell](docs/lightsail-setup/03-bedrock-setup.png)
+
+### 4. Pair your browser
+
+1. Click **Connect using SSH** in the Lightsail console (or use your own SSH client)
+2. Follow the on-screen instructions to pair your browser with the OpenClaw dashboard
+3. Click **Open dashboard** to access the OpenClaw web UI
+
+![SSH and pair browser](docs/lightsail-setup/04-pair-browser.png)
+
+![OpenClaw dashboard](docs/lightsail-setup/05-dashboard.png)
+
+### 5. Install scrum-agent on the instance
+
+SSH into the instance and install scrum-agent:
+
+```bash
+# Install pipx if not present
+sudo apt update && sudo apt install -y pipx
+pipx ensurepath
+source ~/.bashrc   # reload PATH so pipx-installed binaries are found
+
+# Install scrum-agent
+pipx install scrum-agent
+
+# Configure credentials (Bedrock credentials are already available via the IAM role)
+# For direct Anthropic API usage instead of Bedrock, set:
+# export ANTHROPIC_API_KEY=sk-ant-...
+
+# Verify headless mode works
+scrum-agent --non-interactive --description "Build a todo app" --output json
+```
+
+> **Tip:** If `scrum-agent: command not found` after install, run `source ~/.bashrc` (or start a new SSH session) to pick up the updated PATH.
+
+![Install scrum-agent and verify headless mode](docs/lightsail-setup/06-install-scrum-agent.png)
+
+### 6. Test end-to-end
+
+From the OpenClaw dashboard, create a skill that invokes the scrum-agent CLI in headless mode. Verify the JSON output is returned correctly.
+
+![End-to-end test via OpenClaw skill](docs/lightsail-setup/07-e2e-test.png)
+
+---
+
 ## CLI Reference
 
 ```
