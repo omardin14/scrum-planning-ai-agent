@@ -264,14 +264,83 @@ scrum-agent --setup
 
 ![Setup wizard — Bedrock provider](docs/lightsail-setup/07-setup-bedrock.png)
 
-### 7. Test end-to-end
+### 7. Verify headless mode
+
+Before creating the skill, confirm scrum-agent runs correctly on the instance:
 
 ```bash
-# Verify headless mode works
 scrum-agent --non-interactive --description "Build a todo app" --output json
 ```
 
-From the OpenClaw dashboard, create a skill that invokes the scrum-agent CLI in headless mode. Verify the JSON output is returned correctly.
+You should see JSON output with epics, stories, tasks, and sprints printed to stdout.
+
+### 8. Create the OpenClaw skill
+
+OpenClaw skills are folders with a `SKILL.md` file that tells the agent what to do. Create the scrum-planner skill:
+
+```bash
+mkdir -p ~/skills/scrum-planner
+cat > ~/skills/scrum-planner/SKILL.md << 'SKILL'
+---
+name: scrum-planner
+description: Generate a sprint plan from a project description using scrum-agent
+version: 1.0.0
+---
+
+## Instructions
+
+When the user asks you to plan a project, create a sprint plan, or break down work into stories and tasks, do the following:
+
+1. Ask the user for a **project description** if they haven't provided one already.
+2. Optionally ask for **team size** (default: 3) and **sprint length in weeks** (default: 2).
+3. Run the scrum-agent CLI to generate the plan:
+
+```bash
+scrum-agent --non-interactive \
+  --description "<project description from user>" \
+  --team-size <team size> \
+  --sprint-length <sprint length> \
+  --output json
+```
+
+4. Parse the JSON output. The schema contains:
+   - `features` — high-level epics/features
+   - `stories` — user stories with acceptance criteria and story points
+   - `tasks` — sub-tasks for each story
+   - `sprints` — sprint assignments with capacity planning
+
+5. Present the results to the user in a clear, readable format:
+   - Start with a **summary**: number of epics, stories, tasks, and sprints
+   - List each **sprint** with its stories and total points
+   - For each **story**, show the title, points, priority, and acceptance criteria
+   - Offer to show **task details** if the user wants to drill deeper
+
+6. If the command fails, check:
+   - Is `scrum-agent` installed? (`which scrum-agent`)
+   - Is the LLM provider configured? (`cat ~/.scrum-agent/.env`)
+   - Show the error output to the user with suggestions to fix it
+SKILL
+```
+
+#### Install the skill in OpenClaw
+
+From the OpenClaw dashboard or via SSH:
+
+```bash
+# If OpenClaw uses ~/.openclaw/workspace/skills/ (check your OpenClaw docs):
+cp -r ~/skills/scrum-planner ~/.openclaw/workspace/skills/
+
+# Or symlink it:
+ln -s ~/skills/scrum-planner ~/.openclaw/workspace/skills/scrum-planner
+```
+
+#### Test the skill
+
+In the OpenClaw chat, type something like:
+
+> "Plan a project: build a REST API for a bookmarks manager with user auth, tags, and search. Team of 3, 2-week sprints."
+
+The agent should invoke `scrum-agent --non-interactive` and present the sprint plan.
 
 ![End-to-end test via OpenClaw skill](docs/lightsail-setup/08-e2e-test.png)
 
