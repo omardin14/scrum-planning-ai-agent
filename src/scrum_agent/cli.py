@@ -496,6 +496,178 @@ def _run_headless(args: argparse.Namespace) -> None:
     )
 
 
+def _sync_bedrock_config() -> None:
+    """Detect Bedrock model ID and region from OpenClaw's config and sync to scrum-agent's .env.
+
+    Reads ~/.openclaw/agents/main/agent/models.json to find the Bedrock model ID
+    and region, then writes LLM_PROVIDER, LLM_MODEL, and AWS_REGION to
+    ~/.scrum-agent/.env if not already set.
+    """
+    import json as json_mod
+
+    models_json = Path.home() / ".openclaw" / "agents" / "main" / "agent" / "models.json"
+    env_path = Path.home() / ".scrum-agent" / ".env"
+
+    if not models_json.exists():
+        print("[3/6] OpenClaw models.json not found — skipped Bedrock config sync")
+        return
+
+    try:
+        config = json_mod.loads(models_json.read_text())
+    except (json_mod.JSONDecodeError, OSError):
+        print("[3/6] Could not parse OpenClaw models.json — skipped")
+        return
+
+    # Extract Bedrock model ID and region from OpenClaw config
+    bedrock = config.get("providers", {}).get("bedrock", {})
+    models = bedrock.get("models", [])
+    base_url = bedrock.get("baseUrl", "")
+
+    if not models:
+        print("[3/6] No Bedrock models found in OpenClaw config — skipped")
+        return
+
+    model_id = models[0].get("id", "")
+
+    # Extract region from baseUrl: https://bedrock-runtime.{region}.amazonaws.com
+    region = ""
+    if "bedrock-runtime." in base_url:
+        try:
+            region = base_url.split("bedrock-runtime.")[1].split(".amazonaws.com")[0]
+        except IndexError:
+            pass
+
+    if not model_id:
+        print("[3/6] No Bedrock model ID found — skipped")
+        return
+
+    # Read existing .env to avoid overwriting user settings
+    env_path.parent.mkdir(parents=True, exist_ok=True)
+    existing = env_path.read_text() if env_path.exists() else ""
+
+    additions = []
+    if "LLM_PROVIDER" not in existing:
+        additions.append("LLM_PROVIDER=bedrock")
+    if "LLM_MODEL" not in existing:
+        additions.append(f"LLM_MODEL={model_id}")
+    elif model_id not in existing:
+        # LLM_MODEL exists but with a different value — update it
+        lines = existing.splitlines()
+        lines = [f"LLM_MODEL={model_id}" if line.startswith("LLM_MODEL=") else line for line in lines]
+        existing = "\n".join(lines) + "\n"
+        env_path.write_text(existing)
+    if region and "PLACEHOLDER" not in region and "AWS_REGION" not in existing:
+        additions.append(f"AWS_REGION={region}")
+
+    if additions:
+        with open(env_path, "a") as f:
+            f.write("\n".join(additions) + "\n")
+
+    print(f"[3/6] Bedrock config synced: model={model_id}" + (f", region={region}" if region else ""))
+
+
+def _ensure_bedrock_iam() -> None:
+    """Check Bedrock IAM access and add inference-profile permissions if needed.
+
+    Tests the configured model ID with a minimal Converse call. If it fails with
+    AccessDeniedException on an inference-profile ARN, attempts to add the
+    required IAM policy via the AWS CLI.
+    """
+    import subprocess
+
+    env_path = Path.home() / ".scrum-agent" / ".env"
+    if not env_path.exists():
+        print("[5/6] No .env found — skipped IAM check")
+        return
+
+    env_content = env_path.read_text()
+
+    # Extract model and region from .env
+    model_id = ""
+    region = ""
+    for line in env_content.splitlines():
+        if line.startswith("LLM_MODEL="):
+            model_id = line.split("=", 1)[1].strip()
+        if line.startswith("AWS_REGION="):
+            region = line.split("=", 1)[1].strip()
+
+    if not model_id or not region:
+        print("[5/6] LLM_MODEL or AWS_REGION not set — skipped IAM check")
+        return
+
+    # Test Bedrock access with a minimal call
+    test_result = subprocess.run(
+        [
+            "aws",
+            "bedrock-runtime",
+            "converse",
+            "--region",
+            region,
+            "--model-id",
+            model_id,
+            "--messages",
+            '[{"role":"user","content":[{"text":"Hi"}]}]',
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    if test_result.returncode == 0:
+        print(f"[5/6] Bedrock access verified: {model_id}")
+        return
+
+    stderr = test_result.stderr
+    if "AccessDeniedException" not in stderr:
+        print(f"[5/6] Bedrock test failed: {stderr.strip()[:200]}")
+        return
+
+    # Extract role name from the error message for targeted policy update
+    # Error contains: assumed-role/ROLE_NAME/instance-id
+    role_name = ""
+    if "assumed-role/" in stderr:
+        try:
+            role_name = stderr.split("assumed-role/")[1].split("/")[0]
+        except IndexError:
+            pass
+
+    if not role_name:
+        print("[5/6] Could not detect IAM role name — add bedrock:InvokeModel permission manually")
+        return
+
+    print(f"[5/6] Bedrock access denied for {model_id} — adding IAM policy to {role_name}...")
+
+    # Build policy allowing both inference-profile and foundation-model ARNs
+    policy_doc = (
+        '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"bedrock:InvokeModel",'
+        '"Resource":["arn:aws:bedrock:*:*:inference-profile/*","arn:aws:bedrock:*:*:foundation-model/*"]}]}'
+    )
+
+    put_result = subprocess.run(
+        [
+            "aws",
+            "iam",
+            "put-role-policy",
+            "--role-name",
+            role_name,
+            "--policy-name",
+            "ScrumAgentBedrockAccess",
+            "--policy-document",
+            policy_doc,
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    if put_result.returncode == 0:
+        print(f"[5/6] Added BedrockAccess policy to {role_name} — may take a few seconds to propagate")
+    else:
+        print(f"[5/6] Could not update IAM policy: {put_result.stderr.strip()[:200]}")
+        print(
+            f"       Run manually from CloudShell: aws iam put-role-policy --role-name {role_name} "
+            f"--policy-name ScrumAgentBedrockAccess --policy-document '{policy_doc}'"
+        )
+
+
 def _install_skill(target_arg: str) -> None:
     """Install the bundled scrum-planner skill into OpenClaw.
 
@@ -564,31 +736,37 @@ def _install_skill(target_arg: str) -> None:
         print(f"[{step}] {label}: {dest}")
         return count
 
-    _copy_to(target_dir, "Skill registry", "1/4")
+    _copy_to(target_dir, "Skill registry", "1/6")
 
     # ── Step 2: Copy to sandbox workspace (agent runtime access) ─────────────
     # The OpenClaw sandbox only has access to ~/.openclaw/workspace/.
     # The agent needs to read SKILL.md at runtime to follow the instructions.
     workspace_skill_dir = openclaw_workspace_dir / "skills" / "scrum-planner"
     if openclaw_workspace_dir.is_dir():
-        _copy_to(workspace_skill_dir, "Sandbox workspace", "2/4")
+        _copy_to(workspace_skill_dir, "Sandbox workspace", "2/6")
     else:
-        print("[2/4] Sandbox workspace not found — skipped (not an OpenClaw instance?)")
+        print("[2/6] Sandbox workspace not found — skipped (not an OpenClaw instance?)")
 
-    # ── Step 3: Symlink scrum-agent into /usr/local/bin/ ────────────────────
+    # ── Step 3: Sync Bedrock model config from OpenClaw ─────────────────────
+    # OpenClaw's models.json has the exact Bedrock model ID and region.
+    # Detect these and write to ~/.scrum-agent/.env so scrum-agent uses the
+    # same model as OpenClaw (e.g. global.anthropic.claude-sonnet-4-6).
+    _sync_bedrock_config()
+
+    # ── Step 4: Symlink scrum-agent into /usr/local/bin/ ────────────────────
     # The OpenClaw sandbox may not see ~/.local/bin/ or pipx paths.
     # A symlink in /usr/local/bin/ makes the binary accessible from the sandbox.
     symlink_path = Path("/usr/local/bin/scrum-agent")
     scrum_agent_bin = shutil.which("scrum-agent")
 
     if scrum_agent_bin and symlink_path.exists() and symlink_path.resolve() == Path(scrum_agent_bin).resolve():
-        print("[3/4] scrum-agent already symlinked in /usr/local/bin/ — skipped")
+        print("[4/6] scrum-agent already symlinked in /usr/local/bin/ — skipped")
     elif scrum_agent_bin:
         try:
             if symlink_path.exists() or symlink_path.is_symlink():
                 symlink_path.unlink()
             symlink_path.symlink_to(scrum_agent_bin)
-            print(f"[3/4] Symlinked scrum-agent → {symlink_path}")
+            print(f"[4/6] Symlinked scrum-agent → {symlink_path}")
         except PermissionError:
             try:
                 subprocess.run(
@@ -596,24 +774,27 @@ def _install_skill(target_arg: str) -> None:
                     check=True,
                     capture_output=True,
                 )
-                print(f"[3/4] Symlinked scrum-agent → {symlink_path} (via sudo)")
+                print(f"[4/6] Symlinked scrum-agent → {symlink_path} (via sudo)")
             except (subprocess.CalledProcessError, FileNotFoundError):
                 print(
-                    f"[3/4] Warning: could not symlink to {symlink_path} — "
+                    f"[4/6] Warning: could not symlink to {symlink_path} — "
                     f"run manually: sudo ln -s {scrum_agent_bin} {symlink_path}"
                 )
     else:
-        print("[3/4] Warning: scrum-agent not found on PATH — skipping symlink")
+        print("[4/6] Warning: scrum-agent not found on PATH — skipping symlink")
 
-    # ── Step 4: Restart OpenClaw gateway ─────────────────────────────────────
+    # ── Step 5: Ensure Bedrock IAM permissions ───────────────────────────────
+    _ensure_bedrock_iam()
+
+    # ── Step 6: Restart OpenClaw gateway ─────────────────────────────────────
     # OpenClaw loads skills at startup, so a gateway restart is needed.
     gateway_available = shutil.which("openclaw") is not None
     if not gateway_available:
-        print("[4/4] OpenClaw CLI not found — skip gateway restart (run 'openclaw gateway restart' manually)")
+        print("[6/6] OpenClaw CLI not found — skip gateway restart (run 'openclaw gateway restart' manually)")
         return
 
     try:
-        answer = input("\n[4/4] Restart OpenClaw gateway to load the skill? [Y/n]").strip().lower()
+        answer = input("\n[6/6] Restart OpenClaw gateway to load the skill? [Y/n] ").strip().lower()
     except (KeyboardInterrupt, EOFError):
         print("\nSkipped gateway restart. Run 'openclaw gateway restart' manually.")
         return

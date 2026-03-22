@@ -264,12 +264,17 @@ scrum-agent --setup
 
 ![Setup wizard — Bedrock provider](docs/lightsail-setup/07-setup-bedrock.png)
 
-### 7. Test end-to-end
+### 7. Test headless mode
+
+Verify scrum-agent works end-to-end before installing the skill:
 
 ```bash
-# Verify headless mode works
 scrum-agent --non-interactive --description "Build a todo app" --output json
 ```
+
+You should see JSON output with features, stories, tasks, and sprints.
+
+![Headless mode test](docs/lightsail-setup/08-headless-test.png)
 
 ### 8. Install the OpenClaw skill
 
@@ -284,14 +289,18 @@ scrum-agent --install-skill
 This will:
 1. Copy the skill files to the skills registry at `/usr/lib/node_modules/openclaw/skills/scrum-planner/` (may prompt for sudo)
 2. Copy the skill files into the sandbox workspace at `~/.openclaw/workspace/skills/scrum-planner/` (so the agent can read them at runtime)
-3. Symlink `scrum-agent` into `/usr/local/bin/` so the OpenClaw sandbox can find the binary
-4. Ask to restart the OpenClaw gateway to load the new skill
+3. Sync the Bedrock model ID and region from OpenClaw's config into `~/.scrum-agent/.env`
+4. Symlink `scrum-agent` into `/usr/local/bin/` so the OpenClaw sandbox can find the binary
+5. Test Bedrock access and add IAM `inference-profile` permissions if needed
+6. Ask to restart the OpenClaw gateway to load the new skill
 
 ```
-[1/4] Skill registry: /usr/lib/node_modules/openclaw/skills/scrum-planner
-[2/4] Sandbox workspace: /home/ubuntu/.openclaw/workspace/skills/scrum-planner
-[3/4] Symlinked scrum-agent → /usr/local/bin/scrum-agent
-[4/4] Restart OpenClaw gateway to load the skill? [Y/n]
+[1/6] Skill registry: /usr/lib/node_modules/openclaw/skills/scrum-planner
+[2/6] Sandbox workspace: /home/ubuntu/.openclaw/workspace/skills/scrum-planner
+[3/6] Bedrock config synced: model=global.anthropic.claude-sonnet-4-6, region=eu-west-2
+[4/6] Symlinked scrum-agent → /usr/local/bin/scrum-agent
+[5/6] Bedrock access verified: global.anthropic.claude-sonnet-4-6
+[6/6] Restart OpenClaw gateway to load the skill? [Y/n]
 ```
 
 To install to a custom skills directory:
@@ -302,9 +311,15 @@ scrum-agent --install-skill /path/to/openclaw/skills
 
 ![Install the OpenClaw skill](docs/lightsail-setup/09-install-skill.png)
 
-### 9. Test the skill
+### 9. Verify the skill is loaded
 
-Open the OpenClaw dashboard and start a new conversation. Try a simple project to confirm the full flow works end-to-end:
+Open the OpenClaw dashboard and check the **Skills** page. You should see `scrum-planner` listed under **Installed Skills** with an "eligible" badge.
+
+![Skill visible in OpenClaw dashboard](docs/lightsail-setup/10-skill-dashboard.png)
+
+### 10. Test the skill
+
+Start a new conversation in the OpenClaw dashboard. Try a simple project:
 
 > "Plan a REST API for a task management app — Python, FastAPI, PostgreSQL, 3 engineers, 2-week sprints"
 
@@ -318,20 +333,13 @@ You should see:
 
 ![Skill output — generated sprint plan](docs/lightsail-setup/12-skill-output.png)
 
-### 10. Troubleshooting
+### 11. Troubleshooting
 
-If the skill doesn't appear after restarting the gateway:
+If the skill doesn't appear in the dashboard:
 
 ```bash
-# Check where OpenClaw looks for skills
-cat ~/.openclaw/config.* 2>/dev/null
-ls ~/.openclaw/
-
-# Re-install to the correct path if different
-scrum-agent --install-skill /correct/openclaw/skills/path
-
-# Restart again
-openclaw gateway restart
+# Re-install and restart
+scrum-agent --install-skill
 ```
 
 If `scrum-agent` fails inside the skill:
@@ -348,12 +356,10 @@ tail -50 ~/.scrum-agent/logs/*.log
 grep LLM_PROVIDER ~/.scrum-agent/.env
 ```
 
-![End-to-end test via OpenClaw skill](docs/lightsail-setup/08-e2e-test.png)
-
-### 11. Next steps
+### 12. Next steps
 
 - **Connect Slack** — Set up a Slack App with Socket Mode to trigger the skill via `@mention` or slash command. See [Phase 14B in TODO.md](TODO.md) for the full Slack integration checklist.
-- **Customize the skill** — Edit `~/.openclaw/skills/scrum-planner/SKILL.md` to adjust question flow, add domain-specific defaults, or change the output format.
+- **Customize the skill** — Edit the SKILL.md to adjust question flow, add domain-specific defaults, or change the output format.
 - **Review diagnostics** — The Slack Canvas includes a diagnostics appendix with the generated SCRUM.md, session logs, and config. Check `~/.scrum-agent/logs/` for detailed run logs if anything looks off.
 - **Secure with Teleport** — For production use, add Teleport for identity-aware access to the Lightsail instance and OpenClaw dashboard.
 
