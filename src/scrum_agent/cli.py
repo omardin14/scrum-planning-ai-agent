@@ -497,12 +497,18 @@ def _run_headless(args: argparse.Namespace) -> None:
 
 
 def _install_skill(target_arg: str) -> None:
-    """Install the bundled scrum-planner skill into an OpenClaw skills directory.
+    """Install the bundled scrum-planner skill into OpenClaw.
 
     Full installation flow:
-    1. Copy SKILL.md and README.md into the OpenClaw skills directory
-    2. Symlink scrum-agent into /usr/local/bin/ so the OpenClaw sandbox can find it
-    3. Offer to restart the OpenClaw gateway to pick up the new skill
+    1. Copy SKILL.md into the OpenClaw skills registry (for gateway discovery)
+    2. Copy SKILL.md into the sandbox workspace (so the agent can read it at runtime)
+    3. Symlink scrum-agent into /usr/local/bin/ so the sandbox can find the binary
+    4. Offer to restart the OpenClaw gateway to pick up the new skill
+
+    OpenClaw has two separate filesystem concerns:
+    - Skills registry: /usr/lib/node_modules/openclaw/skills/ (gateway reads at startup)
+    - Sandbox workspace: ~/.openclaw/workspace/ (agent reads at runtime)
+    Both need the SKILL.md for the skill to work end-to-end.
 
     Args:
         target_arg: "__auto__" to auto-detect, or a custom path.
@@ -511,15 +517,14 @@ def _install_skill(target_arg: str) -> None:
     import shutil
     import subprocess
 
-    # OpenClaw's built-in skills live at /usr/lib/node_modules/openclaw/skills/.
-    # This is where the sandbox can read SKILL.md files from.
+    # OpenClaw paths
     openclaw_skills_dir = Path("/usr/lib/node_modules/openclaw/skills")
+    openclaw_workspace_dir = Path.home() / ".openclaw" / "workspace"
 
     if target_arg == "__auto__":
         if openclaw_skills_dir.is_dir():
             target_dir = openclaw_skills_dir / "scrum-planner"
         else:
-            # Fallback for non-Lightsail installs
             target_dir = Path.home() / ".openclaw" / "skills" / "scrum-planner"
     else:
         target_dir = Path(target_arg) / "scrum-planner"
@@ -529,80 +534,86 @@ def _install_skill(target_arg: str) -> None:
     try:
         skill_pkg = importlib.resources.files("scrum_agent") / "skills" / "scrum-planner"
     except (TypeError, ModuleNotFoundError):
-        # Fallback: resolve relative to this source file (development install).
         skill_pkg = Path(__file__).resolve().parent.parent.parent / "skills" / "scrum-planner"
 
-    # Verify source exists
     source_path = Path(str(skill_pkg))
     if not source_path.is_dir():
-        # Try the repo-root fallback for editable installs
         repo_root = Path(__file__).resolve().parent.parent.parent
         source_path = repo_root / "skills" / "scrum-planner"
         if not source_path.is_dir():
             print(f"Error: bundled skill not found at {source_path}", file=sys.stderr)
             sys.exit(1)
 
-    # ── Step 1: Copy skill files ─────────────────────────────────────────────
-    # The OpenClaw skills directory (/usr/lib/node_modules/openclaw/skills/) is
-    # owned by root, so we may need sudo to copy files there.
-    try:
-        target_dir.mkdir(parents=True, exist_ok=True)
-        copied = 0
-        for src_file in source_path.iterdir():
-            if src_file.is_file():
-                shutil.copy2(src_file, target_dir / src_file.name)
-                copied += 1
-    except PermissionError:
-        # Target is root-owned — use sudo to copy
-        subprocess.run(["sudo", "mkdir", "-p", str(target_dir)], check=True)
-        copied = 0
-        for src_file in source_path.iterdir():
-            if src_file.is_file():
-                subprocess.run(["sudo", "cp", str(src_file), str(target_dir / src_file.name)], check=True)
-                copied += 1
+    # ── Step 1: Copy to skills registry (gateway discovery) ──────────────────
+    # /usr/lib/node_modules/openclaw/skills/ is root-owned, so may need sudo.
+    def _copy_to(dest: Path, label: str, step: str) -> int:
+        try:
+            dest.mkdir(parents=True, exist_ok=True)
+            count = 0
+            for src_file in source_path.iterdir():
+                if src_file.is_file():
+                    shutil.copy2(src_file, dest / src_file.name)
+                    count += 1
+        except PermissionError:
+            subprocess.run(["sudo", "mkdir", "-p", str(dest)], check=True)
+            count = 0
+            for src_file in source_path.iterdir():
+                if src_file.is_file():
+                    subprocess.run(["sudo", "cp", str(src_file), str(dest / src_file.name)], check=True)
+                    count += 1
+        print(f"[{step}] {label}: {dest}")
+        return count
 
-    print(f"[1/3] Installed scrum-planner skill ({copied} files) to {target_dir}")
+    _copy_to(target_dir, "Skill registry", "1/4")
 
-    # ── Step 2: Symlink scrum-agent into /usr/local/bin/ ─────────────────────
+    # ── Step 2: Copy to sandbox workspace (agent runtime access) ─────────────
+    # The OpenClaw sandbox only has access to ~/.openclaw/workspace/.
+    # The agent needs to read SKILL.md at runtime to follow the instructions.
+    workspace_skill_dir = openclaw_workspace_dir / "skills" / "scrum-planner"
+    if openclaw_workspace_dir.is_dir():
+        _copy_to(workspace_skill_dir, "Sandbox workspace", "2/4")
+    else:
+        print("[2/4] Sandbox workspace not found — skipped (not an OpenClaw instance?)")
+
+    # ── Step 3: Symlink scrum-agent into /usr/local/bin/ ────────────────────
     # The OpenClaw sandbox may not see ~/.local/bin/ or pipx paths.
     # A symlink in /usr/local/bin/ makes the binary accessible from the sandbox.
     symlink_path = Path("/usr/local/bin/scrum-agent")
     scrum_agent_bin = shutil.which("scrum-agent")
 
     if scrum_agent_bin and symlink_path.exists() and symlink_path.resolve() == Path(scrum_agent_bin).resolve():
-        print("[2/3] scrum-agent already symlinked in /usr/local/bin/ — skipped")
+        print("[3/4] scrum-agent already symlinked in /usr/local/bin/ — skipped")
     elif scrum_agent_bin:
         try:
             if symlink_path.exists() or symlink_path.is_symlink():
                 symlink_path.unlink()
             symlink_path.symlink_to(scrum_agent_bin)
-            print(f"[2/3] Symlinked scrum-agent → {symlink_path}")
+            print(f"[3/4] Symlinked scrum-agent → {symlink_path}")
         except PermissionError:
-            # Try with sudo
             try:
                 subprocess.run(
                     ["sudo", "ln", "-sf", scrum_agent_bin, str(symlink_path)],
                     check=True,
                     capture_output=True,
                 )
-                print(f"[2/3] Symlinked scrum-agent → {symlink_path} (via sudo)")
+                print(f"[3/4] Symlinked scrum-agent → {symlink_path} (via sudo)")
             except (subprocess.CalledProcessError, FileNotFoundError):
                 print(
-                    f"[2/3] Warning: could not symlink to {symlink_path} — "
+                    f"[3/4] Warning: could not symlink to {symlink_path} — "
                     f"run manually: sudo ln -s {scrum_agent_bin} {symlink_path}"
                 )
     else:
-        print("[2/3] Warning: scrum-agent not found on PATH — skipping symlink")
+        print("[3/4] Warning: scrum-agent not found on PATH — skipping symlink")
 
-    # ── Step 3: Restart OpenClaw gateway ─────────────────────────────────────
+    # ── Step 4: Restart OpenClaw gateway ─────────────────────────────────────
     # OpenClaw loads skills at startup, so a gateway restart is needed.
     gateway_available = shutil.which("openclaw") is not None
     if not gateway_available:
-        print("[3/3] OpenClaw CLI not found — skip gateway restart (run 'openclaw gateway restart' manually)")
+        print("[4/4] OpenClaw CLI not found — skip gateway restart (run 'openclaw gateway restart' manually)")
         return
 
     try:
-        answer = input("\n[3/3] Restart OpenClaw gateway to load the skill? [Y/n] ").strip().lower()
+        answer = input("\n[4/4] Restart OpenClaw gateway to load the skill? [Y/n]").strip().lower()
     except (KeyboardInterrupt, EOFError):
         print("\nSkipped gateway restart. Run 'openclaw gateway restart' manually.")
         return
