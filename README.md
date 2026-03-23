@@ -364,9 +364,42 @@ openclaw channels add
 
 Follow the interactive prompts — OpenClaw will guide you through creating a Slack App, setting the required permissions/scopes, and connecting via Socket Mode. No public webhook URLs needed.
 
-![Connect Slack channel](docs/lightsail-setup/13-slack-channel.png)
+![Connect Slack channel](docs/lightsail-setup/13-slack-channel-add.png)
 
-### 13. Next steps
+![Configure Slack channel](docs/lightsail-setup/14-slack-channel-configure.png)
+
+### 13. Use the skill in Slack
+
+Once Slack is connected, `@mention` the bot in any channel to start a planning session:
+
+> **You:** @scrum-bot Plan a mobile banking app — React Native, Node.js, PostgreSQL, 6 engineers
+
+The skill runs the same conversational intake as the dashboard, directly in a Slack thread:
+
+1. **Smart extraction** — the bot detects answers from your initial message and shows what it found
+2. **Follow-up questions** — numbered choices for project type, sprint length, and target sprints
+3. **Adaptive probes** — "You said 6 engineers — what are their roles?"
+4. **Confirmation** — summary table with answer sources before generating
+
+![Slack intake — numbered choices](docs/lightsail-setup/15-slack-intake-choices.png)
+
+![Slack intake — adaptive follow-up](docs/lightsail-setup/16-slack-intake-followup.png)
+
+![Slack intake — confirmation table](docs/lightsail-setup/17-slack-intake-confirmation.png)
+
+After confirmation, the bot runs `scrum-agent` and posts the results:
+
+- **Summary message** in the thread with feature/story/task counts
+- **Full sprint plan** with features, stories (grouped by feature), task breakdown, and sprint assignments
+- **Diagnostics** at the end with the generated SCRUM.md and config details
+
+![Slack output — sprint plan summary](docs/lightsail-setup/18-slack-output-summary.png)
+
+![Slack output — features and stories](docs/lightsail-setup/19-slack-output-stories.png)
+
+![Slack output — sprint assignments](docs/lightsail-setup/20-slack-output-sprints.png)
+
+### 14. Next steps
 
 - **Customize the skill** — Edit the SKILL.md to adjust question flow, add domain-specific defaults, or change the output format.
 - **Review diagnostics** — The Slack Canvas includes a diagnostics appendix with the generated SCRUM.md, session logs, and config. Check `~/.scrum-agent/logs/` for detailed run logs if anything looks off.
