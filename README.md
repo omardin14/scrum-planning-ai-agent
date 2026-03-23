@@ -290,19 +290,18 @@ This will:
 1. Copy the skill files to the skills registry at `/usr/lib/node_modules/openclaw/skills/scrum-planner/` (may prompt for sudo)
 2. Copy the skill files into the sandbox workspace at `~/.openclaw/workspace/skills/scrum-planner/`
 3. Sync the Bedrock model ID and region from OpenClaw's config into `~/.scrum-agent/.env`
-4. Configure the Docker sandbox to install `scrum-agent` inside the container and pass Bedrock env vars
-5. Recreate the sandbox container and restart the gateway
+4. Disable the Docker sandbox so `scrum-agent` runs directly on the host
+5. Restart the OpenClaw gateway to load the new skill
 
 ```
 [1/5] Skill registry: /usr/lib/node_modules/openclaw/skills/scrum-planner
 [2/5] Sandbox workspace: /home/ubuntu/.openclaw/workspace/skills/scrum-planner
 [3/5] Bedrock config synced: model=global.anthropic.claude-sonnet-4-6, region=eu-west-2
-[4/5] Sandbox configured: setupCommand='pip install scrum-agent[bedrock]...'
-      Env vars: LLM_PROVIDER=bedrock, LLM_MODEL=global.anthropic.claude-sonnet-4-6, AWS_REGION=eu-west-2
-[5/5] Recreate sandbox and restart gateway? [Y/n]
+[4/5] Sandbox disabled — scrum-agent will run on host
+[5/5] Restart OpenClaw gateway to load the skill? [Y/n]
 ```
 
-> **Note:** OpenClaw runs agents in Docker sandbox containers with isolated filesystems. `scrum-agent` is installed *inside* the container via `setupCommand`, which runs once when the container is created. Bedrock credentials are passed via env vars since the sandbox doesn't inherit the host environment.
+> **Security note:** This disables OpenClaw's Docker sandbox isolation, meaning tools execute directly on the host. This is safe for dedicated Lightsail instances running only the scrum-planner skill. For shared or multi-tenant setups, consider building a [custom sandbox image](https://docs.openclaw.ai/gateway/sandboxing) with Python pre-installed instead.
 
 To install to a custom skills directory:
 
