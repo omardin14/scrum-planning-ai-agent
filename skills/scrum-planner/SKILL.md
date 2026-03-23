@@ -16,6 +16,45 @@ Your tone is warm, structured, and collaborative — like a senior Scrum Master 
 
 Conduct a short intake conversation to gather project context. You need answers to 7 questions (plus one optional). Some may already be answered in the user's first message — acknowledge what you already know and skip those.
 
+### Progress Indicator
+
+At each question, show a brief progress line so the user knows where they are:
+
+> "**[2/7]** Project type"
+
+or
+
+> "**[5/7]** Almost there — tech stack"
+
+Use the phase intros from the TUI to keep the tone warm:
+- Questions 1-2: "Let's start with the big picture — what you're building and why."
+- Questions 3-4: Keep momentum, these are the meatiest questions.
+- Questions 5-6: "Now let's talk about your team and how you work."
+- Question 7: "Last one — tell me about the technical side of things."
+
+### Smart Extraction
+
+When the user's first message contains a rich project description, extract as many answers as possible before asking questions. Acknowledge what you found:
+
+> "Great — I picked up a few things from your description:"
+>
+> | Detected | Value |
+> |----------|-------|
+> | Project type | Greenfield |
+> | Tech stack | React, Node.js, PostgreSQL |
+> | Team size | 6 engineers |
+>
+> "I'll skip those and just ask what's missing."
+
+Look for these signals in the initial message:
+- **Project type:** "from scratch", "new project", "greenfield" → Greenfield. "refactor", "migrate", "legacy", "rewrite" → Existing codebase.
+- **Team size:** any number followed by "engineers", "developers", "devs", "people"
+- **Sprint length:** "2-week sprints", "weekly sprints", etc.
+- **Tech stack:** language/framework/database names
+- **Integrations:** service names like Stripe, Auth0, Firebase, Twilio, etc.
+
+Only ask questions whose answers were NOT extracted. Always show what was extracted so the user can correct anything.
+
 ### Q1 — Project Description
 
 > "Tell me about your project — what are you building?"
@@ -54,6 +93,11 @@ This is a single combined question. The answer feeds both the goals and definiti
 
 Present as a numbered list. The user can reply with a number from the list or type an exact count. Map the choice to a number (e.g., "1-2" → 2, "3-5" → 4, "6-10" → 8, "10+" → 12). If the user gives an exact number, use that directly.
 
+**Adaptive follow-up:** If the user gave a specific team size, personalize the next question:
+> "You said 6 engineers — what are their roles? (e.g., 2 backend, 1 frontend, 1 fullstack, 1 DevOps, 1 QA)"
+
+This is optional context — if the user skips it, that's fine. Don't block on it. Include the answer in SCRUM.md `## Team Conventions` if provided.
+
 ### Q8 — Sprint Length
 
 > "How long are your sprints?"
@@ -75,6 +119,15 @@ Present as a numbered list with the recommended option marked. If the user skips
 > - **Python:** Django + PostgreSQL, FastAPI + MongoDB, Flask + Redis
 > - **JavaScript/TypeScript:** React + Node.js + PostgreSQL, Next.js + Prisma
 > - **Go:** Gin + PostgreSQL, gRPC + MongoDB
+
+**Adaptive follow-up:** If the user gave a specific tech stack, personalize:
+> "You mentioned React and Node.js. Are there any existing APIs, services, or third-party integrations? (e.g., Stripe for payments, Auth0 for auth, SendGrid for email)"
+
+And if they answered Q2 (project type), ask about constraints:
+> "Since this is a **greenfield** project, are there any architectural constraints? (e.g., microservices vs monolith, cloud provider, language choices)"
+> "Since this is an **existing codebase**, are there constraints to preserve? (e.g., existing APIs, database migrations, backward compatibility)"
+
+These are optional — skip if the user says "no" or "none". Include answers in SCRUM.md `## Constraints` if provided.
 
 ### Q10 — Target Sprints
 
@@ -113,30 +166,50 @@ Apply these follow-up rules before moving to the next question:
 
 ---
 
+## Cross-Question Validation
+
+Before showing the confirmation summary, check for contradictions or unrealistic combinations. Flag these as warnings — the user can still proceed, but should be aware:
+
+| Combination | Warning |
+|-------------|---------|
+| Team size 1-2 + target 10+ sprints | "That's a long timeline for a small team — consider reducing scope or adding engineers" |
+| Team size 10+ + target 1-2 sprints | "Large team with very short timeline — coordination overhead may be high" |
+| Greenfield + "must preserve existing APIs" in constraints | "You said greenfield but mentioned preserving existing APIs — did you mean hybrid?" |
+| No tech stack + existing codebase | "For an existing codebase, knowing the tech stack helps generate accurate tasks — can you check?" |
+| Sprint length 1 week + 10+ sprints | "1-week sprints over 10+ iterations is unusual — consider 2-week sprints to reduce ceremony overhead" |
+
+Show warnings inline before the confirmation table:
+
+> "A couple of things I noticed:"
+> - "You have 2 engineers targeting 10+ sprints — that's ambitious. Want to adjust?"
+
 ## Confirmation Gate
 
-After collecting all answers, show a summary table and ask for confirmation before running the agent.
+After collecting all answers (and showing any validation warnings), show a summary table and ask for confirmation before running the agent.
 
-Format the summary like this:
+Format the summary like this, marking how each answer was obtained:
 
 ```
 Here's what I've got:
 
-| Question | Answer |
-|----------|--------|
-| Project | {Q1 — first 100 chars} |
-| Type | {Q2} |
-| Problem & done | {Q3+Q4 — first 150 chars} |
-| Team size | {Q6} engineers |
-| Sprint length | {Q8} |
-| Tech stack | {Q11} |
-| Target sprints | {Q10} |
-| Extra context | {optional — or "None"} |
+| # | Question | Answer | Source |
+|---|----------|--------|--------|
+| 1 | Project | {Q1 — first 100 chars} | you said |
+| 2 | Type | {Q2} | you picked |
+| 3 | Problem & done | {Q3+Q4 — first 150 chars} | you said |
+| 4 | Team size | {Q6} engineers | you said |
+| 5 | Sprint length | {Q8} | default |
+| 6 | Tech stack | {Q11} | extracted |
+| 7 | Target sprints | {Q10} | you picked |
+| 8 | Extra context | {optional — or "None"} | — |
 
-Does this look right? I can adjust anything before generating the plan.
+Source key: **you said** = answered directly, **you picked** = selected from choices,
+**extracted** = detected from your description, **default** = skipped (using default)
+
+Does this look right? Reply with a number to change that answer, or "go" to generate the plan.
 ```
 
-If the user wants to change something, update the relevant answer and show the table again. Only proceed when the user confirms.
+If the user replies with a number (e.g., "4"), re-ask that specific question. Show the updated table after each change. Only proceed when the user says "go", "yes", "looks good", etc.
 
 ---
 
@@ -175,6 +248,22 @@ Target sprints: {Q10}
 - **Project type (Q2):** "greenfield", "existing codebase", "hybrid", "refactor", "migrate", "legacy", "rewrite", "from scratch", "new project"
 - **Services (Q12-equivalent):** "stripe", "auth0", "firebase", "twilio", "sendgrid", "segment", "launchdarkly", "datadog", "pagerduty", "sentry", "okta", "plaid", "algolia", "cloudflare", "vercel"
 - **Infrastructure (Q13-equivalent):** "kubernetes", "k8s", "microservices", "serverless", "lambda", "aws", "gcp", "azure", "docker", "monolith", "on-premise", "terraform", "cloudformation", "ecs", "eks"
+
+---
+
+## Generating Progress
+
+Before invoking the CLI, let the user know what's about to happen:
+
+> "Generating your sprint plan now — this usually takes 1-2 minutes. I'm running through 5 phases:"
+>
+> 1. Analysing project context
+> 2. Generating features/epics
+> 3. Writing user stories with acceptance criteria
+> 4. Decomposing into tasks
+> 5. Building the sprint plan
+>
+> "Sit tight..."
 
 ---
 
