@@ -530,3 +530,7 @@ def _export_checkpoint(console: Console, graph_state: dict, stage: str = "comple
     md_path = _export_plan_markdown(graph_state)
     console.print(f"[success]HTML report  → {html_path}[/success]")
     console.print(f"[success]Markdown     → {md_path}[/success]")
+
+    # Send anonymous telemetry if opted in (never blocks or errors)
+    from scrum_agent.telemetry import send_telemetry
+    send_telemetry(graph_state)
