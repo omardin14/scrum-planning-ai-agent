@@ -251,22 +251,6 @@ Target sprints: {Q10}
 
 ---
 
-## Generating Progress
-
-Before invoking the CLI, let the user know what's about to happen:
-
-> "Generating your sprint plan now — this usually takes 1-2 minutes. I'm running through 5 phases:"
->
-> 1. Analysing project context
-> 2. Generating features/epics
-> 3. Writing user stories with acceptance criteria
-> 4. Decomposing into tasks
-> 5. Building the sprint plan
->
-> "Sit tight..."
-
----
-
 ## CLI Invocation
 
 Run `scrum-agent` in a temporary directory with the generated SCRUM.md:
@@ -290,27 +274,117 @@ scrum-agent --non-interactive \
 
 ---
 
+## Phase-by-Phase Review
+
+**This is critical.** Do NOT dump the entire plan at once. Present each phase one at a time, pausing for user review — exactly like the TUI's accept/edit/reject flow.
+
+After the CLI returns JSON, parse it and present results in 4 phases:
+
+### Phase 1: Project Analysis & Features
+
+> "Here's what scrum-agent came up with. Let's review each phase — you can accept, edit, or ask me to regenerate."
+>
+> **Phase 1 of 4: Features**
+>
+> | # | Feature | Description |
+> |---|---------|-------------|
+> | 1 | {feature.name} | {feature.description} |
+> | 2 | {feature.name} | {feature.description} |
+> | ... | ... | ... |
+>
+> **[Accept]** looks good — move to stories
+> **[Edit]** tell me what to change (e.g., "merge features 2 and 3", "add a feature for notifications")
+> **[Regenerate]** re-run with more context
+
+**If the user edits:**
+- Apply their changes to the feature list (add, remove, merge, rename)
+- Show the updated table and ask again
+- If the edit is substantial (e.g., "add 3 new features"), update the SCRUM.md with the feedback and re-run the CLI with the additional context appended to `--description`
+
+**If the user accepts:** proceed to Phase 2.
+
+### Phase 2: User Stories
+
+> **Phase 2 of 4: User Stories**
+
+Group stories under their parent feature:
+
+> **Feature: {feature.name}**
+>
+> | # | Story | Points | Description |
+> |---|-------|--------|-------------|
+> | 1 | {story.title} | {story.story_points} | {story.description} |
+> | 2 | {story.title} | {story.story_points} | {story.description} |
+>
+> **Acceptance Criteria for {story.title}:**
+> - {ac_1}
+> - {ac_2}
+
+Show one feature at a time if there are many. Then:
+
+> **[Accept]** looks good — move to tasks
+> **[Edit]** tell me what to change (e.g., "split story 2 into two", "add AC for error handling")
+> **[Regenerate]** re-run stories for this feature
+
+**If the user edits:**
+- Apply changes (split stories, adjust points, add/remove ACs)
+- Show updated stories and ask again
+
+### Phase 3: Task Breakdown
+
+> **Phase 3 of 4: Tasks**
+
+Show tasks grouped by story:
+
+> **Story: {story.title}**
+>
+> | # | Task | Estimate | Discipline | Description |
+> |---|------|----------|------------|-------------|
+> | 1 | {task.title} | {task.estimate_hours}h | {task.discipline} | {task.description} |
+>
+> **[Accept]** looks good — move to sprint plan
+> **[Edit]** tell me what to change
+> **[Skip details]** accept all tasks, just show me the sprint plan
+
+### Phase 4: Sprint Plan
+
+> **Phase 4 of 4: Sprint Plan**
+>
+> **Sprint {sprint.sprint_number}: {sprint.name}**
+> Capacity: {sprint.capacity_points} pts | Committed: {sprint.committed_points} pts
+>
+> | Story | Points |
+> |-------|--------|
+> | {story.title} | {story.story_points} |
+>
+> **[Accept]** finalize the plan
+> **[Edit]** move stories between sprints, adjust capacity
+> **[Regenerate]** re-plan with different sprint targets
+
+### After All Phases Accepted
+
+> "Sprint plan finalized! Here's the summary:"
+>
+> "**{project.name}**: {len(features)} features, {len(stories)} stories, {len(tasks)} tasks across {len(sprints)} sprints"
+>
+> "Want me to:"
+> 1. Show the full plan as a single document
+> 2. Export as Markdown
+> 3. Drill into any specific area
+
+---
+
 ## Output — Slack Canvas
 
-The plan output goes into a **Slack Canvas** (not inline messages — plans exceed the 50-block message limit). After creating the Canvas, post a summary message in the channel linking to it.
+When presenting the final accepted plan as a complete document (option 1 above, or when posting to Slack), format it as a **Slack Canvas**.
 
-### Step 1: Parse JSON
-
-Parse the JSON output from stdout. The schema has these top-level keys: `version`, `project`, `features`, `stories`, `tasks`, `sprints`.
-
-### Step 2: Build Canvas Content
-
-Structure the Canvas as a rich document with these sections in order:
-
-#### Header
+### Canvas Structure
 
 ```
 # Sprint Plan: {project.name}
 Generated {date} | {len(features)} features, {len(stories)} stories, {len(tasks)} tasks across {len(sprints)} sprints
 Team: {project.team_size} engineers | Sprint length: {project.sprint_length_weeks} weeks
 ```
-
-#### Project Summary
 
 ```
 ## Project Summary
@@ -322,43 +396,30 @@ Team: {project.team_size} engineers | Sprint length: {project.sprint_length_week
 **Tech Stack:** {', '.join(project.tech_stack)}
 ```
 
-#### Features & Stories
-
-Group stories under their parent feature:
-
 ```
-## Features
-
+## Features & Stories
 ### {feature.name}
 {feature.description}
 
 | Story | Points | Priority | Description |
 |-------|--------|----------|-------------|
 | {story.title} | {story.story_points} | {story.priority} | {story.description} |
-| ... | ... | ... | ... |
 
 **Acceptance Criteria for {story.title}:**
 - {ac_1}
 - {ac_2}
 ```
 
-#### Task Breakdown
-
 ```
 ## Task Breakdown
-
 ### {story.title}
 | Task | Estimate | Discipline | Description |
 |------|----------|------------|-------------|
 | {task.title} | {task.estimate_hours}h | {task.discipline} | {task.description} |
-| ... | ... | ... | ... |
 ```
-
-#### Sprint Plan
 
 ```
 ## Sprint Plan
-
 ### Sprint {sprint.sprint_number}: {sprint.name}
 **Capacity:** {sprint.capacity_points} pts | **Committed:** {sprint.committed_points} pts
 
