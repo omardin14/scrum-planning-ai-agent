@@ -276,49 +276,58 @@ Target sprints: {Q10}
 
 ## CLI Invocation
 
-Run `scrum-agent` in a temporary directory with the generated SCRUM.md:
+The pipeline takes 2-5 minutes (5 sequential LLM calls). **Always run in the background** to avoid exec timeouts, then poll for completion.
 
-```bash
-TMPDIR=$(mktemp -d) && cd "$TMPDIR" && cat > SCRUM.md << 'SCRUMEOF'
-{generated SCRUM.md content}
-SCRUMEOF
-scrum-agent --non-interactive \
-  --description "{Q1 answer — keep under 500 characters}" \
-  --team-size {Q6} \
-  --sprint-length {Q8 as integer: 1, 2, 3, or 4} \
-  --output json \
-  </dev/null 2>/dev/null
-```
-
-**Important:**
-- The SCRUM.md **must** be in the current working directory — that's where `scrum-agent` reads it from.
-- The `--description` value should be a concise summary (under 500 chars). If Q1 is longer, put the full text in SCRUM.md's `## Background` section and use a shorter summary for `--description`.
-- `</dev/null` prevents any interactive prompts from blocking.
-- `2>/dev/null` suppresses stderr so only JSON appears in stdout.
-- Sprint length must be an integer (1, 2, 3, or 4), not "2 weeks".
-- **Timeout:** The full pipeline takes 2-5 minutes (5 sequential LLM calls to Bedrock). If OpenClaw's `exec` tool has a timeout shorter than this, the command will be killed. Run the command with `nohup` and poll the output file if needed:
+### Step 1: Launch in background
 
 ```bash
 TMPDIR=$(mktemp -d) && cd "$TMPDIR" && cat > SCRUM.md << 'SCRUMEOF'
 {generated SCRUM.md content}
 SCRUMEOF
 nohup scrum-agent --non-interactive \
-  --description "{Q1 answer}" \
+  --description "{Q1 answer — keep under 500 characters}" \
   --team-size {Q6} \
-  --sprint-length {Q8} \
+  --sprint-length {Q8 as integer: 1, 2, 3, or 4} \
   --output json \
   </dev/null \
-  > /tmp/scrum-output.json 2>/dev/null &
+  > /tmp/scrum-output.json 2>/tmp/scrum-stderr.log &
 echo "PID:$! TMPDIR:$TMPDIR"
 ```
 
-Then poll for completion:
+Tell the user:
+> "Generating your sprint plan — this runs through 5 AI phases and takes 2-5 minutes. I'll check progress and let you know when it's ready."
+
+### Step 2: Poll for progress
+
+Check every 30-60 seconds. Show the user which phase is running:
+
 ```bash
 # Check if still running
-kill -0 {PID} 2>/dev/null && echo "still running" || echo "done"
-# When done, read the output
+kill -0 {PID} 2>/dev/null && echo "RUNNING" || echo "DONE"
+# Show latest phase progress
+grep -E "✓|took|failed" /tmp/scrum-stderr.log 2>/dev/null | tail -5
+```
+
+Update the user with progress as phases complete:
+> "Phase 1 complete — project analysed. Phase 2 running (generating features)..."
+> "Phase 3 complete — stories written. Almost there..."
+
+### Step 3: Read output when done
+
+```bash
 cat /tmp/scrum-output.json
 ```
+
+If the JSON is empty or the process exited with an error, check stderr:
+```bash
+tail -20 /tmp/scrum-stderr.log
+```
+
+**Important:**
+- The SCRUM.md **must** be in the current working directory — that's where `scrum-agent` reads it from.
+- The `--description` value should be a concise summary (under 500 chars). If Q1 is longer, put the full text in SCRUM.md's `## Background` section and use a shorter summary for `--description`.
+- `</dev/null` prevents interactive prompts from blocking.
+- Sprint length must be an integer (1, 2, 3, or 4), not "2 weeks".
 
 ---
 
