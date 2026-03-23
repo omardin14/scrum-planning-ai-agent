@@ -187,10 +187,12 @@ Show warnings inline before the confirmation table:
 
 After collecting all answers (and showing any validation warnings), show a summary table and ask for confirmation before running the agent.
 
-Format the summary like this, marking how each answer was obtained:
+Format the summary in two sections — your answers, then defaults:
 
 ```
 Here's what I've got:
+
+**Your answers:**
 
 | # | Question | Answer | Source |
 |---|----------|--------|--------|
@@ -203,13 +205,34 @@ Here's what I've got:
 | 7 | Target sprints | {Q10} | you picked |
 | 8 | Extra context | {optional — or "None"} | — |
 
-Source key: **you said** = answered directly, **you picked** = selected from choices,
-**extracted** = detected from your description, **default** = skipped (using default)
+**Defaults applied** (the agent will use these unless you override):
 
-Does this look right? Reply with a number to change that answer, or "go" to generate the plan.
+| Question | Default value |
+|----------|---------------|
+| Deadlines | No hard deadlines |
+| Team roles | Generalist/fullstack team |
+| Velocity | 5 points per engineer per sprint |
+| Integrations | No third-party integrations |
+| Architecture | No constraints specified |
+| Existing docs | None referenced |
+| Codebase | {derived from Q2: "New build" for greenfield, "Existing" for existing} |
+| Code hosting | GitHub |
+| Repo structure | Monorepo |
+| CI/CD | No pipeline |
+| Tech debt | None identified |
+| Risks | No specific risks |
+| Blockers | No external dependencies |
+| Out of scope | No exclusions |
+| Estimation | Fibonacci story points |
+| Definition of Done | Recommended DoD (unit tests + PR review + deployed to staging) |
+| Unplanned absence | 10% capacity loss |
+| Onboarding | No engineers ramping up |
+
+Reply with a number (1-8) to change your answers, type a default name
+(e.g., "velocity" or "estimation") to override a default, or **"go"** to generate.
 ```
 
-If the user replies with a number (e.g., "4"), re-ask that specific question. Show the updated table after each change. Only proceed when the user says "go", "yes", "looks good", etc.
+If the user overrides a default (e.g., "velocity 8" or "estimation t-shirt sizes"), update it and include it in the SCRUM.md. If the user replies with a number (1-8), re-ask that specific question. Show the updated table after each change. Only proceed when the user says "go", "yes", "looks good", etc.
 
 ---
 
