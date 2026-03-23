@@ -583,19 +583,85 @@ def _sync_bedrock_config() -> None:
     print(f"[3/5] Bedrock config synced: model={model_id}" + (f", region={region}" if region else ""))
 
 
+def _configure_sandbox() -> None:
+    """Configure OpenClaw's sandbox to install scrum-agent inside the Docker container.
+
+    Updates ~/.openclaw/openclaw.json to add:
+    - setupCommand: installs scrum-agent[bedrock] via pip on container creation
+    - network: "bridge" so pip can download packages
+    - readOnlyRoot: false so pip can write to the filesystem
+    - env: passes Bedrock config (LLM_PROVIDER, LLM_MODEL, AWS_REGION) since
+      the sandbox doesn't inherit host environment variables
+
+    Merges with existing config — never overwrites unrelated settings.
+    """
+    import json as json_mod
+
+    openclaw_json = Path.home() / ".openclaw" / "openclaw.json"
+    env_path = Path.home() / ".scrum-agent" / ".env"
+
+    # Read existing openclaw.json
+    config: dict = {}
+    if openclaw_json.exists():
+        try:
+            config = json_mod.loads(openclaw_json.read_text())
+        except (json_mod.JSONDecodeError, OSError):
+            pass
+
+    # Read scrum-agent .env for Bedrock config to pass to sandbox
+    env_vars: dict[str, str] = {}
+    if env_path.exists():
+        for line in env_path.read_text().splitlines():
+            stripped = line.strip()
+            if stripped and "=" in stripped and not stripped.startswith("#"):
+                k, _, v = stripped.partition("=")
+                key = k.strip()
+                # Only pass LLM config — never pass API keys
+                if key in ("LLM_PROVIDER", "LLM_MODEL", "AWS_REGION"):
+                    env_vars[key] = v.strip()
+
+    # Build the sandbox config — merge with existing
+    agents = config.setdefault("agents", {})
+    defaults = agents.setdefault("defaults", {})
+    sandbox = defaults.setdefault("sandbox", {})
+    docker = sandbox.setdefault("docker", {})
+
+    # setupCommand: install scrum-agent inside the container
+    docker["setupCommand"] = "pip install 'scrum-agent[bedrock]' && scrum-agent --setup <<< '4\n\n' || true"
+    docker["network"] = "bridge"
+    docker["readOnlyRoot"] = False
+
+    # Merge env vars — preserve any existing sandbox env
+    existing_env = docker.get("env", {})
+    if isinstance(existing_env, dict):
+        existing_env.update(env_vars)
+    else:
+        existing_env = env_vars
+    docker["env"] = existing_env
+
+    # Write back
+    openclaw_json.parent.mkdir(parents=True, exist_ok=True)
+    openclaw_json.write_text(json_mod.dumps(config, indent=2) + "\n")
+
+    setup_cmd = docker["setupCommand"]
+    print(f"[4/5] Sandbox configured: setupCommand='{setup_cmd[:60]}...'")
+    if env_vars:
+        print(f"       Env vars: {', '.join(f'{k}={v}' for k, v in env_vars.items())}")
+
+
 def _install_skill(target_arg: str) -> None:
     """Install the bundled scrum-planner skill into OpenClaw.
 
     Full installation flow:
     1. Copy SKILL.md into the OpenClaw skills registry (for gateway discovery)
     2. Copy SKILL.md into the sandbox workspace (so the agent can read it at runtime)
-    3. Symlink scrum-agent into /usr/local/bin/ so the sandbox can find the binary
-    4. Offer to restart the OpenClaw gateway to pick up the new skill
+    3. Sync Bedrock model config from OpenClaw's models.json into ~/.scrum-agent/.env
+    4. Configure sandbox Docker container (setupCommand, network, env vars)
+    5. Recreate sandbox and restart gateway
 
-    OpenClaw has two separate filesystem concerns:
-    - Skills registry: /usr/lib/node_modules/openclaw/skills/ (gateway reads at startup)
-    - Sandbox workspace: ~/.openclaw/workspace/ (agent reads at runtime)
-    Both need the SKILL.md for the skill to work end-to-end.
+    OpenClaw runs agents in Docker sandbox containers with isolated filesystems.
+    scrum-agent must be installed INSIDE the container via setupCommand, and
+    Bedrock env vars must be passed explicitly (sandbox doesn't inherit host env).
 
     Args:
         target_arg: "__auto__" to auto-detect, or a custom path.
@@ -668,60 +734,35 @@ def _install_skill(target_arg: str) -> None:
     # same model as OpenClaw (e.g. global.anthropic.claude-sonnet-4-6).
     _sync_bedrock_config()
 
-    # ── Step 4: Symlink scrum-agent into /usr/local/bin/ ────────────────────
-    # The OpenClaw sandbox may not see ~/.local/bin/ or pipx paths.
-    # A symlink in /usr/local/bin/ makes the binary accessible from the sandbox.
-    symlink_path = Path("/usr/local/bin/scrum-agent")
-    scrum_agent_bin = shutil.which("scrum-agent")
+    # ── Step 4: Configure sandbox to install scrum-agent ────────────────────
+    # The OpenClaw sandbox is a Docker container with its own filesystem.
+    # scrum-agent must be installed INSIDE the container via setupCommand.
+    # We also pass Bedrock env vars since the sandbox doesn't inherit host env.
+    _configure_sandbox()
 
-    already_correct = (
-        scrum_agent_bin and symlink_path.is_symlink() and symlink_path.resolve() == Path(scrum_agent_bin).resolve()
-    )
-    if already_correct:
-        print("[4/5] scrum-agent already symlinked in /usr/local/bin/ — skipped")
-    elif scrum_agent_bin:
-        try:
-            if symlink_path.exists() or symlink_path.is_symlink():
-                symlink_path.unlink()
-            symlink_path.symlink_to(scrum_agent_bin)
-            print(f"[4/5] Symlinked scrum-agent → {symlink_path}")
-        except PermissionError:
-            try:
-                subprocess.run(
-                    ["sudo", "ln", "-sf", scrum_agent_bin, str(symlink_path)],
-                    check=True,
-                    capture_output=True,
-                )
-                print(f"[4/5] Symlinked scrum-agent → {symlink_path} (via sudo)")
-            except (subprocess.CalledProcessError, FileNotFoundError):
-                print(
-                    f"[4/5] Warning: could not symlink to {symlink_path} — "
-                    f"run manually: sudo ln -s {scrum_agent_bin} {symlink_path}"
-                )
-    else:
-        print("[4/5] Warning: scrum-agent not found on PATH — skipping symlink")
-
-    # ── Step 5: Restart OpenClaw gateway ─────────────────────────────────────
-    # OpenClaw loads skills at startup, so a gateway restart is needed.
+    # ── Step 5: Recreate sandbox and restart gateway ─────────────────────────
     gateway_available = shutil.which("openclaw") is not None
     if not gateway_available:
-        print("[5/5] OpenClaw CLI not found — skip gateway restart (run 'openclaw gateway restart' manually)")
+        print("[5/5] OpenClaw CLI not found — skip restart (run manually)")
         return
 
     try:
-        answer = input("\n[5/5] Restart OpenClaw gateway to load the skill? [Y/n] ").strip().lower()
+        answer = input("\n[5/5] Recreate sandbox and restart gateway? [Y/n] ").strip().lower()
     except (KeyboardInterrupt, EOFError):
-        print("\nSkipped gateway restart. Run 'openclaw gateway restart' manually.")
+        print("\nSkipped. Run 'openclaw sandbox recreate --all && openclaw gateway restart' manually.")
         return
 
     if answer in ("", "y", "yes"):
         try:
+            print("      Recreating sandbox (installs scrum-agent inside container)...")
+            subprocess.run(["openclaw", "sandbox", "recreate", "--all"], check=True)
             subprocess.run(["openclaw", "gateway", "restart"], check=True)
-            print("\nOpenClaw gateway restarted. The scrum-planner skill is ready to use.")
+            print("\nDone! The scrum-planner skill is ready to use.")
         except subprocess.CalledProcessError as e:
-            print(f"\nGateway restart failed (exit code {e.returncode}). Try: openclaw gateway restart")
+            print(f"\nFailed (exit code {e.returncode}). Try manually:")
+            print("  openclaw sandbox recreate --all && openclaw gateway restart")
     else:
-        print("Skipped. Run 'openclaw gateway restart' when ready.")
+        print("Skipped. Run 'openclaw sandbox recreate --all && openclaw gateway restart' when ready.")
 
 
 def main(argv: list[str] | None = None) -> None:

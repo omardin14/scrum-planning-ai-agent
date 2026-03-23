@@ -288,18 +288,21 @@ scrum-agent --install-skill
 
 This will:
 1. Copy the skill files to the skills registry at `/usr/lib/node_modules/openclaw/skills/scrum-planner/` (may prompt for sudo)
-2. Copy the skill files into the sandbox workspace at `~/.openclaw/workspace/skills/scrum-planner/` (so the agent can read them at runtime)
+2. Copy the skill files into the sandbox workspace at `~/.openclaw/workspace/skills/scrum-planner/`
 3. Sync the Bedrock model ID and region from OpenClaw's config into `~/.scrum-agent/.env`
-4. Symlink `scrum-agent` into `/usr/local/bin/` so the OpenClaw sandbox can find the binary
-5. Ask to restart the OpenClaw gateway to load the new skill
+4. Configure the Docker sandbox to install `scrum-agent` inside the container and pass Bedrock env vars
+5. Recreate the sandbox container and restart the gateway
 
 ```
 [1/5] Skill registry: /usr/lib/node_modules/openclaw/skills/scrum-planner
 [2/5] Sandbox workspace: /home/ubuntu/.openclaw/workspace/skills/scrum-planner
 [3/5] Bedrock config synced: model=global.anthropic.claude-sonnet-4-6, region=eu-west-2
-[4/5] Symlinked scrum-agent → /usr/local/bin/scrum-agent
-[5/5] Restart OpenClaw gateway to load the skill? [Y/n]
+[4/5] Sandbox configured: setupCommand='pip install scrum-agent[bedrock]...'
+      Env vars: LLM_PROVIDER=bedrock, LLM_MODEL=global.anthropic.claude-sonnet-4-6, AWS_REGION=eu-west-2
+[5/5] Recreate sandbox and restart gateway? [Y/n]
 ```
+
+> **Note:** OpenClaw runs agents in Docker sandbox containers with isolated filesystems. `scrum-agent` is installed *inside* the container via `setupCommand`, which runs once when the container is created. Bedrock credentials are passed via env vars since the sandbox doesn't inherit the host environment.
 
 To install to a custom skills directory:
 
@@ -370,7 +373,7 @@ Follow the interactive prompts — OpenClaw will guide you through creating a Sl
 
 ### 13. Use the skill in Slack
 
-Once Slack is connected, `@mention` the bot in any channel to start a planning session:
+Once Slack is connected,  `@mention` the bot to add it to a channel and start a planning session:
 
 > **You:** @scrum-bot Plan a mobile banking app — React Native, Node.js, PostgreSQL, 6 engineers
 
