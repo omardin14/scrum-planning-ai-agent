@@ -474,7 +474,18 @@ def run_repl(
         _user_label_printed = False
         if export_only:
             qs = graph_state.get("questionnaire")
-            if isinstance(qs, QuestionnaireState) and qs.completed:
+            # Auto-accept capacity override warnings — pick "1" (recommended sprints).
+            # Print the warning so it's visible in stderr (e.g. OpenClaw's exec logs).
+            _cap_sel = graph_state.get("capacity_override_target", 0)
+            if _cap_sel < -1:
+                _recommended = abs(_cap_sel)
+                console.print(
+                    f"[warning]Capacity warning: stories exceed target"
+                    f" — auto-accepting {_recommended} sprints[/warning]"
+                )
+                stripped = "1"
+                auto_driven = True
+            elif isinstance(qs, QuestionnaireState) and qs.completed:
                 if graph_state.get("pending_review"):
                     stripped = "accept"
                     auto_driven = True
