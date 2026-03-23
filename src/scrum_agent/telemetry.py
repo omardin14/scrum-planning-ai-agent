@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 TELEMETRY_ENABLED = os.getenv("SCRUM_AGENT_TELEMETRY", "").lower() in ("true", "1", "yes")
 TELEMETRY_ENDPOINT = os.getenv(
     "SCRUM_AGENT_TELEMETRY_URL",
-    "https://telemetry.scrum-agent.dev/collect",  # placeholder — replace with real endpoint
+    "https://ykauzind6vf3vtlvwz5kru7ajq0cpgyd.lambda-url.eu-west-1.on.aws/",
 )
 
 
