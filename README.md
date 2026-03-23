@@ -354,9 +354,20 @@ tail -50 ~/.scrum-agent/logs/*.log
 grep LLM_PROVIDER ~/.scrum-agent/.env
 ```
 
-### 12. Next steps
+### 12. Connect Slack (optional)
 
-- **Connect Slack** — Set up a Slack App with Socket Mode to trigger the skill via `@mention` or slash command. See [Phase 14B in TODO.md](TODO.md) for the full Slack integration checklist.
+Connect OpenClaw to your Slack workspace so users can trigger the scrum-planner skill via `@mention`:
+
+```bash
+openclaw channels add
+```
+
+Follow the interactive prompts — OpenClaw will guide you through creating a Slack App, setting the required permissions/scopes, and connecting via Socket Mode. No public webhook URLs needed.
+
+![Connect Slack channel](docs/lightsail-setup/13-slack-channel.png)
+
+### 13. Next steps
+
 - **Customize the skill** — Edit the SKILL.md to adjust question flow, add domain-specific defaults, or change the output format.
 - **Review diagnostics** — The Slack Canvas includes a diagnostics appendix with the generated SCRUM.md, session logs, and config. Check `~/.scrum-agent/logs/` for detailed run logs if anything looks off.
 - **Secure with Teleport** — For production use, add Teleport for identity-aware access to the Lightsail instance and OpenClaw dashboard.
