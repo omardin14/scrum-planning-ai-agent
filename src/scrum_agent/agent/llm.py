@@ -135,8 +135,15 @@ def get_llm(model: str | None = None, temperature: float = 0.0) -> BaseChatModel
         # Create a boto3 session with the detected profile so IAM role
         # credentials from ~/.aws/config are used (e.g. Lightsail's
         # [profile assumed] with credential_source=Ec2InstanceMetadata).
+        from botocore.config import Config as BotoConfig
+
+        # Increase read timeout for large prompts (story writer, task decomposer).
+        # The default 60s is too short for cross-region inference profiles
+        # (global.*) which route through US regions and back.
+        boto_config = BotoConfig(read_timeout=300, connect_timeout=10, retries={"max_attempts": 2})
+
         session = boto3.Session(profile_name=profile, region_name=region)
-        bedrock_client = session.client("bedrock-runtime", region_name=region)
+        bedrock_client = session.client("bedrock-runtime", region_name=region, config=boto_config)
 
         logger.info("LLM ready: provider=bedrock, model=%s, region=%s, profile=%s", resolved_model, region, profile)
         return ChatBedrockConverse(
