@@ -674,7 +674,10 @@ def _install_skill(target_arg: str) -> None:
     symlink_path = Path("/usr/local/bin/scrum-agent")
     scrum_agent_bin = shutil.which("scrum-agent")
 
-    if scrum_agent_bin and symlink_path.exists() and symlink_path.resolve() == Path(scrum_agent_bin).resolve():
+    already_correct = (
+        scrum_agent_bin and symlink_path.is_symlink() and symlink_path.resolve() == Path(scrum_agent_bin).resolve()
+    )
+    if already_correct:
         print("[4/5] scrum-agent already symlinked in /usr/local/bin/ — skipped")
     elif scrum_agent_bin:
         try:
