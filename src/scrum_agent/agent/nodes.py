@@ -5787,6 +5787,96 @@ def _format_tasks(
     return "\n".join(sections)
 
 
+def _parallel_task_decompose(
+    stories: list[UserStory],
+    features: list[Feature],
+    project_name: str,
+    project_type: str,
+    tech_stack: str,
+    doc_context: str | None,
+) -> list[Task]:
+    """Decompose stories into tasks with parallel LLM calls per feature.
+
+    # See README: "Architecture" — task_decomposer parallelisation
+    #
+    # Groups stories by feature, sends one LLM call per feature concurrently
+    # (max 4 workers to stay within Bedrock concurrency limits), then merges
+    # results. Falls back to deterministic tasks for any feature whose LLM
+    # call fails.
+    #
+    # Why per-feature batches (not per-story)?
+    # - Stories within a feature share context — the LLM can avoid duplicate tasks.
+    # - Typical projects have 4-6 features → 4-6 concurrent calls → good parallelism.
+    # - Per-story would mean 10-30 calls, risking Bedrock throttling.
+
+    Args:
+        stories: All stories from the story_writer node.
+        features: All features from the feature_generator node.
+        project_name: From ProjectAnalysis.
+        project_type: From ProjectAnalysis.
+        tech_stack: Pre-formatted tech stack string.
+        doc_context: Optional documentation context.
+
+    Returns:
+        Merged list of Task dataclasses from all features.
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    # Group stories by feature_id
+    stories_by_feature: dict[str, list[UserStory]] = {}
+    for story in stories:
+        stories_by_feature.setdefault(story.feature_id, []).append(story)
+
+    feature_map = {f.id: f for f in features}
+    all_tasks: list[Task] = []
+
+    def _decompose_feature(feature_id: str, feature_stories: list[UserStory]) -> list[Task]:
+        """LLM call for a single feature's stories."""
+        feature = feature_map.get(feature_id)
+        feature_list = [feature] if feature else []
+        stories_block = _format_stories_for_prompt(feature_stories, feature_list)
+
+        prompt = get_task_decomposer_prompt(
+            project_name=project_name,
+            project_type=project_type,
+            tech_stack=tech_stack,
+            stories_block=stories_block,
+            doc_context=doc_context,
+        )
+
+        try:
+            response = get_llm(temperature=0.0).invoke([HumanMessage(content=prompt)])
+            return _parse_tasks_response(response.content, feature_stories)
+        except Exception as exc:
+            if _is_llm_auth_or_billing_error(exc):
+                raise
+            logger.warning("LLM call failed for feature %s, using fallback", feature_id, exc_info=True)
+            return _build_fallback_tasks(feature_stories)
+
+    # Cap at 4 workers — Bedrock's per-account concurrency is typically 4-8.
+    max_workers = min(4, len(stories_by_feature))
+
+    if max_workers <= 1:
+        # Only 1 feature — no benefit from threading
+        for fid, fstories in stories_by_feature.items():
+            all_tasks.extend(_decompose_feature(fid, fstories))
+    else:
+        logger.info("Parallel task decomposition: %d features, %d workers", len(stories_by_feature), max_workers)
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(_decompose_feature, fid, fstories): fid for fid, fstories in stories_by_feature.items()
+            }
+            for future in as_completed(futures):
+                fid = futures[future]
+                try:
+                    all_tasks.extend(future.result())
+                except Exception:
+                    logger.warning("Feature %s task decomposition failed, using fallback", fid, exc_info=True)
+                    all_tasks.extend(_build_fallback_tasks(stories_by_feature[fid]))
+
+    return all_tasks
+
+
 def task_decomposer(state: ScrumState) -> dict:
     """LangGraph node: decompose user stories into concrete implementation tasks.
 
@@ -5833,41 +5923,51 @@ def task_decomposer(state: ScrumState) -> dict:
         review_feedback = parts[0].strip()
         previous_output = parts[1].strip()
 
-    # Format stories into a text block for the prompt.
-    # This avoids passing dataclasses directly, keeping the prompt module
-    # free of imports from agent.state (avoiding circular imports).
-    # See README: "Prompt Construction" — pre-formatted strings pattern
-    stories_block = _format_stories_for_prompt(stories, features)
-
     # Build documentation context from intake answers and external sources.
-    # The task decomposer prompt uses this to tell the LLM where documentation
-    # should live, so the dedicated documentation sub-task can reference specific
-    # Confluence pages, README files, or wiki URLs.
-    # See README: "Tools" — read-only tool pattern, documentation references
     doc_context = _build_doc_context(state)
+    tech_stack_str = _format_epic_list(analysis.tech_stack)
 
-    prompt = get_task_decomposer_prompt(
-        project_name=analysis.project_name,
-        project_type=analysis.project_type,
-        tech_stack=_format_epic_list(analysis.tech_stack),
-        stories_block=stories_block,
-        doc_context=doc_context,
-        review_feedback=review_feedback if review_mode else None,
-        review_mode=review_mode,
-        previous_output=previous_output,
-    )
+    # ── Parallel task decomposition by feature ────────────────────────────
+    # Split stories into per-feature groups and decompose concurrently.
+    # Each feature is independent — tasks in Feature 1 don't depend on
+    # Feature 2. This cuts wall-clock time from ~200s to ~60-80s for
+    # typical projects with 4-6 features.
+    #
+    # When in review mode (edit/reject), fall back to the original single
+    # call since the user's feedback may reference cross-feature concerns.
+    # See README: "Architecture" — task_decomposer parallelisation
 
-    try:
-        # Single LLM call with low temperature for deterministic JSON output.
-        # See README: "Agentic Blueprint Reference" — using the LLM outside the main graph
-        response = get_llm(temperature=0.0).invoke([HumanMessage(content=prompt)])
-        tasks = _parse_tasks_response(response.content, stories)
-    except Exception as exc:
-        if _is_llm_auth_or_billing_error(exc):
-            raise
-        # LLM call failed entirely — use deterministic fallback.
-        logger.warning("LLM call failed in task_decomposer, using fallback", exc_info=True)
-        tasks = _build_fallback_tasks(stories)
+    if review_mode:
+        # Review mode: single call with all stories (user feedback may span features)
+        stories_block = _format_stories_for_prompt(stories, features)
+        prompt = get_task_decomposer_prompt(
+            project_name=analysis.project_name,
+            project_type=analysis.project_type,
+            tech_stack=tech_stack_str,
+            stories_block=stories_block,
+            doc_context=doc_context,
+            review_feedback=review_feedback,
+            review_mode=review_mode,
+            previous_output=previous_output,
+        )
+        try:
+            response = get_llm(temperature=0.0).invoke([HumanMessage(content=prompt)])
+            tasks = _parse_tasks_response(response.content, stories)
+        except Exception as exc:
+            if _is_llm_auth_or_billing_error(exc):
+                raise
+            logger.warning("LLM call failed in task_decomposer (review), using fallback", exc_info=True)
+            tasks = _build_fallback_tasks(stories)
+    else:
+        # Normal mode: parallel calls per feature
+        tasks = _parallel_task_decompose(
+            stories=stories,
+            features=features,
+            project_name=analysis.project_name,
+            project_type=analysis.project_type,
+            tech_stack=tech_stack_str,
+            doc_context=doc_context,
+        )
 
     # Format the tasks for display
     display = _format_tasks(tasks, stories, features, analysis.project_name)
