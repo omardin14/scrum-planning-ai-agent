@@ -263,14 +263,39 @@ scrum-agent --non-interactive \
   --description "{Q1 answer — keep under 500 characters}" \
   --team-size {Q6} \
   --sprint-length {Q8 as integer: 1, 2, 3, or 4} \
-  --output json 2>/dev/null
+  --output json \
+  </dev/null 2>/dev/null
 ```
 
 **Important:**
 - The SCRUM.md **must** be in the current working directory — that's where `scrum-agent` reads it from.
 - The `--description` value should be a concise summary (under 500 chars). If Q1 is longer, put the full text in SCRUM.md's `## Background` section and use a shorter summary for `--description`.
-- Redirect stderr to `/dev/null` so only JSON appears in stdout.
+- `</dev/null` prevents any interactive prompts from blocking.
+- `2>/dev/null` suppresses stderr so only JSON appears in stdout.
 - Sprint length must be an integer (1, 2, 3, or 4), not "2 weeks".
+- **Timeout:** The full pipeline takes 2-5 minutes (5 sequential LLM calls to Bedrock). If OpenClaw's `exec` tool has a timeout shorter than this, the command will be killed. Run the command with `nohup` and poll the output file if needed:
+
+```bash
+TMPDIR=$(mktemp -d) && cd "$TMPDIR" && cat > SCRUM.md << 'SCRUMEOF'
+{generated SCRUM.md content}
+SCRUMEOF
+nohup scrum-agent --non-interactive \
+  --description "{Q1 answer}" \
+  --team-size {Q6} \
+  --sprint-length {Q8} \
+  --output json \
+  </dev/null \
+  > /tmp/scrum-output.json 2>/dev/null &
+echo "PID:$! TMPDIR:$TMPDIR"
+```
+
+Then poll for completion:
+```bash
+# Check if still running
+kill -0 {PID} 2>/dev/null && echo "still running" || echo "done"
+# When done, read the output
+cat /tmp/scrum-output.json
+```
 
 ---
 
