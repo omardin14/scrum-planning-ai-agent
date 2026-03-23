@@ -358,13 +358,106 @@ grep LLM_PROVIDER ~/.scrum-agent/.env
 
 ### 12. Connect Slack (optional)
 
-Connect OpenClaw to your Slack workspace so users can trigger the scrum-planner skill via `@mention`:
+Connect OpenClaw to your Slack workspace so users can trigger the scrum-planner skill via `@mention`.
+
+#### Quick setup (interactive)
 
 ```bash
 openclaw channels add
 ```
 
-Follow the interactive prompts — OpenClaw will guide you through creating a Slack App, setting the required permissions/scopes, and connecting via Socket Mode. No public webhook URLs needed.
+Follow the interactive prompts — OpenClaw walks you through each step.
+
+#### Manual setup
+
+If you prefer to set up the Slack App manually:
+
+1. Go to [Slack API → Create App](https://api.slack.com/apps) → **From manifest** and paste the JSON below
+2. **Socket Mode** → Enable it → copy the **App-Level Token** (`xapp-...`)
+3. **Install App** to your workspace → copy the **Bot Token** (`xoxb-...`)
+4. **Event Subscriptions** → already configured via the manifest (socket mode)
+5. **App Home** → Messages tab is enabled for DMs
+
+<details>
+<summary>Slack App manifest (click to expand)</summary>
+
+```json
+{
+  "display_information": {
+    "name": "OpenClaw",
+    "description": "OpenClaw connector"
+  },
+  "features": {
+    "bot_user": {
+      "display_name": "OpenClaw",
+      "always_online": false
+    },
+    "app_home": {
+      "messages_tab_enabled": true,
+      "messages_tab_read_only_enabled": false
+    },
+    "slash_commands": [
+      {
+        "command": "/openclaw",
+        "description": "Send a message to OpenClaw",
+        "should_escape": false
+      }
+    ]
+  },
+  "oauth_config": {
+    "scopes": {
+      "bot": [
+        "chat:write",
+        "channels:history",
+        "channels:read",
+        "groups:history",
+        "im:history",
+        "mpim:history",
+        "users:read",
+        "app_mentions:read",
+        "reactions:read",
+        "reactions:write",
+        "pins:read",
+        "pins:write",
+        "emoji:read",
+        "commands",
+        "files:read",
+        "files:write"
+      ]
+    }
+  },
+  "settings": {
+    "socket_mode_enabled": true,
+    "event_subscriptions": {
+      "bot_events": [
+        "app_mention",
+        "message.channels",
+        "message.groups",
+        "message.im",
+        "message.mpim",
+        "reaction_added",
+        "reaction_removed",
+        "member_joined_channel",
+        "member_left_channel",
+        "channel_rename",
+        "pin_added",
+        "pin_removed"
+      ]
+    }
+  }
+}
+```
+
+</details>
+
+Set the tokens on the Lightsail instance:
+
+```bash
+openclaw channels add
+# When prompted, enter:
+#   App-Level Token: xapp-...
+#   Bot Token: xoxb-...
+```
 
 ![Connect Slack channel](docs/lightsail-setup/13-slack-channel-add.png)
 
