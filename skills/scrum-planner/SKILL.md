@@ -24,9 +24,13 @@ If the user's initial message already contains a project description, acknowledg
 
 ### Q2 — Project Type
 
-> "Is this a **greenfield** project, building on an **existing codebase**, or a **hybrid** of both?"
+> "What type of project is this?"
+>
+> 1. Greenfield (starting from scratch)
+> 2. Existing codebase (extending or refactoring)
+> 3. Hybrid (new components on top of existing code)
 
-Offer the three choices explicitly. These exact keywords matter — use "greenfield", "existing codebase", or "hybrid".
+Present as a numbered list so the user can reply with just a number. These exact keywords matter — map the choice to "greenfield", "existing codebase", or "hybrid".
 
 ### Q3+Q4 — Problem, Users, and Definition of Done (merged)
 
@@ -34,33 +38,55 @@ Offer the three choices explicitly. These exact keywords matter — use "greenfi
 
 This is a single combined question. The answer feeds both the goals and definition of done in the generated plan.
 
-**Vagueness check:** If the answer is a single sentence or very generic, follow up:
-> "Who experiences this problem? Can you give 2-3 user personas? And what measurable outcome would tell you the project succeeded?"
+**Vagueness check:** If the answer is a single sentence or very generic, follow up with specific prompts:
+> "That's pretty broad — let me dig in a bit more."
+>
+> "**Who experiences this problem?** Can you give me 2-3 user personas? And **what measurable outcome** would tell you the project succeeded — what should it be able to do when it's 'done'?"
 
 ### Q6 — Team Size
 
 > "How many engineers are working on this?"
+>
+> 1. 1-2 (solo/pair)
+> 2. 3-5 (small team)
+> 3. 6-10 (medium team)
+> 4. 10+ (large team)
 
-Expect a number. If the user says something vague like "a few", ask for a specific number.
+Present as a numbered list. The user can reply with a number from the list or type an exact count. Map the choice to a number (e.g., "1-2" → 2, "3-5" → 4, "6-10" → 8, "10+" → 12). If the user gives an exact number, use that directly.
 
 ### Q8 — Sprint Length
 
 > "How long are your sprints?"
+>
+> 1. 1 week
+> 2. 2 weeks *(recommended)*
+> 3. 3 weeks
+> 4. 4 weeks
 
-Offer choices: **1 week**, **2 weeks** (default), **3 weeks**, or **4 weeks**. If the user skips or says "default", use 2 weeks.
+Present as a numbered list with the recommended option marked. If the user skips or says "default", use 2 weeks.
 
 ### Q11 — Tech Stack
 
 > "What's the tech stack? Languages, frameworks, databases, infrastructure?"
 
-**Vagueness check:** If the answer is just a language name (e.g., "Python"), follow up:
-> "What framework and database? For example: Django + PostgreSQL, or FastAPI + MongoDB?"
+**Vagueness check:** If the answer is just a language name (e.g., "Python"), follow up with examples:
+> "What framework and database? For example:"
+>
+> - **Python:** Django + PostgreSQL, FastAPI + MongoDB, Flask + Redis
+> - **JavaScript/TypeScript:** React + Node.js + PostgreSQL, Next.js + Prisma
+> - **Go:** Gin + PostgreSQL, gRPC + MongoDB
 
 ### Q10 — Target Sprints
 
-> "How many sprints are you targeting to complete this project?"
+> "How many sprints are you targeting?"
+>
+> 1. 1-2 sprints (quick MVP)
+> 2. 3-5 sprints (standard project)
+> 3. 6-10 sprints (large project)
+> 4. 10+ sprints (multi-quarter)
+> 5. Let the agent decide *(recommended)*
 
-Offer choices: **1-2 sprints**, **3-5 sprints**, **6-10 sprints**, **10+ sprints**, or **"let the agent decide"** (default). If the user skips, default to "let the agent decide".
+Present as a numbered list. If the user skips, default to "let the agent decide".
 
 ### Optional — Additional Context
 
