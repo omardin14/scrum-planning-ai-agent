@@ -24,7 +24,7 @@ The skill is bundled with scrum-agent. Install it with a single command:
 scrum-agent --install-skill
 ```
 
-This copies SKILL.md and README.md to `~/.openclaw/skills/scrum-planner/`.
+This copies SKILL.md, README.md, and the `references/` folder to the OpenClaw skills directory and sandbox workspace.
 
 To install to a custom directory:
 
@@ -56,14 +56,28 @@ The skill conducts a 7-question conversational intake, then invokes `scrum-agent
 | Q11: Tech stack | SCRUM.md `## Tech Decisions Already Made` | Include framework, DB, infra names |
 | Optional context | SCRUM.md `## Constraints` + `## Out of Scope` | Free-form extras |
 
+### Skill File Structure
+
+```
+skills/scrum-planner/
+  SKILL.md                          — Core skill (intake, questions, confirmation)
+  README.md                         — This file
+  references/
+    cli-and-generation.md           — SCRUM.md template, keyword rules, CLI invocation
+    output-and-review.md            — Phase-by-phase review, Canvas output, error handling
+```
+
+The SKILL.md is kept small (~300 lines) so it doesn't exceed Bedrock's context on every conversation turn. The `references/` files are only loaded when needed (after confirmation and after generation).
+
 ### Flow
 
-1. User starts a conversation describing their project
-2. Skill asks 6-7 follow-up questions (skipping what's already answered)
-3. Shows a confirmation summary table
-4. On confirmation: generates a temp SCRUM.md, runs `scrum-agent --non-interactive --output json`
-5. Parses JSON output and presents features, stories, tasks, and sprint plan
-6. Offers to drill into task details on request
+1. User describes their project (or says "just plan it" for quick mode)
+2. Skill extracts what it can, asks follow-up questions with numbered choices
+3. Shows confirmation summary with answer sources and defaults
+4. On confirmation: reads `references/cli-and-generation.md`, generates SCRUM.md, runs `scrum-agent` in background
+5. Polls progress, updates user as phases complete (~3-5 minutes)
+6. Reads `references/output-and-review.md`, presents results phase-by-phase (features → stories → tasks → sprints) with accept/edit/regenerate
+7. After all phases accepted: summary + offer to export as Canvas, Markdown, or push to Jira
 
 ## Example Conversation
 
@@ -135,6 +149,8 @@ Skill: [runs scrum-agent, presents results]
 | Empty JSON output | Add more detail to the project description |
 | Timeout (>5 min) | Simplify description or reduce target sprints |
 | Missing features in output | Ensure SCRUM.md has specific tech stack and constraint keywords |
+| Bedrock throttling in Slack | SKILL.md too large — ensure `references/` files are installed (not inlined) |
+| Canvas not created | Add `canvases:read` and `canvases:write` scopes to Slack App, reinstall app |
 
 ## Related
 
