@@ -607,20 +607,30 @@ def _create_iteration_node(
     start_date: str = "",
     finish_date: str = "",
 ) -> str:
-    """Create an iteration classification node via the Azure DevOps REST API.
+    """Create an iteration classification node and assign it to the team.
+
+    Two-step process:
+    1. Create the iteration at the project level (Classification Nodes API)
+    2. Assign it to the team (Team Settings Iterations API)
+
+    Without step 2, work items can't use the iteration path because it's
+    not valid for the team's board.
 
     Returns the full iteration path (e.g. "MyProject\\Sprint 1").
     start_date / finish_date are ISO date strings (e.g. "2026-03-16").
-
-    Uses the Classification Nodes API:
-    POST {org_url}/{project}/_apis/wit/classificationnodes/Iterations?api-version=7.1
     """
     import base64
 
     import httpx
 
     b64 = base64.b64encode(f":{token}".encode()).decode()
-    url = f"{org_url}/{project}/_apis/wit/classificationnodes/Iterations?api-version=7.1"
+    auth_headers = {
+        "Authorization": f"Basic {b64}",
+        "Content-Type": "application/json",
+    }
+
+    # Step 1: Create iteration as a classification node
+    create_url = f"{org_url}/{project}/_apis/wit/classificationnodes/Iterations?api-version=7.1"
 
     body: dict = {"name": name}
     if start_date or finish_date:
@@ -630,22 +640,48 @@ def _create_iteration_node(
         if finish_date:
             body["attributes"]["finishDate"] = finish_date
 
-    resp = httpx.post(
-        url,
-        headers={
-            "Authorization": f"Basic {b64}",
-            "Content-Type": "application/json",
-        },
-        json=body,
-        timeout=15,
-    )
+    resp = httpx.post(create_url, headers=auth_headers, json=body, timeout=15)
 
     if resp.status_code in (200, 201):
         data = resp.json()
-        return data.get("path", f"{project}\\{name}").lstrip("\\")
+        iteration_id = str(data.get("identifier", data.get("id", "")))
+        iteration_path = data.get("path", f"\\{project}\\{name}").lstrip("\\")
     elif resp.status_code == 409:
-        # Iteration already exists — return the expected path
-        logger.info("Iteration '%s' already exists in %s", name, project)
-        return f"{project}\\{name}"
+        # Iteration already exists — fetch its ID so we can assign it to the team
+        logger.info("Iteration '%s' already exists in %s — fetching ID", name, project)
+        iteration_path = f"{project}\\{name}"
+        # GET the existing node to find its identifier
+        get_url = f"{org_url}/{project}/_apis/wit/classificationnodes/Iterations/{name}?api-version=7.1"
+        get_resp = httpx.get(get_url, headers=auth_headers, timeout=15)
+        if get_resp.status_code == 200:
+            iteration_id = str(get_resp.json().get("identifier", ""))
+        else:
+            iteration_id = ""
     else:
         raise RuntimeError(f"Failed to create iteration '{name}': HTTP {resp.status_code} — {resp.text}")
+
+    # Step 2: Assign iteration to the team so work items can use this IterationPath
+    if iteration_id:
+        from scrum_agent.config import get_azure_devops_team as _get_team
+
+        team = _get_team() or f"{project} Team"
+        assign_url = f"{org_url}/{project}/{team}/_apis/work/teamsettings/iterations?api-version=7.1"
+        assign_body = {"id": iteration_id}
+        try:
+            assign_resp = httpx.post(assign_url, headers=auth_headers, json=assign_body, timeout=15)
+            if assign_resp.status_code in (200, 201):
+                logger.info("Assigned iteration '%s' to team '%s'", name, team)
+            elif assign_resp.status_code == 409:
+                logger.debug("Iteration '%s' already assigned to team '%s'", name, team)
+            else:
+                logger.warning(
+                    "Could not assign iteration '%s' to team '%s': HTTP %d — %s",
+                    name,
+                    team,
+                    assign_resp.status_code,
+                    assign_resp.text,
+                )
+        except Exception as e:
+            logger.warning("Could not assign iteration '%s' to team: %s", name, e)
+
+    return iteration_path
