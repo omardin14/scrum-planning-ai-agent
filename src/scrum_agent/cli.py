@@ -670,21 +670,17 @@ def _install_skill(target_arg: str) -> None:
     # ── Step 1: Copy to skills registry (gateway discovery) ──────────────────
     # /usr/lib/node_modules/openclaw/skills/ is root-owned, so may need sudo.
     def _copy_to(dest: Path, label: str, step: str) -> int:
+        """Copy all files and subdirectories from source_path to dest."""
         try:
-            dest.mkdir(parents=True, exist_ok=True)
-            count = 0
-            for src_file in source_path.iterdir():
-                if src_file.is_file():
-                    shutil.copy2(src_file, dest / src_file.name)
-                    count += 1
+            if dest.exists():
+                shutil.rmtree(dest)
+            shutil.copytree(source_path, dest)
+            count = sum(1 for _ in dest.rglob("*") if _.is_file())
         except PermissionError:
-            subprocess.run(["sudo", "mkdir", "-p", str(dest)], check=True)
-            count = 0
-            for src_file in source_path.iterdir():
-                if src_file.is_file():
-                    subprocess.run(["sudo", "cp", str(src_file), str(dest / src_file.name)], check=True)
-                    count += 1
-        print(f"[{step}] {label}: {dest}")
+            subprocess.run(["sudo", "rm", "-rf", str(dest)], check=True)
+            subprocess.run(["sudo", "cp", "-r", str(source_path), str(dest)], check=True)
+            count = sum(1 for _ in source_path.rglob("*") if _.is_file())
+        print(f"[{step}] {label}: {dest} ({count} files)")
         return count
 
     _copy_to(target_dir, "Skill registry", "1/5")
