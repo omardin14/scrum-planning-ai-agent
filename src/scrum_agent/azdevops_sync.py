@@ -632,13 +632,18 @@ def _create_iteration_node(
     # Step 1: Create iteration as a classification node
     create_url = f"{org_url}/{project}/_apis/wit/classificationnodes/Iterations?api-version=7.1"
 
+    # AzDO requires full ISO 8601 with time component for iteration dates.
+    # Convert "2026-03-16" → "2026-03-16T00:00:00Z" if needed.
+    def _to_iso(d: str) -> str:
+        return f"{d}T00:00:00Z" if d and "T" not in d else d
+
     body: dict = {"name": name}
     if start_date or finish_date:
         body["attributes"] = {}
         if start_date:
-            body["attributes"]["startDate"] = start_date
+            body["attributes"]["startDate"] = _to_iso(start_date)
         if finish_date:
-            body["attributes"]["finishDate"] = finish_date
+            body["attributes"]["finishDate"] = _to_iso(finish_date)
 
     resp = httpx.post(create_url, headers=auth_headers, json=body, timeout=15)
 
