@@ -879,18 +879,18 @@ _OpenClaw comes pre-installed on the Lightsail OpenClaw blueprint. Use Claude wi
 
 #### Slack Connection (Socket Mode)
 
-- [ ] Create Slack App in workspace — bot token scopes: `chat:write`, `channels:read`, `channels:history`, `canvases:write`, `files:write`
-- [ ] Enable Socket Mode — outbound-only WebSocket, no public webhook URLs needed
-- [ ] Configure app-level token (`xapp-`) and bot token (`xoxb-`) in OpenClaw
-- [ ] Subscribe to events: `message.channels`, `app_mention`
-- [ ] Test: bot responds to a mention in a Slack channel
+- [x] Create Slack App in workspace — bot token scopes: `chat:write`, `channels:read`, `channels:history`, `canvases:write`, `files:write`
+- [x] Enable Socket Mode — outbound-only WebSocket, no public webhook URLs needed
+- [x] Configure app-level token (`xapp-`) and bot token (`xoxb-`) in OpenClaw
+- [x] Subscribe to events: `message.channels`, `app_mention`
+- [x] Test: bot responds to a mention in a Slack channel
 
 #### scrum-agent Installation
 
-- [ ] Install scrum-agent on the instance (`pipx install scrum-agent`)
-- [ ] Configure `ANTHROPIC_API_KEY` (or use Bedrock credentials already on instance)
-- [ ] Verify headless mode: `scrum-agent --non-interactive --description "Build a todo app" --output json`
-- [ ] Verify SCRUM.md keyword extraction works with a sample file
+- [x] Install scrum-agent on the instance (`pipx install scrum-agent`)
+- [x] Configure `ANTHROPIC_API_KEY` (or use Bedrock credentials already on instance)
+- [x] Verify headless mode: `scrum-agent --non-interactive --description "Build a todo app" --output json`
+- [x] Verify SCRUM.md keyword extraction works with a sample file
 
 ---
 
@@ -962,20 +962,20 @@ _Write non-CLI answers to a temp SCRUM.md so `scrum-agent --non-interactive` pic
 
 _Plans exceed the 50-block message limit; Canvas has no limit. Fallback chain: Canvas → threaded messages → file upload._
 
-- [x] Format plan JSON into Slack Canvas document (rich text with headers, tables, bullet points)
-- [x] Canvas sections: Project Summary, Epics, User Stories (grouped by epic), Tasks, Sprint Plan
-- [x] Create Canvas in the channel via `canvases.create` API
+- [x] Format plan JSON into Slack-compatible output (bold labels, bullet lists, phase-by-phase review)
+- [x] Output sections: Project Summary, Features, User Stories (grouped by feature), Tasks, Sprint Plan
+- [ ] Create Canvas in the channel via `canvases.create` API (scopes added, not yet working via OpenClaw)
 - [x] Implement fallback chain:
   1. Try Canvas → if API unavailable or permissions missing
-  2. Fall back to threaded messages (chunked to stay under 50 blocks per message)
+  2. Fall back to threaded messages (chunked to stay under 50 blocks per message) ✅ working
   3. Final fallback: upload as formatted Markdown file
-- [x] Post summary message in channel linking to Canvas: "Sprint plan ready — X epics, Y stories across Z sprints"
+- [x] Post summary message in thread: "Sprint plan ready — X epics, Y stories across Z sprints"
 
 #### Error Handling
 
 - [x] Handle scrum-agent CLI failures (non-zero exit, timeout after 5 minutes)
 - [ ] Handle Slack API errors (rate limits, permissions, Canvas API unavailability)
-- [ ] Show progress updates in thread: "Analysing project...", "Generating stories...", "Building sprint plan..."
+- [x] Show progress updates in thread: "Analysing project...", "Generating stories...", "Building sprint plan..."
 - [x] Surface actionable error messages in Slack (e.g., "API key not configured — ask an admin")
 
 ---
