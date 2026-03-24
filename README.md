@@ -479,7 +479,10 @@ openclaw channels add
 
 Once Slack is connected, `@mention` the bot in a channel to invite it. Send a casual first message to establish the thread — the bot's first reply won't appear in a thread, so keep it simple:
 
+
 > **You:** @OpenClaw hey, how's it going?
+![OpenClaw invite & first message](docs/lightsail-setup/15-slack-openclaw-invite.png)
+
 
 Then start your planning session in a **new message** (this one will create a proper thread):
 
@@ -494,8 +497,9 @@ The skill runs the same conversational intake as the dashboard, directly in a Sl
 
 After confirmation, the bot runs `scrum-agent` in the background (~3-5 minutes), then presents results phase-by-phase with accept/edit/regenerate options.
 
-![Slack conversation — intake](docs/lightsail-setup/15-slack-intake.png)
-![Slack conversation — output](docs/lightsail-setup/16-slack-output.png)
+![Slack conversation — intake](docs/lightsail-setup/16-slack-intake.png)
+![Slack conversation — output message](docs/lightsail-setup/17-slack-output-message.png)
+![Slack conversation — output canvas](docs/lightsail-setup/18-slack-output-canvas.png)
 
 
 ### 14. Next steps
