@@ -754,9 +754,14 @@ def create_task(title: str, description: str, story_id: str, project: str = "") 
     wit_client = _make_azdo_clients()[0]
     org_url = get_azure_devops_org_url() or ""
 
+    # Area path = "{project}\{team}" — assigns task to the team's board area.
+    team = get_azure_devops_team() or ""
+    area_path = f"{project}\\{team}" if team else project
+
     document = [
         JsonPatchOperation(op="add", path="/fields/System.Title", value=title),
         JsonPatchOperation(op="add", path="/fields/System.Description", value=description),
+        JsonPatchOperation(op="add", path="/fields/System.AreaPath", value=area_path),
         JsonPatchOperation(
             op="add",
             path="/relations/-",

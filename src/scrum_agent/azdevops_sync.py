@@ -97,6 +97,12 @@ def sync_stories_to_azdevops(
         result.errors.append(f"Azure DevOps connection failed: {e}")
         return result, state
 
+    # Area path = "{project}\{team}" — assigns work items to the team's board area.
+    from scrum_agent.config import get_azure_devops_team as _get_team
+
+    team = _get_team() or ""
+    area_path = f"{project}\\{team}" if team else project
+
     stories = state.get("stories", [])
     features = state.get("features", [])
     feature_map = {f.id: f for f in features}
@@ -117,6 +123,7 @@ def sync_stories_to_azdevops(
             document = [
                 JsonPatchOperation(op="add", path="/fields/System.Title", value=epic_title),
                 JsonPatchOperation(op="add", path="/fields/System.Description", value=epic_desc),
+                JsonPatchOperation(op="add", path="/fields/System.AreaPath", value=area_path),
             ]
             work_item = wit_client.create_work_item(document=document, project=project, type="Epic")
             epic_id = str(work_item.id)
@@ -178,6 +185,7 @@ def sync_stories_to_azdevops(
                 JsonPatchOperation(op="add", path="/fields/System.Description", value=description),
                 JsonPatchOperation(op="add", path="/fields/Microsoft.VSTS.Common.Priority", value=priority_val),
                 JsonPatchOperation(op="add", path="/fields/System.Tags", value=tags_str),
+                JsonPatchOperation(op="add", path="/fields/System.AreaPath", value=area_path),
             ]
 
             if story.story_points:
