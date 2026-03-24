@@ -477,7 +477,11 @@ openclaw channels add
 
 ### 13. Use the skill in Slack
 
-Once Slack is connected,  `@mention` the bot to add it to a channel and start a planning session:
+Once Slack is connected, `@mention` the bot in a channel to invite it. Send a casual first message to establish the thread — the bot's first reply won't appear in a thread, so keep it simple:
+
+> **You:** @OpenClaw hey, how's it going?
+
+Then start your planning session in a **new message** (this one will create a proper thread):
 
 > **You:** @OpenClaw Plan a mobile banking app — React Native, Node.js, PostgreSQL, 6 engineers
 
