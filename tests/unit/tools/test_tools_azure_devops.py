@@ -5,6 +5,7 @@ so no real network requests are made. Tests cover happy paths, error cases, and
 edge cases for each tool and the _parse_azdo_url helper.
 """
 
+from datetime import UTC
 from unittest.mock import MagicMock, patch
 
 from azure.devops.exceptions import AzureDevOpsServiceError
@@ -392,10 +393,146 @@ class TestWorkItemsTruncationNote:
         assert "increase max_items" not in result
 
 
+# ---------------------------------------------------------------------------
+# Write tools: azdevops_create_epic, azdevops_create_story
+# ---------------------------------------------------------------------------
+
+
+class TestAzdevopsCreateEpic:
+    @patch("scrum_agent.tools.azure_devops.get_azure_devops_project", return_value="MyProject")
+    @patch("scrum_agent.tools.azure_devops._make_azdo_clients")
+    def test_creates_epic(self, mock_clients, _):
+        mock_wit = MagicMock()
+        mock_clients.return_value = (mock_wit, MagicMock())
+        wi = MagicMock()
+        wi.id = 42
+        mock_wit.create_work_item.return_value = wi
+
+        from scrum_agent.tools.azure_devops import azdevops_create_epic
+
+        result = azdevops_create_epic.invoke({"title": "My Epic", "description": "desc"})
+        assert "42" in result
+        assert "My Epic" in result
+        mock_wit.create_work_item.assert_called_once()
+
+    @patch("scrum_agent.tools.azure_devops.get_azure_devops_project", return_value="")
+    def test_missing_project(self, _):
+        from scrum_agent.tools.azure_devops import azdevops_create_epic
+
+        result = azdevops_create_epic.invoke({"title": "Epic"})
+        assert "Error" in result
+        assert "project" in result.lower()
+
+
+class TestAzdevopsCreateStory:
+    @patch("scrum_agent.tools.azure_devops.get_azure_devops_org_url", return_value="https://dev.azure.com/org")
+    @patch("scrum_agent.tools.azure_devops.get_azure_devops_project", return_value="MyProject")
+    @patch("scrum_agent.tools.azure_devops._make_azdo_clients")
+    def test_creates_story_with_epic_link(self, mock_clients, *_):
+        mock_wit = MagicMock()
+        mock_clients.return_value = (mock_wit, MagicMock())
+        wi = MagicMock()
+        wi.id = 101
+        mock_wit.create_work_item.return_value = wi
+
+        from scrum_agent.tools.azure_devops import azdevops_create_story
+
+        result = azdevops_create_story.invoke(
+            {
+                "summary": "Login feature",
+                "epic_id": "42",
+                "story_points": 5,
+                "priority": 2,
+            }
+        )
+        assert "101" in result
+        assert "Login feature" in result
+        # Verify parent link was included in the document
+        call_args = mock_wit.create_work_item.call_args
+        document = call_args.kwargs.get("document") or call_args[1].get("document") or call_args[0][0]
+        has_parent_link = any(getattr(op, "path", "") == "/relations/-" for op in document)
+        assert has_parent_link, "Expected parent link in document"
+
+
+# ---------------------------------------------------------------------------
+# Read tools: azdevops_read_board, azdevops_fetch_velocity, azdevops_fetch_active_iteration
+# ---------------------------------------------------------------------------
+
+
+class TestAzdevopsReadBoard:
+    @patch("scrum_agent.tools.azure_devops.get_azure_devops_team", return_value="MyTeam")
+    @patch("scrum_agent.tools.azure_devops.get_azure_devops_project", return_value="MyProject")
+    @patch("scrum_agent.tools.azure_devops._make_azdo_clients")
+    def test_returns_board_info(self, mock_clients, *_):
+        from datetime import datetime, timedelta
+
+        mock_wit = MagicMock()
+        mock_work = MagicMock()
+        mock_clients.return_value = (mock_wit, mock_work)
+
+        # Mock current iteration with dates that bracket "now"
+        now = datetime.now(UTC)
+        cur_iter = MagicMock()
+        cur_iter.name = "Sprint 42"
+        cur_iter.attributes.start_date = now - timedelta(days=7)
+        cur_iter.attributes.finish_date = now + timedelta(days=7)
+        mock_work.get_team_iterations.return_value = [cur_iter]
+
+        from scrum_agent.tools.azure_devops import azdevops_read_board
+
+        result = azdevops_read_board.invoke({})
+        assert "MyProject" in result
+        assert "Sprint 42" in result
+
+    @patch("scrum_agent.tools.azure_devops.get_azure_devops_project", return_value="")
+    def test_missing_project(self, _):
+        from scrum_agent.tools.azure_devops import azdevops_read_board
+
+        result = azdevops_read_board.invoke({})
+        assert "Error" in result
+
+
+class TestAzdevopsFetchActiveIteration:
+    @patch("scrum_agent.tools.azure_devops.get_azure_devops_team", return_value="MyTeam")
+    @patch("scrum_agent.tools.azure_devops.get_azure_devops_project", return_value="MyProject")
+    @patch("scrum_agent.tools.azure_devops._make_azdo_clients")
+    def test_returns_active_iteration(self, mock_clients, *_):
+        from datetime import datetime, timedelta
+
+        mock_work = MagicMock()
+        mock_clients.return_value = (MagicMock(), mock_work)
+
+        now = datetime.now(UTC)
+        cur_iter = MagicMock()
+        cur_iter.name = "Sprint 42"
+        cur_iter.attributes.start_date = now - timedelta(days=7)
+        cur_iter.attributes.finish_date = now + timedelta(days=7)
+        mock_work.get_team_iterations.return_value = [cur_iter]
+
+        from scrum_agent.tools.azure_devops import azdevops_fetch_active_iteration
+
+        result = azdevops_fetch_active_iteration.invoke({})
+        assert "Sprint 42" in result
+        assert "42" in result
+
+    @patch("scrum_agent.tools.azure_devops.get_azure_devops_team", return_value="MyTeam")
+    @patch("scrum_agent.tools.azure_devops.get_azure_devops_project", return_value="MyProject")
+    @patch("scrum_agent.tools.azure_devops._make_azdo_clients")
+    def test_no_active_iteration(self, mock_clients, *_):
+        mock_work = MagicMock()
+        mock_clients.return_value = (MagicMock(), mock_work)
+        mock_work.get_team_iterations.return_value = []
+
+        from scrum_agent.tools.azure_devops import azdevops_fetch_active_iteration
+
+        result = azdevops_fetch_active_iteration.invoke({})
+        assert "No active iteration" in result
+
+
 class TestGetTools:
-    def test_returns_twenty_four_tools(self):
+    def test_returns_thirty_tools(self):
         tools = get_tools()
-        assert len(tools) == 24
+        assert len(tools) == 30
 
     def test_all_are_base_tools(self):
         from langchain_core.tools import BaseTool
@@ -415,6 +552,12 @@ class TestGetTools:
             "azdevops_read_repo",
             "azdevops_read_file",
             "azdevops_list_work_items",
+            "azdevops_read_board",
+            "azdevops_fetch_velocity",
+            "azdevops_fetch_active_iteration",
+            "azdevops_create_epic",
+            "azdevops_create_story",
+            "azdevops_create_iteration",
             "read_codebase",
             "read_local_file",
             "detect_bank_holidays",

@@ -511,5 +511,5 @@ class TestConfluenceToolsRegistered:
         }
         assert expected.issubset(names), f"Missing Confluence tools: {expected - names}"
 
-    def test_total_tool_count_is_twenty_four(self):
-        assert len(get_tools()) == 24
+    def test_total_tool_count_is_thirty(self):
+        assert len(get_tools()) == 30

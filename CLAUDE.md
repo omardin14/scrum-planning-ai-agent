@@ -53,7 +53,7 @@ Key README sections to reference:
 - "Prompt Construction" — ARC framework, few-shot, chain-of-thought, flipped prompt
 - "Session Management" — SQLite persistence, --resume, session IDs
 - "Guardrails" — input guardrails (4 layers), output guardrails (4 layers), human-in-the-loop
-- "Tools" — 23 tools, tool types, risk levels
+- "Tools" — 30 tools, tool types, risk levels
 - "Scrum Standards" — story format, acceptance criteria, story points, DoD, discipline tagging
 
 ## REQUIRED: Progress Tracking
@@ -84,6 +84,7 @@ src/scrum_agent/
   html_exporter.py      — Export plans to self-contained HTML
   json_exporter.py      — Export plans to clean JSON (for CI/CD pipelines)
   jira_sync.py          — Batch Jira creation (idempotent, cascade, progress callbacks)
+  azdevops_sync.py      — Batch Azure DevOps creation (idempotent, cascade, progress callbacks)
   questionnaire_io.py   — Import/export questionnaire templates as Markdown
   input_guardrails.py   — Input validation (length, injection, profanity, relevance)
   output_guardrails.py  — Output validation (story format, AC coverage, sprint capacity)
@@ -103,7 +104,7 @@ src/scrum_agent/
   tools/
     __init__.py         — get_tools() factory (lazy imports all tool modules)
     github.py           — GitHub repo/file/issues/readme (4 tools)
-    azure_devops.py     — Azure DevOps repo/file/work items (3 tools)
+    azure_devops.py     — Azure DevOps repo/file/work items/board/velocity/create (9 tools)
     jira.py             — Jira board/velocity/sprint/epic/story (6 tools)
     confluence.py       — Confluence search/read/write (5 tools)
     codebase.py         — Local repo scanning (3 tools)
@@ -302,6 +303,7 @@ The `_dict_to_*()` functions in `sessions.py` use `.get()` for optional fields s
 - `LLM_PROVIDER` — `anthropic` (default), `openai`, `google`
 - `LLM_MODEL` — optional model override for the selected provider
 - `GITHUB_TOKEN`, `AZURE_DEVOPS_TOKEN` — optional, for repo context tools
+- `AZURE_DEVOPS_ORG_URL`, `AZURE_DEVOPS_PROJECT`, `AZURE_DEVOPS_TEAM` — optional, for Azure DevOps board sync
 - `JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN`, `JIRA_PROJECT_KEY` — optional, for Jira integration
 - `CONFLUENCE_SPACE_KEY` — optional, shares Atlassian auth with Jira
 - `SESSION_PRUNE_DAYS` — auto-prune sessions older than N days (default: 30, 0 = disabled)

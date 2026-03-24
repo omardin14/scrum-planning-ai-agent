@@ -205,11 +205,35 @@ def _pipeline_choice_screen(
 
 
 # ---------------------------------------------------------------------------
-# Jira sync helper
+# Tracker detection helper
 # ---------------------------------------------------------------------------
 
 
-def _handle_jira_sync(
+def _get_active_trackers() -> list[str]:
+    """Detect which issue trackers are configured.
+
+    Returns a list of configured trackers, e.g. ["jira"], ["azdevops"], ["jira", "azdevops"], or [].
+    """
+    from scrum_agent.jira_sync import is_jira_configured
+
+    trackers: list[str] = []
+    if is_jira_configured():
+        trackers.append("jira")
+
+    from scrum_agent.azdevops_sync import is_azdevops_board_configured
+
+    if is_azdevops_board_configured():
+        trackers.append("azdevops")
+
+    return trackers
+
+
+# ---------------------------------------------------------------------------
+# Tracker sync helper (dispatches to Jira or Azure DevOps)
+# ---------------------------------------------------------------------------
+
+
+def _handle_tracker_sync(
     live: Live,
     console: Console,
     _key,
@@ -219,29 +243,49 @@ def _handle_jira_sync(
     progress: str,
     step: int,
     total: int,
+    tracker: str = "jira",
 ) -> dict | None:
-    """Run Jira sync for the current pipeline stage with progress animation.
+    """Run tracker sync for the current pipeline stage with progress animation.
 
     Shows a confirmation summary, then a progress screen during sync,
     then updates graph_state with the results.
     Returns updated graph_state on success, or None on cancel/failure.
 
+    tracker: "jira" or "azdevops" — determines which sync module to use.
     # See README: "Tools" — tool types, write tools, human-in-the-loop pattern
     """
-    from scrum_agent.jira_sync import (
-        JiraSyncResult,
-        sync_sprints_to_jira,
-        sync_stories_to_jira,
-        sync_tasks_to_jira,
-    )
+    tracker_label = "Jira" if tracker == "jira" else "Azure DevOps"
 
-    # Pick the right sync function based on stage
+    if tracker == "jira":
+        from scrum_agent.jira_sync import (
+            sync_sprints_to_jira,
+            sync_stories_to_jira,
+            sync_tasks_to_jira,
+        )
+
+        story_key_field = "jira_story_keys"
+        task_key_field = "jira_task_keys"
+        sprint_key_field = "jira_sprint_keys"
+        epic_key_field = "jira_epic_key"
+    else:
+        from scrum_agent.azdevops_sync import (
+            sync_iterations_to_azdevops,
+            sync_stories_to_azdevops,
+            sync_tasks_to_azdevops,
+        )
+
+        story_key_field = "azdevops_story_keys"
+        task_key_field = "azdevops_task_keys"
+        sprint_key_field = "azdevops_iteration_keys"
+        epic_key_field = "azdevops_epic_id"
+
+    # Pick the right sync function based on stage and tracker
     if stage == "story_writer":
-        sync_fn = sync_stories_to_jira
+        sync_fn = sync_stories_to_jira if tracker == "jira" else sync_stories_to_azdevops
     elif stage == "task_decomposer":
-        sync_fn = sync_tasks_to_jira
+        sync_fn = sync_tasks_to_jira if tracker == "jira" else sync_tasks_to_azdevops
     elif stage == "sprint_planner":
-        sync_fn = sync_sprints_to_jira
+        sync_fn = sync_sprints_to_jira if tracker == "jira" else sync_iterations_to_azdevops
     else:
         return None
 
@@ -249,10 +293,10 @@ def _handle_jira_sync(
     stories = graph_state.get("stories", [])
     tasks = graph_state.get("tasks", [])
     sprints = graph_state.get("sprints", [])
-    existing_stories = len(graph_state.get("jira_story_keys", {}))
-    existing_tasks = len(graph_state.get("jira_task_keys", {}))
-    existing_sprints = len(graph_state.get("jira_sprint_keys", {}))
-    has_epic = bool(graph_state.get("jira_epic_key"))
+    existing_stories = len(graph_state.get(story_key_field, {}))
+    existing_tasks = len(graph_state.get(task_key_field, {}))
+    existing_sprints = len(graph_state.get(sprint_key_field, {}))
+    has_epic = bool(graph_state.get(epic_key_field))
 
     # Build confirmation description
     parts: list[str] = []
@@ -269,13 +313,15 @@ def _handle_jira_sync(
         if not existing_stories and stories:
             parts.append(f"{len(stories)} Stories (cascade)")
         if new_tasks > 0:
-            parts.append(f"{new_tasks} Sub-tasks")
+            task_label = "Sub-tasks" if tracker == "jira" else "Tasks"
+            parts.append(f"{new_tasks} {task_label}")
         if existing_tasks > 0:
             parts.append(f"({existing_tasks} already exist)")
     elif stage == "sprint_planner":
         new_sprints = len(sprints) - existing_sprints
+        sprint_label = "Sprints" if tracker == "jira" else "Iterations"
         if new_sprints > 0:
-            parts.append(f"{new_sprints} Sprints")
+            parts.append(f"{new_sprints} {sprint_label}")
         if existing_sprints > 0:
             parts.append(f"({existing_sprints} already exist)")
 
@@ -283,12 +329,12 @@ def _handle_jira_sync(
         return None  # Nothing to create
 
     # Show confirmation via choice screen
-    desc = "Create in Jira: " + ", ".join(parts)
+    desc = f"Create in {tracker_label}: " + ", ".join(parts)
     choice = _pipeline_choice_screen(
         live,
         console,
         _key,
-        title="Create in Jira",
+        title=f"Create in {tracker_label}",
         subtitle=desc,
         options=["Confirm", "Cancel"],
         step=step,
@@ -300,11 +346,10 @@ def _handle_jira_sync(
         return None  # User cancelled
 
     # Run sync in a background thread with progress updates
-    # _sync_log accumulates completed items; _sync_current shows the active item.
     _sync_log: list[str] = []
     _sync_current: list[str] = ["Starting..."]
     _sync_counter: list[int] = [0, 0]  # [current, total]
-    result_box: list[JiraSyncResult | None] = [None]
+    result_box: list = [None]
     state_box: list[dict | None] = [None]
     error_box: list[Exception | None] = [None]
     done = threading.Event()
@@ -335,7 +380,6 @@ def _handle_jira_sync(
     while not done.is_set():
         tick = time.monotonic() - start
         w, h = console.size
-        # Build status lines: completed log (tail) + current active item
         viewport_h = max(3, h - 16)
         visible_log = _sync_log[-viewport_h:] if _sync_log else []
         cur = _sync_counter[0]
@@ -363,13 +407,13 @@ def _handle_jira_sync(
     thread.join()
 
     if error_box[0] is not None:
-        logger.error("Jira sync failed: %s", error_box[0])
+        logger.error("%s sync failed: %s", tracker_label, error_box[0])
         return None
 
     if state_box[0] is not None:
         sync_result = result_box[0]
         if sync_result and sync_result.errors:
-            logger.warning("Jira sync completed with %d errors", len(sync_result.errors))
+            logger.warning("%s sync completed with %d errors", tracker_label, len(sync_result.errors))
         return state_box[0]
 
     return None
@@ -609,14 +653,14 @@ def _phase_pipeline(
         else:
             actions = ["Accept", "Edit", "Export"]
 
-        # Add "Jira" button to stages that produce Jira-syncable artifacts.
-        # Only shown when Jira credentials are configured.
-        # Feature stage does NOT get Jira — features map to labels, not issues.
+        # Add tracker sync buttons to stages that produce syncable artifacts.
+        # Both Jira and Azure DevOps buttons are shown when both are configured.
+        # Feature stage does NOT get sync buttons — features map to labels/tags, not issues.
         # See README: "Tools" — tool types, write tools, human-in-the-loop pattern
-        from scrum_agent.jira_sync import is_jira_configured
-
-        if is_jira_configured() and (is_story_stage or is_task_stage or is_sprint_stage):
-            actions.append("Jira")
+        _active_trackers = _get_active_trackers()
+        if _active_trackers and (is_story_stage or is_task_stage or is_sprint_stage):
+            for _trk in _active_trackers:
+                actions.append("Jira" if _trk == "jira" else "Azure DevOps")
         num_actions = len(actions)
 
         # Capacity warning state — shown as a banner on the sprint review screen.
@@ -874,19 +918,30 @@ def _phase_pipeline(
                             warning_text=cap_warning_text if is_sprint_stage else "",
                         )
                     )
-                elif action == "Jira":
-                    logger.info("Jira sync requested for %s", pending)
-                    jira_result = _handle_jira_sync(
-                        live, console, _key, graph_state, pending, stage_label, progress, step, total
+                elif action in ("Jira", "Azure DevOps"):
+                    _btn_tracker = "jira" if action == "Jira" else "azdevops"
+                    logger.info("%s sync requested for %s", action, pending)
+                    tracker_result = _handle_tracker_sync(
+                        live,
+                        console,
+                        _key,
+                        graph_state,
+                        pending,
+                        stage_label,
+                        progress,
+                        step,
+                        total,
+                        tracker=_btn_tracker,
                     )
-                    if jira_result is not None:
-                        graph_state = jira_result
-                        # Save after Jira sync
+                    if tracker_result is not None:
+                        graph_state = tracker_result
+                        # Save after tracker sync
                         if project_id:
                             save_project_snapshot(project_id, graph_state)
                         # Re-render artifacts (content_lines unchanged, but status_msg updates)
-                        created = len(graph_state.get("jira_story_keys", {}))
-                        status_msg = f"Synced to Jira ({created} stories)"
+                        _sk = "jira_story_keys" if _btn_tracker == "jira" else "azdevops_story_keys"
+                        created = len(graph_state.get(_sk, {}))
+                        status_msg = f"Synced to {action} ({created} stories)"
 
             # Animate button fades toward targets
             _fade_step = 0.15

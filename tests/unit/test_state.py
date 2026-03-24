@@ -727,3 +727,43 @@ class TestJiraKeyMappingFields:
         """StateGraph must compile without errors when ScrumState has Jira dict fields."""
         graph = StateGraph(ScrumState)
         assert graph is not None
+
+
+# ── Azure DevOps key mapping state fields ──────────────────────────────
+
+
+class TestAzDevOpsKeyMappingFields:
+    def test_azdevops_epic_id_field_present(self):
+        all_annotations = {}
+        for cls in ScrumState.__mro__:
+            all_annotations.update(getattr(cls, "__annotations__", {}))
+        assert "azdevops_epic_id" in all_annotations
+
+    def test_azdevops_story_keys_field_present(self):
+        all_annotations = {}
+        for cls in ScrumState.__mro__:
+            all_annotations.update(getattr(cls, "__annotations__", {}))
+        assert "azdevops_story_keys" in all_annotations
+
+    def test_azdevops_task_keys_field_present(self):
+        all_annotations = {}
+        for cls in ScrumState.__mro__:
+            all_annotations.update(getattr(cls, "__annotations__", {}))
+        assert "azdevops_task_keys" in all_annotations
+
+    def test_azdevops_iteration_keys_field_present(self):
+        all_annotations = {}
+        for cls in ScrumState.__mro__:
+            all_annotations.update(getattr(cls, "__annotations__", {}))
+        assert "azdevops_iteration_keys" in all_annotations
+
+    def test_azdevops_dict_fields_use_merge_dicts_reducer(self):
+        """azdevops dict fields should merge via _merge_dicts."""
+        a = {"s1": "100"}
+        b = {"s2": "101"}
+        assert _merge_dicts(a, b) == {"s1": "100", "s2": "101"}
+
+    def test_stategraph_accepts_azdevops_key_fields(self):
+        """StateGraph must compile without errors when ScrumState has Azure DevOps dict fields."""
+        graph = StateGraph(ScrumState)
+        assert graph is not None

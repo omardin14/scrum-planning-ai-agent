@@ -1089,3 +1089,70 @@ _README, architecture diagram, runbook, skill docs._
 - [ ] Multi-workspace support — serve multiple Slack workspaces from one instance
 - [ ] Plan diff — re-run planning and show what changed since last run
 - [ ] Integration with Jira — after Canvas review, one-click push to Jira from Slack
+
+---
+
+## Phase 15: Azure DevOps Board Parity
+
+_Bring Azure DevOps to full feature parity with Jira — read board/velocity, create work items, batch sync from TUI, setup wizard support._
+
+### Config Layer
+- [x] Add `get_azure_devops_org_url()`, `get_azure_devops_project()`, `get_azure_devops_team()` to `config.py`
+- [x] Add `AZURE_DEVOPS_ORG_URL`, `AZURE_DEVOPS_PROJECT`, `AZURE_DEVOPS_TEAM` to `.env.example`
+
+### State Changes
+- [x] Add `azdevops_epic_id`, `azdevops_story_keys`, `azdevops_task_keys`, `azdevops_iteration_keys` to `ScrumState`
+- [x] Dict fields use `_merge_dicts` reducer (same pattern as Jira fields)
+
+### New Tools (azure_devops.py)
+- [x] `azdevops_read_board` — board info, active iteration, avg velocity from last 3 iterations
+- [x] `azdevops_fetch_velocity` — team velocity, team size, per-developer velocity
+- [x] `azdevops_fetch_active_iteration` — current sprint name, number, start date
+- [x] `azdevops_create_epic` — create Epic work item via JSON Patch operations
+- [x] `azdevops_create_story` — create User Story linked to Epic via `System.LinkTypes.Hierarchy-Reverse`
+- [x] `create_task` helper — create Task work item with parent link (non-@tool, for batch sync)
+- [x] `add_work_items_to_iteration` helper — assign work items via `System.IterationPath` field update
+- [x] Register all 5 new @tool functions in `get_tools()` (24 → 29 total)
+
+### Batch Sync Module (azdevops_sync.py)
+- [x] `is_azdevops_board_configured()` — checks TOKEN + ORG_URL + PROJECT
+- [x] `sync_stories_to_azdevops` — creates 1 Epic + User Stories, idempotent via `azdevops_story_keys`
+- [x] `sync_tasks_to_azdevops` — creates Tasks under stories, cascades to stories if needed
+- [x] `sync_iterations_to_azdevops` — creates iterations via REST API, assigns stories via `System.IterationPath`
+- [x] `sync_all_to_azdevops` — full pipeline (Epic → Stories → Tasks → Iterations)
+- [x] HTML descriptions (`<h3>`, `<strong>`, `<ul><li>`), priority mapping (critical→1, high→2, medium→3, low→4)
+- [x] Features → Tags (`System.Tags`, semicolon-separated)
+- [x] `AzDevOpsSyncResult` dataclass for result tracking
+
+### Setup Wizard
+- [x] Add `_AZDEVOPS_TRACKING_FIELDS` (org URL, project, PAT, team name) to `_constants.py`
+- [x] Add `_ISSUE_TRACKING_OPTIONS` list (Jira / Azure DevOps Boards / Skip)
+- [x] Add provider selection step in `_phase_issue_tracking.py` before form fields
+- [x] Add `_verify_azdevops()` in `_verification.py` — verifies via work item types API
+- [x] Generalize `_build_issue_tracking_screen()` with `fields` and `subtitle` parameters
+
+### TUI Pipeline Integration
+- [x] `_get_active_trackers()` returns list of configured trackers (both shown if both configured)
+- [x] Generalized `_handle_tracker_sync()` dispatches to Jira or Azure DevOps based on button
+- [x] Both "Jira" and "Azure DevOps" buttons shown when both trackers are configured
+- [x] Tracker-specific button labels, confirmation text, and state key references
+
+### Tests
+- [x] `test_azdevops_sync.py` — 18 tests: tag sanitization, priority mapping, HTML formatting, idempotency, cascade, error accumulation, progress callbacks, full pipeline
+- [x] `test_state.py` — 6 tests for `azdevops_*` state fields and `_merge_dicts` reducer
+- [x] `test_tools_azure_devops.py` — 9 new tests for write tools (create epic/story) and read tools (board, velocity, active iteration)
+- [x] Updated tool count assertions in 3 test files (24 → 29)
+
+### Parity Gaps (Phase 15B)
+- [x] Iteration dates — `_create_iteration_node` now accepts and sets `startDate`/`finishDate` attributes
+- [x] Story/task updates on re-sync — existing items get description updated (DoD, rationale, ai_prompt) instead of just skipping
+- [x] Sprint naming convention detection — detects board's iteration naming pattern and renames LLM-generated names to match
+- [x] Intake velocity auto-population — `_fetch_tracker_velocity()` tries Jira first, falls back to AzDO `azdevops_fetch_velocity`
+- [x] Sprint selector fallback — `_fetch_active_sprint_number()` tries Jira first, falls back to AzDO `azdevops_fetch_active_iteration`
+- [x] `_is_tracker_configured()` / `_is_azdevops_configured()` helpers — all Q27 call sites updated to use tracker-agnostic checks
+- [x] `azdevops_create_iteration` @tool — LLM-callable iteration creation with optional dates (30 tools total)
+
+### Documentation
+- [x] `CLAUDE.md` — updated tool count, added `azdevops_sync.py` to structure, added env vars
+- [x] `README.md` — added Azure DevOps Boards section with artifact mapping, PAT permissions table, env vars table
+- [x] `.env.example` — documented PAT permissions (Code=Read, Work Items=Read+Write, Project=Read)

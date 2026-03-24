@@ -533,4 +533,5 @@ def _export_checkpoint(console: Console, graph_state: dict, stage: str = "comple
 
     # Send anonymous telemetry if opted in (never blocks or errors)
     from scrum_agent.telemetry import send_telemetry
+
     send_telemetry(graph_state)

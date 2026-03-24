@@ -884,6 +884,28 @@ def _is_jira_configured() -> bool:
     return bool(get_jira_base_url() and get_jira_email() and get_jira_token() and get_jira_project_key())
 
 
+def _is_azdevops_configured() -> bool:
+    """Check whether Azure DevOps board credentials are set.
+
+    Returns True when AZURE_DEVOPS_TOKEN, AZURE_DEVOPS_ORG_URL, and
+    AZURE_DEVOPS_PROJECT are all non-empty. Used as a fallback when
+    Jira is not configured — enables velocity and sprint selection
+    from Azure DevOps iterations.
+    """
+    from scrum_agent.azdevops_sync import is_azdevops_board_configured
+
+    return is_azdevops_board_configured()
+
+
+def _is_tracker_configured() -> bool:
+    """Check whether any issue tracker (Jira or Azure DevOps) is configured.
+
+    Used by the intake node to decide whether to ask Q27 (sprint selection)
+    interactively and whether to fetch velocity data.
+    """
+    return _is_jira_configured() or _is_azdevops_configured()
+
+
 def _fetch_jira_velocity() -> dict | None:
     """Fetch avg velocity AND team size from last 3 closed sprints in Jira.
 
@@ -917,15 +939,69 @@ def _fetch_jira_velocity() -> dict | None:
     return None
 
 
-def _fetch_active_sprint_number() -> tuple[int | None, str | None, str]:
-    """Connect to Jira and return the current active sprint number and start date.
+def _fetch_azdevops_velocity() -> dict | None:
+    """Fetch avg velocity AND team size from Azure DevOps iterations.
+
+    # See README: "Scrum Standards" — capacity planning
+    #
+    # Fallback when Jira is not configured. Uses the azdevops_fetch_velocity
+    # @tool which returns a plain-text summary. We parse the key numbers out.
+
+    Returns:
+        Dict with keys {team_velocity, jira_team_size, per_dev_velocity},
+        or None if Azure DevOps is unavailable or has no data.
+        Uses ``jira_team_size`` key for backward compat with callers.
+    """
+    try:
+        from scrum_agent.tools.azure_devops import azdevops_fetch_velocity
+
+        result = azdevops_fetch_velocity.invoke({})
+        if result.startswith("Error") or result.startswith("No completed"):
+            logger.debug("azdevops_fetch_velocity returned: %s", result)
+            return None
+        # Parse the text output: "Team velocity: X.Y points/iteration ..."
+        import re as _re
+
+        vel_match = _re.search(r"Team velocity:\s*([\d.]+)", result)
+        size_match = _re.search(r"Team size:\s*(\d+)", result)
+        per_dev_match = _re.search(r"Per-developer velocity:\s*([\d.]+)", result)
+        if vel_match and size_match and per_dev_match:
+            return {
+                "team_velocity": float(vel_match.group(1)),
+                "jira_team_size": int(size_match.group(1)),  # reuse key for compat
+                "per_dev_velocity": float(per_dev_match.group(1)),
+            }
+        return None
+    except Exception:
+        logger.debug("Failed to fetch Azure DevOps velocity", exc_info=True)
+    return None
+
+
+def _fetch_tracker_velocity(preferred: str = "") -> dict | None:
+    """Fetch velocity from the configured tracker (Jira or Azure DevOps).
+
+    When preferred is set ("jira" or "azdevops"), uses that tracker.
+    Otherwise tries Jira first, then falls back to Azure DevOps.
+    """
+    if preferred == "azdevops" and _is_azdevops_configured():
+        return _fetch_azdevops_velocity()
+    if preferred == "jira" and _is_jira_configured():
+        return _fetch_jira_velocity()
+    # No explicit preference — auto-detect
+    if _is_jira_configured():
+        return _fetch_jira_velocity()
+    if _is_azdevops_configured():
+        return _fetch_azdevops_velocity()
+    return None
+
+
+def _fetch_active_sprint_number(preferred: str = "") -> tuple[int | None, str | None, str]:
+    """Connect to the configured tracker and return the current active sprint/iteration.
 
     # See README: "Scrum Standards" — sprint planning
     #
-    # Thin wrapper around the jira_fetch_active_sprint @tool in tools/jira.py.
-    # The tool handles all Jira connection logic and returns a JSON string;
-    # this wrapper parses it back to a tuple for the intake node.
-    # Same pattern as _prepare_bank_holiday_choices calling detect_bank_holidays.invoke().
+    # When preferred is set ("jira" or "azdevops"), uses that tracker.
+    # Otherwise tries Jira first, then falls back to Azure DevOps active iteration.
 
     Returns:
         Tuple of (sprint_number, start_date, status_message).
@@ -933,18 +1009,48 @@ def _fetch_active_sprint_number() -> tuple[int | None, str | None, str]:
         status_message explains what happened — shown to the user so they know
         why sprint selection fell back to "Fresh start".
     """
-    try:
-        from scrum_agent.tools.jira import jira_fetch_active_sprint
+    _use_jira = (preferred == "jira" and _is_jira_configured()) or (not preferred and _is_jira_configured())
+    _use_azdevops = (preferred == "azdevops" and _is_azdevops_configured()) or (
+        not preferred and not _is_jira_configured() and _is_azdevops_configured()
+    )
 
-        result = jira_fetch_active_sprint.invoke({})
-        if result.startswith("Error"):
-            # Strip "Error: " prefix for the status message
-            return None, None, result.removeprefix("Error: ")
-        data = json.loads(result)
-        return data["sprint_number"], data.get("start_date"), f"Active sprint: {data['sprint_name']}"
-    except Exception as exc:
-        logger.debug("Failed to fetch Jira sprints for sprint selection", exc_info=True)
-        return None, None, f"Jira connection failed: {exc}"
+    if _use_jira:
+        try:
+            from scrum_agent.tools.jira import jira_fetch_active_sprint
+
+            result = jira_fetch_active_sprint.invoke({})
+            if result.startswith("Error"):
+                return None, None, result.removeprefix("Error: ")
+            data = json.loads(result)
+            return data["sprint_number"], data.get("start_date"), f"Active sprint: {data['sprint_name']}"
+        except Exception as exc:
+            logger.debug("Failed to fetch Jira sprints for sprint selection", exc_info=True)
+            return None, None, f"Jira connection failed: {exc}"
+
+    if _is_azdevops_configured():
+        try:
+            from scrum_agent.tools.azure_devops import azdevops_fetch_active_iteration
+
+            result = azdevops_fetch_active_iteration.invoke({})
+            if result.startswith("Error") or result.startswith("No active"):
+                return None, None, result.removeprefix("Error: ")
+            # Parse text: "Sprint name: X\nSprint number: N\nStart date: YYYY-MM-DD"
+            import re as _re
+
+            num_match = _re.search(r"Sprint number:\s*(\d+)", result)
+            name_match = _re.search(r"Sprint name:\s*(.+)", result)
+            date_match = _re.search(r"Start date:\s*(\S+)", result)
+            sprint_num = int(num_match.group(1)) if num_match else None
+            sprint_name = name_match.group(1).strip() if name_match else "Unknown"
+            start_date = date_match.group(1) if date_match and date_match.group(1) else None
+            if sprint_num:
+                return sprint_num, start_date, f"Active iteration: {sprint_name}"
+            return None, None, "Could not determine active iteration number"
+        except Exception as exc:
+            logger.debug("Failed to fetch Azure DevOps iteration for sprint selection", exc_info=True)
+            return None, None, f"Azure DevOps connection failed: {exc}"
+
+    return None, None, "No tracker configured"
 
 
 def _extract_capacity_deductions(questionnaire: QuestionnaireState) -> dict:
@@ -2768,6 +2874,24 @@ def project_intake(state: ScrumState) -> dict:
     """
     questionnaire = state.get("questionnaire")
 
+    # ── Tracker choice resolution ────────────────────────────────────
+    # When both Jira and Azure DevOps are configured, the user picks one
+    # for velocity/sprint data before intake begins. This resolves that choice.
+    if questionnaire is not None and questionnaire._awaiting_tracker_choice:
+        last_msg = state["messages"][-1]
+        choice_text = last_msg.content.strip().lower() if isinstance(last_msg, HumanMessage) else ""
+        if choice_text in ("1", "jira"):
+            questionnaire._preferred_tracker = "jira"
+        elif choice_text in ("2", "azdevops", "azure devops", "azure"):
+            questionnaire._preferred_tracker = "azdevops"
+        else:
+            questionnaire._preferred_tracker = "jira"  # default to Jira
+        questionnaire._awaiting_tracker_choice = False
+        logger.info("User chose tracker for velocity/sprint: %s", questionnaire._preferred_tracker)
+        # Now proceed — the questionnaire exists but has no answers yet,
+        # so we fall through to the "subsequent calls" branch which will
+        # detect current_question == 1 and ask Q1 normally.
+
     if questionnaire is None:
         # First call — initialize questionnaire and attempt adaptive skip.
         # See README: "Project Intake Questionnaire" — adaptive skip logic
@@ -2867,25 +2991,47 @@ def project_intake(state: ScrumState) -> dict:
             # won't appear as a gap when Jira is absent.
             # Q28 (bank holidays) choices are prepared so the user sees a confirmation.
             # See README: "Scrum Standards" — capacity planning
-            if _is_jira_configured():
-                # Fire both Jira calls concurrently — they are independent HTTP
+            # ── Tracker choice prompt when both are configured ─────────
+            if _is_jira_configured() and _is_azdevops_configured() and not qs._preferred_tracker:
+                qs._awaiting_tracker_choice = True
+                qs._follow_up_choices[0] = ("Jira", "Azure DevOps")
+                return {
+                    "questionnaire": qs,
+                    "messages": [
+                        AIMessage(
+                            content=(
+                                "Both **Jira** and **Azure DevOps** are configured.\n\n"
+                                "Which tracker should I use for velocity and sprint data?"
+                            )
+                        )
+                    ],
+                }
+
+            if _is_tracker_configured():
+                # Fire both tracker calls concurrently — they are independent HTTP
                 # requests and running them in parallel halves the wait time.
                 # See README: "Scrum Standards" — capacity planning
                 from concurrent.futures import ThreadPoolExecutor
 
                 need_velocity = 9 not in qs.answers or 9 in qs.defaulted_questions
+                # Determine which tracker to use — explicit choice or auto-detect
+                if qs._preferred_tracker:
+                    _tracker_label = "Jira" if qs._preferred_tracker == "jira" else "Azure DevOps"
+                else:
+                    _tracker_label = "Jira" if _is_jira_configured() else "Azure DevOps"
+                _pref = qs._preferred_tracker
                 with ThreadPoolExecutor(max_workers=2) as pool:
-                    vel_future = pool.submit(_fetch_jira_velocity) if need_velocity else None
-                    sprint_future = pool.submit(_fetch_active_sprint_number)
+                    vel_future = pool.submit(_fetch_tracker_velocity, _pref) if need_velocity else None
+                    sprint_future = pool.submit(_fetch_active_sprint_number, _pref)
                     jira_data = vel_future.result() if vel_future else None
                     active_result = sprint_future.result()
 
-                # Apply velocity data from Jira if Q9 hasn't been answered yet.
+                # Apply velocity data from tracker if Q9 hasn't been answered yet.
                 # Uses per-dev velocity × feature team size (Q6) so the velocity
-                # reflects the subset of the Jira team working on this feature.
+                # reflects the subset of the team working on this feature.
                 if need_velocity and jira_data is not None:
                     jira_team_size = jira_data["jira_team_size"]
-                    # Always store the Jira org team size — used to cap the
+                    # Always store the org team size — used to cap the
                     # "increase team" recommendation even when velocity is zero.
                     qs._jira_org_team_size = jira_team_size
 
@@ -2901,7 +3047,7 @@ def project_intake(state: ScrumState) -> dict:
                             qs.answers[9] = (
                                 f"{feature_vel} pts/sprint "
                                 f"({per_dev:.0f} pts/dev × {q6} dev(s) — "
-                                f"from Jira: {team_vel} pts team avg, "
+                                f"from {_tracker_label}: {team_vel} pts team avg, "
                                 f"{jira_team_size} team member(s))"
                             )
                         else:
@@ -2909,7 +3055,7 @@ def project_intake(state: ScrumState) -> dict:
                             # will be recomputed at confirmation
                             qs.answers[9] = (
                                 f"{per_dev:.0f} pts/dev/sprint "
-                                f"(from Jira: {team_vel} pts team avg, "
+                                f"(from {_tracker_label}: {team_vel} pts team avg, "
                                 f"{jira_team_size} team member(s))"
                             )
                         qs.extracted_questions.add(9)
@@ -2958,7 +3104,7 @@ def project_intake(state: ScrumState) -> dict:
             # Set current_question to the first gap being asked
             qs.current_question = q_nums[0]
 
-            # Q27 with Jira: use the active sprint number (fetched concurrently above)
+            # Q27 with tracker: use the active sprint/iteration number (fetched concurrently above)
             # to populate dynamic choices for the sprint selection menu
             if q_nums[0] == 27 and active_num is not None:
                 qs._active_sprint_number = active_num
@@ -2970,11 +3116,12 @@ def project_intake(state: ScrumState) -> dict:
                     f"Sprint {active_num + 3}",
                 )
                 prompt_text = (
-                    f"Detected active sprint in Jira: **Sprint {active_num}**.\n\nWhich sprint are you planning for?"
+                    f"Detected active sprint in {_tracker_label}: **Sprint {active_num}**.\n\n"
+                    f"Which sprint are you planning for?"
                 )
-            elif q_nums[0] == 27 and _is_jira_configured() and active_num is None:
+            elif q_nums[0] == 27 and _is_tracker_configured() and active_num is None:
                 # Couldn't fetch sprint — tell the user why, then fall back
-                logger.warning("Jira sprint fetch failed: %s", jira_status)
+                logger.warning("Tracker sprint fetch failed: %s", jira_status)
                 _derive_q27_from_locale(qs)
                 gaps = _find_essential_gaps(qs, essential_set)
                 if not gaps:
@@ -3159,7 +3306,7 @@ def project_intake(state: ScrumState) -> dict:
         # Q27 sprint selection: resolve the selected sprint.
         # The resolved choice text is "Sprint 105 (next)" — extract the sprint number.
         # Bank holidays are now a separate question (Q28).
-        if current_q == 27 and _is_jira_configured():
+        if current_q == 27 and _is_tracker_configured():
             q27_answer = questionnaire.answers.get(27, "")
             sprint_num_match = re.search(r"Sprint\s+(\d+)", q27_answer)
             if sprint_num_match:
@@ -3207,9 +3354,12 @@ def project_intake(state: ScrumState) -> dict:
         questionnaire._pending_merged_questions = q_nums
         questionnaire.current_question = q_nums[0]
 
-        # Q27 with Jira: populate dynamic choices for the sprint selection menu
-        if q_nums[0] == 27 and _is_jira_configured():
-            active_num, active_start, jira_status = _fetch_active_sprint_number()
+        # Q27 with tracker: populate dynamic choices for the sprint selection menu
+        if q_nums[0] == 27 and _is_tracker_configured():
+            _pref_trk = questionnaire._preferred_tracker
+            _use_jira = _pref_trk == "jira" or (not _pref_trk and _is_jira_configured())
+            _trk_label = "Jira" if _use_jira else "Azure DevOps"
+            active_num, active_start, jira_status = _fetch_active_sprint_number(_pref_trk)
             if active_num is not None:
                 questionnaire._active_sprint_number = active_num
                 questionnaire._active_sprint_start_date = active_start
@@ -3220,11 +3370,12 @@ def project_intake(state: ScrumState) -> dict:
                     f"Sprint {active_num + 3}",
                 )
                 prompt_text = (
-                    f"Detected active sprint in Jira: **Sprint {active_num}**.\n\nWhich sprint are you planning for?"
+                    f"Detected active sprint in {_trk_label}: **Sprint {active_num}**.\n\n"
+                    f"Which sprint are you planning for?"
                 )
             else:
                 # Couldn't fetch sprint — tell the user why, then fall back
-                logger.warning("Jira sprint fetch failed: %s", jira_status)
+                logger.warning("Tracker sprint fetch failed: %s", jira_status)
                 _derive_q27_from_locale(questionnaire)
                 gaps = _find_essential_gaps(questionnaire, essential_set)
                 if not gaps:
@@ -3816,7 +3967,7 @@ def project_intake(state: ScrumState) -> dict:
     if current_q == 27 and current_q not in questionnaire.probed_questions:
         # Check if Q27 answer is a sprint selection response
         q27_answer = questionnaire.answers.get(27, "")
-        if _is_jira_configured() and not q27_answer.startswith("Fresh start"):
+        if _is_tracker_configured() and not q27_answer.startswith("Fresh start"):
             # Try to parse as sprint selection — the active sprint number was
             # stored temporarily in the answer as "_active:N" by the Q27 prompt.
             active_match = re.search(r"_active:(\d+)", q27_answer)
@@ -3896,8 +4047,8 @@ def project_intake(state: ScrumState) -> dict:
     # - No Jira: auto-fill with bank holiday detection and skip to Q28
     # - Jira: fetch active sprint and present options
     if next_q == 27:
-        if not _is_jira_configured():
-            # No Jira — auto-fill Q27 as "Fresh start (today)" and advance to Q28
+        if not _is_tracker_configured():
+            # No tracker — auto-fill Q27 as "Fresh start (today)" and advance to Q28
             _derive_q27_from_locale(questionnaire)
             # Prepare bank holiday choices for Q28
             _prepare_bank_holiday_choices(questionnaire)
@@ -3908,8 +4059,12 @@ def project_intake(state: ScrumState) -> dict:
             questionnaire.current_question = next_q
             prev_advance_phase = QuestionnairePhase.CAPACITY_PLANNING
         else:
-            # Jira configured — fetch active sprint and show selection as a choice menu
-            active_num, active_start, jira_status = _fetch_active_sprint_number()
+            # Tracker configured — fetch active sprint/iteration and show selection as a choice menu
+            _pref_std = questionnaire._preferred_tracker
+            _std_tracker_label = (
+                "Jira" if (_pref_std == "jira" or (not _pref_std and _is_jira_configured())) else "Azure DevOps"
+            )
+            active_num, active_start, jira_status = _fetch_active_sprint_number(_pref_std)
             if active_num is not None:
                 # Store active sprint number and start date in transient fields
                 questionnaire._active_sprint_number = active_num
@@ -3926,7 +4081,8 @@ def project_intake(state: ScrumState) -> dict:
                 phase_intro = PHASE_INTROS.get(questionnaire.current_phase, "")
                 intro_line = f"*{phase_intro}*\n\n" if phase_intro else ""
                 prompt = (
-                    f"Detected active sprint in Jira: **Sprint {active_num}**.\n\nWhich sprint are you planning for?"
+                    f"Detected active sprint in {_std_tracker_label}: **Sprint {active_num}**.\n\n"
+                    f"Which sprint are you planning for?"
                 )
                 return {
                     "questionnaire": questionnaire,

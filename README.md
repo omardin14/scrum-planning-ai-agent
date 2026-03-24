@@ -111,7 +111,8 @@ scrum-agent --non-interactive --description @project-brief.txt --output html --t
 ### Integrations & export
 - **4 export formats** — Markdown, HTML (self-contained single-file report), JSON (structured, pipeable), and Jira (batch sync)
 - **Jira sync** — idempotent batch creation: Features → Labels, Stories → linked to Epic, Tasks → Sub-tasks, Sprints → created with story assignment. Cascade creation (sprint stage auto-creates stories if not done). Handles team-managed and classic Jira projects
-- **23 tools** — GitHub, Azure DevOps, Jira, Confluence, local codebase scanning, bank holiday detection, LLM-powered estimation
+- **Azure DevOps Boards sync** — idempotent batch creation: Features → Tags, Stories → User Stories linked to Epic, Tasks → Task work items, Sprints → Iterations with story assignment. HTML descriptions, priority mapping (1–4), classification node creation via REST API
+- **30 tools** — GitHub, Azure DevOps, Jira, Confluence, local codebase scanning, bank holiday detection, LLM-powered estimation
 - **3 LLM providers** — Anthropic Claude (default), OpenAI GPT, Google Gemini
 
 ### Reliability
@@ -148,9 +149,11 @@ make pre-commit     # installs pre-commit hooks
 
 On first launch (or with `--setup`), an interactive wizard walks you through:
 
-1. **LLM provider selection** — choose Anthropic, OpenAI, or Google
+1. **LLM provider selection** — choose Anthropic, OpenAI, Google, or AWS Bedrock
 2. **API key entry** — with format validation hints (e.g., Anthropic keys start with `sk-ant-`)
-3. **Credential storage** — saved to `~/.scrum-agent/.env`
+3. **Version control** — GitHub or Azure DevOps PAT token
+4. **Issue tracking** — Jira or Azure DevOps Boards (with credential verification)
+5. **Credential storage** — saved to `~/.scrum-agent/.env`
 
 ```bash
 scrum-agent --setup   # re-run anytime to update credentials
@@ -787,6 +790,44 @@ Key behaviors:
 - **Progress screen** — animated per-item status during creation
 - **Jira button** — disabled/dimmed in TUI when `JIRA_API_TOKEN` is not configured
 
+### Azure DevOps Boards
+
+Batch sync with idempotent creation, available from TUI pipeline review at any stage:
+
+| Artifact | Azure DevOps Mapping |
+|----------|---------------------|
+| **Features** | Tags (`System.Tags`, semicolon-separated) |
+| **Epic** | 1 project-level Epic work item |
+| **Stories** | User Story work items linked to Epic via `System.LinkTypes.Hierarchy-Reverse`, with story points, priority (1–4), HTML descriptions |
+| **Tasks** | Task work items linked to parent Stories |
+| **Sprints** | Iterations (classification nodes created via REST API); stories assigned via `System.IterationPath` |
+
+Key behaviors:
+- **Idempotency** — checks `azdevops_*_keys` state before creating; skips already-synced artifacts
+- **Cascade creation** — Task stage auto-creates Stories if not yet synced; Iteration stage auto-creates Stories if not yet synced
+- **HTML descriptions** — acceptance criteria, Definition of Done, and points rationale rendered as `<h3>`, `<strong>`, `<ul><li>` (not Jira wiki markup)
+- **Priority mapping** — `critical → 1`, `high → 2`, `medium → 3`, `low → 4`
+- **Confirmation screen** — shows what will be created/skipped before any write operation
+- **Progress screen** — animated per-item status during creation
+- **Azure DevOps button** — disabled/dimmed in TUI when credentials are not configured
+
+#### PAT permissions required
+
+Create a [Personal Access Token](https://learn.microsoft.com/en-us/azure/devops/organizations/accounts/use-personal-access-tokens-to-authenticate) with the following scopes:
+
+| Scope | Access | Used for |
+|-------|--------|----------|
+| **Work Items** | Read & Write | Reading board/backlog, creating Epics/Stories/Tasks |
+| **Project and Team** | Read | Listing iterations, team settings, velocity data |
+| **Code** | Read | Reading repo file tree and file contents (optional, for repo context tools) |
+
+```
+AZURE_DEVOPS_TOKEN=your-pat-token
+AZURE_DEVOPS_ORG_URL=https://dev.azure.com/your-org
+AZURE_DEVOPS_PROJECT=MyProject
+AZURE_DEVOPS_TEAM=MyProject Team    # optional — defaults to "{project} Team"
+```
+
 ---
 
 ## Session Management
@@ -827,7 +868,7 @@ Sessions older than 30 days are auto-pruned at startup. Configure via `SESSION_P
 
 ## Tools
 
-The agent has access to 23 tools, organized by integration:
+The agent has access to 30 tools, organized by integration:
 
 ### GitHub
 
@@ -840,11 +881,17 @@ The agent has access to 23 tools, organized by integration:
 
 ### Azure DevOps
 
-| Tool | Description |
-|------|-------------|
-| `azdevops_read_repo` | Fetch repo metadata |
-| `azdevops_read_file` | Read a single file |
-| `azdevops_list_work_items` | List work items |
+| Tool | Description | Risk |
+|------|-------------|------|
+| `azdevops_read_repo` | Fetch repo metadata and file tree | Low |
+| `azdevops_read_file` | Read a single file from a repo | Low |
+| `azdevops_list_work_items` | List work items (backlog, active, etc.) | Low |
+| `azdevops_read_board` | Board info, active iteration, average velocity | Low |
+| `azdevops_fetch_velocity` | Team velocity, team size, per-developer velocity | Low |
+| `azdevops_fetch_active_iteration` | Current sprint name, number, start date | Low |
+| `azdevops_create_epic` | Create an Epic work item | High (requires confirmation) |
+| `azdevops_create_story` | Create a User Story linked to Epic, with story points and priority | High (requires confirmation) |
+| `azdevops_create_iteration` | Create an iteration (sprint) with optional start/finish dates | High (requires confirmation) |
 
 ### Jira
 
@@ -1590,6 +1637,16 @@ src/scrum_agent/
 | `OPENAI_API_KEY` | If using OpenAI | GPT API key |
 | `GOOGLE_API_KEY` | If using Google | Gemini API key |
 | `LLM_PROVIDER` | No | Provider selection: `anthropic` (default), `openai`, `google` |
+| `GITHUB_TOKEN` | No | GitHub PAT for repo context tools |
+| `AZURE_DEVOPS_TOKEN` | No | Azure DevOps PAT (Code=Read, Work Items=Read+Write, Project=Read) |
+| `AZURE_DEVOPS_ORG_URL` | If using AzDO Boards | Organization URL (e.g. `https://dev.azure.com/myorg`) |
+| `AZURE_DEVOPS_PROJECT` | If using AzDO Boards | Project name |
+| `AZURE_DEVOPS_TEAM` | No | Team name (defaults to `{project} Team`) |
+| `JIRA_BASE_URL` | If using Jira | Jira Cloud URL (e.g. `https://org.atlassian.net`) |
+| `JIRA_EMAIL` | If using Jira | Atlassian account email |
+| `JIRA_API_TOKEN` | If using Jira | Jira API token |
+| `JIRA_PROJECT_KEY` | If using Jira | Project key (e.g. `MYPROJ`) |
+| `CONFLUENCE_SPACE_KEY` | No | Confluence space key (shares Atlassian auth with Jira) |
 | `LANGSMITH_TRACING` | No | Enable LangSmith tracing (`true`) |
 | `LANGSMITH_API_KEY` | No | LangSmith API key |
 | `LANGSMITH_PROJECT` | No | LangSmith project name |

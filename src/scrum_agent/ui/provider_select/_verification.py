@@ -157,21 +157,14 @@ def _verify_vc_token(vc: dict[str, Any], token: str) -> tuple[bool, str]:
             return False, f"Unexpected response: {resp.status_code}"
 
         elif env_var == "AZURE_DEVOPS_TOKEN":
-            # Azure DevOps PAT — check against the profile endpoint.
-            # Uses Basic auth with empty username and PAT as password.
-            import base64
-
-            b64 = base64.b64encode(f":{token}".encode()).decode()
-            resp = httpx.get(
-                "https://app.vssps.visualstudio.com/_apis/profile/profiles/me?api-version=7.0",
-                headers={"Authorization": f"Basic {b64}"},
-                timeout=10,
-            )
-            if resp.status_code == 200:
-                return True, "Token verified"
-            if resp.status_code in (401, 403):
-                return False, "Invalid token"
-            return False, f"Unexpected response: {resp.status_code}"
+            # Azure DevOps PAT — org-scoped PATs return 401 on global endpoints
+            # (app.vssps.visualstudio.com) and only work against their org URL.
+            # Since we don't know the org URL at the VC step, we accept the token
+            # on format alone. Real verification happens at the Issue Tracking step
+            # where the user provides the org URL.
+            if len(token) >= 20:
+                return True, "Token accepted — will verify with org URL"
+            return False, "Token too short"
 
     except Exception as e:
         return False, f"Connection error: {e}"
@@ -197,6 +190,31 @@ def _verify_jira(base_url: str, email: str, token: str) -> tuple[bool, str]:
             return True, "Jira verified"
         if resp.status_code in (401, 403):
             return False, "Invalid Jira credentials"
+        return False, f"Unexpected response: {resp.status_code}"
+    except Exception as e:
+        return False, f"Connection error: {e}"
+
+
+def _verify_azdevops(org_url: str, project: str, token: str) -> tuple[bool, str]:
+    """Verify Azure DevOps credentials by listing work item types for the project."""
+    try:
+        import base64
+
+        import httpx
+
+        b64 = base64.b64encode(f":{token}".encode()).decode()
+        url = f"{org_url.rstrip('/')}/{project}/_apis/wit/workitemtypes?api-version=7.1"
+        resp = httpx.get(
+            url,
+            headers={"Authorization": f"Basic {b64}", "Accept": "application/json"},
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            return True, "Azure DevOps verified"
+        if resp.status_code in (401, 403):
+            return False, "Invalid Azure DevOps credentials"
+        if resp.status_code == 404:
+            return False, "Project not found — check org URL and project name"
         return False, f"Unexpected response: {resp.status_code}"
     except Exception as e:
         return False, f"Connection error: {e}"

@@ -162,9 +162,7 @@ def build_telemetry_payload(graph_state: dict) -> dict | None:
             "capacity_points": sp.capacity_points,
             "story_count": len(sp.story_ids),
             "total_points": sum(
-                s.story_points.value if hasattr(s.story_points, "value") else 0
-                for s in stories
-                if s.id in sp.story_ids
+                s.story_points.value if hasattr(s.story_points, "value") else 0 for s in stories if s.id in sp.story_ids
             ),
         }
         for sp in sprints
@@ -174,10 +172,7 @@ def build_telemetry_payload(graph_state: dict) -> dict | None:
     review_decisions = graph_state.get("review_decisions", {})
 
     # --- Aggregate stats ---
-    total_points = sum(
-        s.story_points.value if hasattr(s.story_points, "value") else 0
-        for s in stories
-    )
+    total_points = sum(s.story_points.value if hasattr(s.story_points, "value") else 0 for s in stories)
 
     point_distribution = {}
     for s in stories:
@@ -196,11 +191,9 @@ def build_telemetry_payload(graph_state: dict) -> dict | None:
         "platform": platform.system(),
         "python_version": platform.python_version(),
         "llm_provider": os.getenv("LLM_PROVIDER", "anthropic"),
-
         # Anonymized project
         "project": project,
         "intake": intake,
-
         # Artifact counts
         "counts": {
             "features": len(features),
@@ -209,17 +202,14 @@ def build_telemetry_payload(graph_state: dict) -> dict | None:
             "sprints": len(sprints),
             "total_story_points": total_points,
         },
-
         # Distributions (for training better estimation)
         "point_distribution": point_distribution,
         "discipline_distribution": discipline_distribution,
-
         # Structural patterns (no content, just shapes)
         "features": feature_data,
         "stories": story_data,
         "tasks": task_data,
         "sprints": sprint_data,
-
         # Human feedback signal
         "review_decisions": review_decisions,
     }
