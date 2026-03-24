@@ -484,23 +484,9 @@ The skill runs the same conversational intake as the dashboard, directly in a Sl
 3. **Adaptive probes** — "You said 6 engineers — what are their roles?"
 4. **Confirmation** — summary list with answer sources and defaults before generating
 
-![Slack intake — numbered choices](docs/lightsail-setup/15-slack-intake-choices.png)
+After confirmation, the bot runs `scrum-agent` in the background (~3-5 minutes), then presents results phase-by-phase with accept/edit/regenerate options.
 
-![Slack intake — adaptive follow-up](docs/lightsail-setup/16-slack-intake-followup.png)
-
-![Slack intake — confirmation table](docs/lightsail-setup/17-slack-intake-confirmation.png)
-
-After confirmation, the bot runs `scrum-agent` and posts the results:
-
-- **Summary message** in the thread with feature/story/task counts
-- **Full sprint plan** with features, stories (grouped by feature), task breakdown, and sprint assignments
-- **Diagnostics** at the end with the generated SCRUM.md and config details
-
-![Slack output — sprint plan summary](docs/lightsail-setup/18-slack-output-summary.png)
-
-![Slack output — features and stories](docs/lightsail-setup/19-slack-output-stories.png)
-
-![Slack output — sprint assignments](docs/lightsail-setup/20-slack-output-sprints.png)
+![Slack conversation — intake and output](docs/lightsail-setup/15-slack-conversation.png)
 
 ### 14. Next steps
 
