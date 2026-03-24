@@ -506,108 +506,53 @@ If not configured:
 
 ---
 
-## Output — Full Plan Document
+## Output — Final Plan
 
-When presenting the final accepted plan as a complete document (option 1 above), use Slack-compatible formatting:
+After all phases are accepted, present the full plan. Try Canvas first, fall back to threaded messages.
 
-> *Sprint Plan: {project.name}*
-> Generated {date} · {len(features)} features, {len(stories)} stories, {len(tasks)} tasks across {len(sprints)} sprints
-> Team: {project.team_size} engineers · Sprint length: {project.sprint_length_weeks} weeks
+### Option 1: Slack Canvas (preferred)
 
-> *Project Summary*
-> *Description:* {project.description}
-> *Type:* {project.type}
-> *Goals:*
-> • {goal 1}
-> • {goal 2}
-> *Tech Stack:* {', '.join(project.tech_stack)}
+If `canvases:write` scope is available, create a Canvas with the full plan. Canvas has no block limits and provides a better reading experience for large plans.
 
-> *Features & Stories*
->
-> *{feature.name}*
-> {feature.description}
->
-> • *{story.title}* ({story.story_points} pts, {story.priority})
->   {story.description}
->   _ACs:_ {ac_1} · {ac_2}
->
-> ---
->
-> *Task Breakdown*
->
-> *{story.title}*
-> • *{task.title}* — {task.description}
->   _{task.discipline} · {task.estimate_hours}h_
->
-> ---
->
-> *Sprint Plan*
->
-> *Sprint {sprint.sprint_number}: {sprint.name}*
-> Capacity: {sprint.capacity_points} pts · Committed: {sprint.committed_points} pts
-> • {story.title} ({story.story_points} pts)
-> • {story.title} ({story.story_points} pts)
+Structure the Canvas with these sections:
+- *Sprint Plan: {project.name}* — header with date, counts, team info
+- *Project Summary* — description, type, goals, tech stack
+- *Features & Stories* — grouped by feature, with ACs
+- *Task Breakdown* — grouped by story, with discipline and estimates
+- *Sprint Plan* — sprints with capacity, committed points, and assigned stories
+- *Diagnostics* — generated SCRUM.md, config (provider + model, no API keys), scrum-agent version
 
-#### Diagnostics Appendix
+After creating the Canvas, post a summary in the thread:
 
-At the very end of the Canvas, include a diagnostics section with details from the `~/.scrum-agent/` directory. Read these files after the CLI run completes:
+> 📋 *Sprint plan ready* — {N} features, {N} stories, {N} tasks across {N} sprints
+> See the full plan in the Canvas above ☝️
 
-```
-## Diagnostics
-
-### SCRUM.md (generated input)
-```
-{cat the temp SCRUM.md that was written to the tmpdir}
-```
-
-### Session Log
-```
-{tail -50 ~/.scrum-agent/logs/*.log — the most recent log file, last 50 lines}
-```
-
-### Configuration
-- Provider: {grep LLM_PROVIDER ~/.scrum-agent/.env or "anthropic (default)"}
-- Model: {grep LLM_MODEL ~/.scrum-agent/.env or "default for provider"}
-- scrum-agent version: {scrum-agent --version}
-
-### File Locations
-- Config: ~/.scrum-agent/.env
-- Sessions DB: ~/.scrum-agent/sessions.db
-- Project states: ~/.scrum-agent/states/
-- Session logs: ~/.scrum-agent/logs/
-```
-
-To gather diagnostics, run these commands after the main CLI invocation:
-
+To gather diagnostics for the Canvas:
 ```bash
-# Version
 scrum-agent --version 2>/dev/null || echo "unknown"
-
-# Provider config (mask API keys)
 grep -E '^(LLM_PROVIDER|LLM_MODEL)=' ~/.scrum-agent/.env 2>/dev/null || echo "defaults"
-
-# Latest session log (last 50 lines)
-ls -t ~/.scrum-agent/logs/*.log 2>/dev/null | head -1 | xargs tail -50 2>/dev/null || echo "no logs found"
+ls -t ~/.scrum-agent/logs/*.log 2>/dev/null | head -1 | xargs tail -50 2>/dev/null || echo "no logs"
 ```
 
-**Never include API keys or tokens in the Canvas.** Only show provider name and model name from `.env`.
+**Never include API keys or tokens.** Only show provider name and model name.
 
-### Step 3: Create Canvas and Post Summary
+### Option 2: Threaded messages (fallback)
 
-1. Create the Canvas in the Slack channel
-2. Post a summary message in the thread linking to the Canvas:
+If Canvas creation fails (missing `canvases:write` scope or API error), post the plan as threaded messages using Slack-compatible formatting:
 
-> "Sprint plan ready — **X features**, **Y stories**, **Z tasks** across **N sprints**. See the full plan in the Canvas above."
->
-> "Want me to walk through any specific feature, story, or sprint?"
+Post each section as a separate thread reply to stay under the 50-block limit:
 
-### Fallback Chain
+1. *Project Summary* — description, type, goals, stack
+2. *Features & Stories* — one message per feature with its stories and ACs
+3. *Task Breakdown* — one message per feature's tasks
+4. *Sprint Plan* — sprints with assignments
+5. *Diagnostics* — config and SCRUM.md
 
-If Canvas creation fails (API unavailable, permissions missing):
+Use the Slack-compatible format (bold labels, bullet lists, no tables) described in the Threading and Formatting section above.
 
-1. **Try Canvas** → if it fails:
-2. **Fall back to threaded messages** — chunk the plan into multiple messages (each under 50 blocks). Post sections as separate thread replies: Project Summary, then Features, then Sprint Plan, then Diagnostics.
-3. **Final fallback: file upload** — format the full plan as Markdown and upload as a `.md` file attachment in the thread.
+### Option 3: File upload (last resort)
+
+If threaded messages also fail, format the full plan as Markdown and upload as a `.md` file attachment in the thread.
 
 ---
 

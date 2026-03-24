@@ -430,7 +430,9 @@ If you prefer to set up the Slack App manually:
         "emoji:read",
         "commands",
         "files:read",
-        "files:write"
+        "files:write",
+        "canvases:read",
+        "canvases:write"
       ]
     }
   },
@@ -457,6 +459,8 @@ If you prefer to set up the Slack App manually:
 ```
 
 </details>
+
+> **Important:** The manifest includes `canvases:read` and `canvases:write` scopes. These are required for OpenClaw to post the finalized sprint plan as a Slack Canvas. Without them, the plan will be posted as threaded messages instead (which also works, but Canvas gives a better reading experience for large plans).
 
 Set the tokens on the Lightsail instance:
 
@@ -486,7 +490,9 @@ The skill runs the same conversational intake as the dashboard, directly in a Sl
 
 After confirmation, the bot runs `scrum-agent` in the background (~3-5 minutes), then presents results phase-by-phase with accept/edit/regenerate options.
 
-![Slack conversation — intake and output](docs/lightsail-setup/15-slack-conversation.png)
+![Slack conversation — intake](docs/lightsail-setup/15-slack-intake.png)
+![Slack conversation — output](docs/lightsail-setup/16-slack-output.png)
+
 
 ### 14. Next steps
 
