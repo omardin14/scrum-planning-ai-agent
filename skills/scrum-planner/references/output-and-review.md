@@ -55,18 +55,18 @@ Show one feature at a time if there are many.
 
 ### After All Phases Accepted
 
+**Immediately and automatically create the Slack Canvas** — do not ask, do not offer options first. Go straight to the Final Plan Output section below and run the canvas script.
+
+After the canvas is created, post this summary in thread:
+
 > 📋 *{project.name}* — {N} epics · {N} stories · {N} tasks · {N} sprints
 >
-> 🚀 *Sprint plan finalized!*
+> 🚀 *Sprint plan finalized! See the Canvas above ☝️*
 > • *Team:* {team_size} engineers · {sprint_length}-week sprints
 > • *Velocity:* {velocity} pts/sprint
 > • *Total effort:* {total_points} story points
 >
-> What's next?
-> 1. Show full plan as a single document
-> 2. Export as Markdown
-> 3. Drill into any story or feature
-> 4. 🎯 Push to Jira
+> 🎯 Want me to push this to Jira?
 
 ### Jira Push
 
@@ -78,10 +78,30 @@ Check if configured: `grep -q "JIRA_BASE_URL" ~/.scrum-agent/.env 2>/dev/null`
 
 Try Canvas first, fall back to threaded messages.
 
-### Canvas (preferred)
-If `canvases:write` scope is available, create a Canvas with: header, project summary, features & stories, task breakdown, sprint plan, diagnostics.
+> ⚠️ **IMPORTANT:** Never use the OpenClaw `canvas` tool — it requires a paired device and will not work here.
+> Always use the Python script below to create a **Slack Canvas** via the Slack API.
 
-Post summary in thread: `📋 *Sprint plan ready* — see the Canvas above ☝️`
+### Canvas (preferred)
+Use the canvas script to create the Slack Canvas — do not use the OpenClaw canvas tool, do not attempt direct API calls yourself.
+
+1. Write the final plan to a temp file:
+```bash
+cat > /tmp/scrum_plan_canvas.md << 'EOF'
+{full markdown plan}
+EOF
+```
+
+2. Run the canvas script with the channel ID from the current conversation:
+```bash
+python3 ~/.openclaw/workspace/skills/scrum-planner/scripts/canvas.py \
+  create-channel-canvas \
+  --channel {CHANNEL_ID} \
+  --content @/tmp/scrum_plan_canvas.md
+```
+
+The script tries `canvases.create` + `canvases.access.set` and handles all Slack API details. It reads the bot token from `~/.openclaw/openclaw.json` automatically.
+
+Post summary in thread after canvas is created: `📋 *Sprint plan ready* — see the Canvas above ☝️`
 
 Diagnostics commands:
 ```bash
