@@ -151,8 +151,8 @@ On first launch (or with `--setup`), an interactive wizard walks you through:
 
 1. **LLM provider selection** — choose Anthropic, OpenAI, Google, or AWS Bedrock
 2. **API key entry** — with format validation hints (e.g., Anthropic keys start with `sk-ant-`)
-3. **Version control** — GitHub or Azure DevOps PAT token
-4. **Issue tracking** — Jira or Azure DevOps Boards (with credential verification)
+3. **Issue tracking** — Jira or Azure DevOps Boards (with org URL, project, and PAT verification)
+4. **Version control** — GitHub PAT token (or skip)
 5. **Credential storage** — saved to `~/.scrum-agent/.env`
 
 ```bash
@@ -805,6 +805,11 @@ Batch sync with idempotent creation, available from TUI pipeline review at any s
 Key behaviors:
 - **Idempotency** — checks `azdevops_*_keys` state before creating; skips already-synced artifacts
 - **Cascade creation** — Task stage auto-creates Stories if not yet synced; Iteration stage auto-creates Stories if not yet synced
+- **Team area path** — sets `System.AreaPath` to `{project}\{team}` so work items appear on the correct team board
+- **Description updates on re-sync** — already-created items get descriptions updated (DoD, rationale, AI prompts added later)
+- **Sprint naming convention** — detects board's existing iteration naming pattern and renames LLM-generated names to match
+- **Iteration dates** — sets start/finish dates on iterations based on sprint start date and sprint length
+- **Velocity auto-detection** — fetches velocity from past iterations during intake (falls back from Jira to AzDO)
 - **HTML descriptions** — acceptance criteria, Definition of Done, and points rationale rendered as `<h3>`, `<strong>`, `<ul><li>` (not Jira wiki markup)
 - **Priority mapping** — `critical → 1`, `high → 2`, `medium → 3`, `low → 4`
 - **Confirmation screen** — shows what will be created/skipped before any write operation
