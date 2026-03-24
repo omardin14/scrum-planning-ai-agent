@@ -261,6 +261,7 @@ scrum-agent --setup
 1. Select **Bedrock** as your LLM provider
 2. The AWS region is auto-detected from `~/.aws/config` (e.g., `eu-west-2`) — press Enter to confirm
 3. The wizard verifies Bedrock access using the IAM role attached by the Bedrock setup script — no API key needed
+4. If OpenClaw is installed, the Bedrock model ID (e.g., `global.anthropic.claude-sonnet-4-6`) is auto-detected and saved to `~/.scrum-agent/.env`
 
 ![Setup wizard — Bedrock provider](docs/lightsail-setup/07-setup-bedrock.png)
 
@@ -278,7 +279,9 @@ You should see JSON output with features, stories, tasks, and sprints.
 
 ### 8. Install the OpenClaw skill
 
-The `scrum-planner` skill lets OpenClaw conduct conversational scrum planning — it asks 7 intake questions, generates a temp SCRUM.md, invokes `scrum-agent --non-interactive --output json`, and presents the results as a Slack Canvas.
+The `scrum-planner` skill lets OpenClaw conduct conversational scrum planning — it asks intake questions (or skips them in quick mode), generates a temp SCRUM.md, invokes `scrum-agent --non-interactive --output json`, and presents results phase-by-phase with accept/edit/regenerate options.
+
+> **Tip:** After every `pipx install --force` (e.g., updating to a new version), re-run `scrum-agent --install-skill` to update the skill files and refresh the configuration.
 
 A single command handles the full setup:
 
@@ -319,15 +322,20 @@ Open the OpenClaw dashboard and check the **Skills** page. You should see `scrum
 
 ### 10. Test the skill
 
-Start a new conversation in the OpenClaw dashboard. Try a simple project:
+Start a new conversation in the OpenClaw dashboard or Slack. Try a detailed project:
 
-> "Plan a REST API for a task management app — Python, FastAPI, PostgreSQL, 3 engineers, 2-week sprints"
+> "Plan an e-commerce marketplace — React + Next.js frontend, Python FastAPI backend, PostgreSQL, Redis, Stripe for payments, Auth0 for auth. 4 engineers, 2-week sprints. Deployed on AWS ECS."
 
 You should see:
-1. The skill asks any missing intake questions (project type, definition of done, etc.)
-2. A confirmation summary table before generating
-3. The skill writes a temp SCRUM.md and runs `scrum-agent --non-interactive --output json`
-4. Results presented with features, stories, tasks, and sprint plan
+1. **Smart extraction** — the skill detects project, tech stack, team size, integrations from your message
+2. **Follow-up questions** — only asks what's missing (project type, definition of done, target sprints)
+3. **Confirmation summary** — your answers + defaults, with option to override
+4. **Background generation** — progress updates as each phase completes (~3-5 minutes)
+5. **Phase-by-phase review** — features, stories, tasks, sprint plan — each with accept/edit/regenerate
+
+For a faster test, try quick mode:
+
+> "just plan it — todo app, FastAPI + PostgreSQL, 1 engineer"
 
 ![Skill intake conversation](docs/lightsail-setup/11-skill-intake.png)
 
@@ -467,14 +475,14 @@ openclaw channels add
 
 Once Slack is connected,  `@mention` the bot to add it to a channel and start a planning session:
 
-> **You:** @scrum-bot Plan a mobile banking app — React Native, Node.js, PostgreSQL, 6 engineers
+> **You:** @OpenClaw Plan a mobile banking app — React Native, Node.js, PostgreSQL, 6 engineers
 
 The skill runs the same conversational intake as the dashboard, directly in a Slack thread:
 
 1. **Smart extraction** — the bot detects answers from your initial message and shows what it found
 2. **Follow-up questions** — numbered choices for project type, sprint length, and target sprints
 3. **Adaptive probes** — "You said 6 engineers — what are their roles?"
-4. **Confirmation** — summary table with answer sources before generating
+4. **Confirmation** — summary list with answer sources and defaults before generating
 
 ![Slack intake — numbered choices](docs/lightsail-setup/15-slack-intake-choices.png)
 
@@ -496,8 +504,9 @@ After confirmation, the bot runs `scrum-agent` and posts the results:
 
 ### 14. Next steps
 
-- **Customize the skill** — Edit the SKILL.md to adjust question flow, add domain-specific defaults, or change the output format.
-- **Review diagnostics** — The Slack Canvas includes a diagnostics appendix with the generated SCRUM.md, session logs, and config. Check `~/.scrum-agent/logs/` for detailed run logs if anything looks off.
+- **Push to Jira** — Configure Jira credentials in `scrum-agent --setup`, then the skill offers "Push to Jira" after plan finalization.
+- **Customize the skill** — Edit `~/.openclaw/workspace/skills/scrum-planner/SKILL.md` to adjust question flow, add domain-specific defaults, or change the output format.
+- **Review diagnostics** — Check `~/.scrum-agent/logs/` for detailed run logs if anything looks off.
 - **Secure with Teleport** — For production use, add Teleport for identity-aware access to the Lightsail instance and OpenClaw dashboard.
 
 See [`skills/scrum-planner/README.md`](skills/scrum-planner/README.md) for full skill documentation, question-to-CLI mapping, and troubleshooting.
