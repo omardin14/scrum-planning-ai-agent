@@ -2994,6 +2994,7 @@ def project_intake(state: ScrumState) -> dict:
             # ── Tracker choice prompt when both are configured ─────────
             if _is_jira_configured() and _is_azdevops_configured() and not qs._preferred_tracker:
                 qs._awaiting_tracker_choice = True
+                qs.current_question = 0  # synthetic question so TUI renders the choice menu
                 qs._follow_up_choices[0] = ("Jira", "Azure DevOps")
                 return {
                     "questionnaire": qs,
