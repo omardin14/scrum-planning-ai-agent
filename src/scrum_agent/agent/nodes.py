@@ -2888,10 +2888,17 @@ def project_intake(state: ScrumState) -> dict:
             questionnaire._preferred_tracker = "jira"  # default to Jira
         questionnaire._awaiting_tracker_choice = False
         questionnaire._follow_up_choices.pop(1, None)  # clear the tracker choice from Q1
-        logger.info("User chose tracker for velocity/sprint: %s", questionnaire._preferred_tracker)
-        # Now proceed — the questionnaire exists but has no answers yet,
-        # so we fall through to the "subsequent calls" branch which will
-        # detect current_question == 1 and ask Q1 normally.
+        _chosen_tracker = questionnaire._preferred_tracker
+        logger.info("User chose tracker for velocity/sprint: %s", _chosen_tracker)
+        # Reset questionnaire so the first-call init block runs fresh.
+        # This prevents the tracker choice (e.g. "Jira") from being treated
+        # as the Q1 project description. We pass the preference via a transient
+        # key so the new QuestionnaireState picks it up.
+        questionnaire = None
+        # Store in a local var — the init block below will read it.
+        _pending_tracker_pref = _chosen_tracker
+    else:
+        _pending_tracker_pref = ""
 
     if questionnaire is None:
         # First call — initialize questionnaire and attempt adaptive skip.
@@ -2902,6 +2909,10 @@ def project_intake(state: ScrumState) -> dict:
         # pre-populates the questionnaire so the user only answers remaining
         # questions they haven't already covered.
         qs = QuestionnaireState()
+
+        # Apply tracker preference from the choice resolution above (if any).
+        if _pending_tracker_pref:
+            qs._preferred_tracker = _pending_tracker_pref
 
         # Read intake_mode from the REPL-injected state key.
         # Default to "standard" for backward compatibility with tests that
