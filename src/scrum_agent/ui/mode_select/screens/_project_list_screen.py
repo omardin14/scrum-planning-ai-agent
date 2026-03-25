@@ -137,6 +137,8 @@ def _build_project_row(
         sub_btns: list = []
         for btn_label, btn_idx, btn_fade, btn_opacity, _enabled in _sub_items:
             if btn_opacity > 0:
+                # Adapt width to label length (min _EXPORT_SUB_BTN_W)
+                _btn_w = max(_EXPORT_SUB_BTN_W, len(btn_label) + 4)
                 sub_btns.append(
                     _build_action_button(
                         btn_label,
@@ -145,10 +147,10 @@ def _build_project_row(
                         color=(255, 255, 255),
                         opacity=opacity * btn_opacity,
                         fade_t=btn_fade,
-                        btn_w=_EXPORT_SUB_BTN_W,
+                        btn_w=_btn_w,
                     )
                 )
-                row.add_column(width=_EXPORT_SUB_BTN_W)
+                row.add_column(width=_btn_w)
         row.add_row(card, *action_btns, *sub_btns)
     else:
         row.add_row(card, *action_btns)

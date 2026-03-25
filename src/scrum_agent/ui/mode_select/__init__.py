@@ -614,7 +614,7 @@ def select_mode(
                         elif focus == 2 and _is_project_row():
                             export_submenu_open = True
                             submenu_sel = 0  # default to HTML
-                            submenu_visible_target = 3.0  # stagger-reveal all 3 buttons
+                            submenu_visible_target = float(_submenu_max + 1)  # stagger-reveal all buttons
                             submenu_html_fade_target = 1.0
                             submenu_md_fade_target = 0.0
                             exp_fade_target = 0.0  # grey out Export while submenu is active
