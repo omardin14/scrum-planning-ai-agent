@@ -263,10 +263,14 @@ def select_mode(
             else:
                 proj_n = 2
 
-            # Check if Jira is configured once — used to dim the Jira submenu button.
+            # Check which trackers are configured — used to show/dim submenu buttons.
+            from scrum_agent.azdevops_sync import is_azdevops_board_configured as _azdevops_check
             from scrum_agent.jira_sync import is_jira_configured as _jira_check
 
             _jira_ok = _jira_check()
+            _azdevops_ok = _azdevops_check()
+            # Submenu has HTML(0), Markdown(1), then tracker buttons dynamically
+            _submenu_max = 1 + (1 if _jira_ok else 0) + (1 if _azdevops_ok else 0)
 
             # Staggered vertical reveal — cards pop in one by one, fast.
             _reveal_target = float(proj_n)
@@ -286,6 +290,7 @@ def select_mode(
                         cards_visible=_cards_visible,
                         card_fade=1.0,
                         jira_enabled=_jira_ok,
+                        azdevops_enabled=_azdevops_ok,
                     )
                 )
                 time.sleep(_FRAME_TIME)
@@ -331,9 +336,11 @@ def select_mode(
                 submenu_html_fade = 0.0
                 submenu_md_fade = 0.0
                 submenu_jira_fade = 0.0
+                submenu_azdevops_fade = 0.0
                 submenu_html_fade_target = 0.0
                 submenu_md_fade_target = 0.0
                 submenu_jira_fade_target = 0.0
+                submenu_azdevops_fade_target = 0.0
                 submenu_visible = 0.0
                 submenu_visible_target = 0.0
 
@@ -355,42 +362,59 @@ def select_mode(
                     # ── Export submenu mode ────────────────────────────────────
                     # When the submenu is open, capture all keys here. Left/Right
                     # switches between HTML and Markdown; Enter exports; Esc closes.
+                    # Build dynamic submenu index → action mapping
+                    _submenu_actions = ["html", "markdown"]
+                    if _jira_ok:
+                        _submenu_actions.append("jira")
+                    if _azdevops_ok:
+                        _submenu_actions.append("azdevops")
+
+                    def _update_submenu_fades():
+                        nonlocal submenu_html_fade_target, submenu_md_fade_target
+                        nonlocal submenu_jira_fade_target, submenu_azdevops_fade_target
+                        submenu_html_fade_target = 1.0 if submenu_sel == 0 else 0.0
+                        submenu_md_fade_target = 1.0 if submenu_sel == 1 else 0.0
+                        _jira_idx = _submenu_actions.index("jira") if "jira" in _submenu_actions else -1
+                        _azdo_idx = _submenu_actions.index("azdevops") if "azdevops" in _submenu_actions else -1
+                        submenu_jira_fade_target = 1.0 if submenu_sel == _jira_idx else 0.0
+                        submenu_azdevops_fade_target = 1.0 if submenu_sel == _azdo_idx else 0.0
+
                     if export_submenu_open:
                         if key == "left":
                             submenu_sel = max(0, submenu_sel - 1)
-                            submenu_html_fade_target = 1.0 if submenu_sel == 0 else 0.0
-                            submenu_md_fade_target = 1.0 if submenu_sel == 1 else 0.0
-                            submenu_jira_fade_target = 1.0 if submenu_sel == 2 else 0.0
+                            _update_submenu_fades()
                         elif key == "right":
-                            submenu_sel = min(2, submenu_sel + 1)
-                            submenu_html_fade_target = 1.0 if submenu_sel == 0 else 0.0
-                            submenu_md_fade_target = 1.0 if submenu_sel == 1 else 0.0
-                            submenu_jira_fade_target = 1.0 if submenu_sel == 2 else 0.0
+                            submenu_sel = min(_submenu_max, submenu_sel + 1)
+                            _update_submenu_fades()
                         elif key == "enter":
                             project = projects[proj_selected]
                             path = None
-                            if submenu_sel == 0:
+                            _action = _submenu_actions[submenu_sel] if submenu_sel < len(_submenu_actions) else ""
+                            if _action == "html":
                                 from scrum_agent.persistence import export_project_html
 
                                 path = export_project_html(project.id)
-                            elif submenu_sel == 1:
+                            elif _action == "markdown":
                                 from scrum_agent.persistence import export_project_md
 
                                 path = export_project_md(project.id)
-                            else:
-                                # Jira export — full sync: Epic + Stories + Tasks + Sprints
+                            elif _action in ("jira", "azdevops"):
+                                # Tracker export — full sync: Epic + Stories + Tasks + Sprints
                                 import threading
 
-                                from scrum_agent.jira_sync import is_jira_configured, sync_all_to_jira
                                 from scrum_agent.persistence import (
                                     load_graph_state,
                                     save_graph_state,
                                     save_project_snapshot,
                                 )
 
-                                if not is_jira_configured():
-                                    path = "Jira not configured — set JIRA_API_TOKEN in .env"
+                                _tracker_label = "Jira" if _action == "jira" else "Azure DevOps"
+                                if _action == "jira":
+                                    from scrum_agent.jira_sync import sync_all_to_jira as _sync_all_fn
                                 else:
+                                    from scrum_agent.azdevops_sync import sync_all_to_azdevops as _sync_all_fn
+
+                                if True:
                                     gs = load_graph_state(project.id)
                                     if not gs:
                                         path = "No saved state for this project"
@@ -413,7 +437,7 @@ def select_mode(
 
                                         def _run_jira_sync():
                                             try:
-                                                r, s = sync_all_to_jira(gs, on_progress=_on_sync_progress)
+                                                r, s = _sync_all_fn(gs, on_progress=_on_sync_progress)
                                                 _sync_result_box[0] = r
                                                 _sync_state_box[0] = s
                                             except Exception as exc:
@@ -439,7 +463,7 @@ def select_mode(
                                                     display_lines,
                                                     width=w,
                                                     height=h,
-                                                    subtitle="Jira sync",
+                                                    subtitle=f"{_tracker_label} sync",
                                                     hint="",
                                                 )
                                             )
@@ -447,18 +471,17 @@ def select_mode(
                                         _sync_thread.join()
 
                                         if _sync_result_box[1] is not None:
-                                            path = f"Jira sync failed: {_sync_result_box[1]}"
+                                            path = f"{_tracker_label} sync failed: {_sync_result_box[1]}"
                                         elif _sync_result_box[0] is not None:
                                             sr = _sync_result_box[0]
                                             new_gs = _sync_state_box[0]
                                             if new_gs:
                                                 save_graph_state(project.id, new_gs)
                                                 save_project_snapshot(project.id, new_gs)
-                                            created = (
-                                                len(sr.stories_created)
-                                                + len(sr.tasks_created)
-                                                + len(sr.sprints_created)
+                                            _iters = getattr(sr, "sprints_created", None) or getattr(
+                                                sr, "iterations_created", {}
                                             )
+                                            created = len(sr.stories_created) + len(sr.tasks_created) + len(_iters)
                                             skipped = sr.skipped
                                             errors = len(sr.errors)
                                             parts = []
@@ -468,7 +491,7 @@ def select_mode(
                                                 parts.append(f"{skipped} skipped")
                                             if errors:
                                                 parts.append(f"{errors} errors")
-                                            epic = sr.epic_key or ""
+                                            epic = getattr(sr, "epic_key", None) or getattr(sr, "epic_id", None) or ""
                                             prefix = f"Epic: {epic} — " if epic else ""
                                             summary = ", ".join(parts) or "Nothing to sync"
                                             # Show first error for diagnosis
@@ -505,9 +528,11 @@ def select_mode(
                             submenu_html_fade = 0.0
                             submenu_md_fade = 0.0
                             submenu_jira_fade = 0.0
+                            submenu_azdevops_fade = 0.0
                             submenu_html_fade_target = 0.0
                             submenu_md_fade_target = 0.0
                             submenu_jira_fade_target = 0.0
+                            submenu_azdevops_fade_target = 0.0
                             exp_fade_target = 1.0  # restore Export highlight
                         elif key in ("esc", "q"):
                             export_submenu_open = False
@@ -515,6 +540,7 @@ def select_mode(
                             submenu_html_fade_target = 0.0
                             submenu_md_fade_target = 0.0
                             submenu_jira_fade_target = 0.0
+                            submenu_azdevops_fade_target = 0.0
                             exp_fade_target = 1.0  # restore Export highlight
 
                     # ── Delete popup mode ─────────────────────────────────────
@@ -620,6 +646,7 @@ def select_mode(
                                         card_fade=card_fade,
                                         pulse=pulse,
                                         jira_enabled=_jira_ok,
+                                        azdevops_enabled=_azdevops_ok,
                                     )
                                 )
                                 time.sleep(_FRAME_TIME)
@@ -682,6 +709,7 @@ def select_mode(
                                     height=h,
                                     cards_visible=_dismiss_visible,
                                     jira_enabled=_jira_ok,
+                                    azdevops_enabled=_azdevops_ok,
                                 )
                             )
                             time.sleep(_FRAME_TIME)
@@ -798,6 +826,10 @@ def select_mode(
                         submenu_jira_fade = min(submenu_jira_fade + step, submenu_jira_fade_target)
                     elif submenu_jira_fade > submenu_jira_fade_target:
                         submenu_jira_fade = max(submenu_jira_fade - step, submenu_jira_fade_target)
+                    if submenu_azdevops_fade < submenu_azdevops_fade_target:
+                        submenu_azdevops_fade = min(submenu_azdevops_fade + step, submenu_azdevops_fade_target)
+                    elif submenu_azdevops_fade > submenu_azdevops_fade_target:
+                        submenu_azdevops_fade = max(submenu_azdevops_fade - step, submenu_azdevops_fade_target)
 
                     # Delete popup slide animation
                     if delete_popup_t < delete_popup_target:
@@ -874,12 +906,14 @@ def select_mode(
                             submenu_html_fade=submenu_html_fade,
                             submenu_md_fade=submenu_md_fade,
                             submenu_jira_fade=submenu_jira_fade,
+                            submenu_azdevops_fade=submenu_azdevops_fade,
                             submenu_visible=submenu_visible,
                             delete_popup_name=delete_popup_name,
                             delete_popup_t=delete_popup_t,
                             delete_popup_pulse=delete_popup_pulse,
                             delete_popup_flash=delete_popup_flash,
                             jira_enabled=_jira_ok,
+                            azdevops_enabled=_azdevops_ok,
                         )
                     )
 
