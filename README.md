@@ -1,12 +1,34 @@
-# Scrum AI Agent
+<div align="center">
 
-A terminal-based AI agent that takes a project and scrums it down — decomposing scope into epics, user stories, tasks, and sprint plans — interactively from the command line.
 
-Built with LangGraph, LangChain, and Anthropic Claude. Supports OpenAI and Google as alternative LLM providers.
+<img src="docs/banner.jpg" alt="Scrum AI Agent" width="800"/>
+
+# 📋 Scrum AI Agent
+
+**AI-powered Scrum Master that decomposes projects into epics, stories, tasks, and sprint plans — right from your terminal.**
+
+[![PyPI](https://img.shields.io/pypi/v/scrum-agent?style=for-the-badge&logo=pypi&logoColor=white&color=blue)](https://pypi.org/project/scrum-agent/)
+[![Python](https://img.shields.io/badge/Python-3.11+-green?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
+[![License](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
+[![Powered by Claude](https://img.shields.io/badge/Powered%20by-Claude-ff6600?style=for-the-badge&logo=anthropic&logoColor=white)](https://anthropic.com)
+[![Built with LangGraph](https://img.shields.io/badge/Built%20with-LangGraph-00CED1?style=for-the-badge)](https://langchain-ai.github.io/langgraph/)
+
+[![Tests](https://img.shields.io/github/actions/workflow/status/omardin14/scrum-planning-ai-agent/ci.yml?style=for-the-badge&label=Tests&logo=github)](https://github.com/omardin14/scrum-planning-ai-agent/actions)
+[![Homebrew](https://img.shields.io/badge/Homebrew-Available-orange?style=for-the-badge&logo=homebrew&logoColor=white)](https://github.com/omardin14/homebrew-tap)
+
+</div>
 
 ---
 
-## Quick Start
+<div align="center">
+<img src="docs/demo.gif" alt="Scrum AI Agent demo — from project description to sprint plan" width="800"/>
+
+*From project description to sprint plan in under a minute.*
+</div>
+
+---
+
+## 🚀 Quick Start
 
 ### Homebrew (macOS)
 
@@ -43,90 +65,63 @@ scrum-agent --non-interactive --description @project-brief.txt --output html --t
 
 ---
 
-## Table of Contents
+## 📑 Table of Contents
 
-- [Quick Start](#quick-start)
-- [Features](#features)
-- [Getting Started](#getting-started)
-- [CLI Reference](#cli-reference)
-- [Intake Modes](#intake-modes)
-- [Pipeline](#pipeline)
-- [Export Formats](#export-formats)
-- [Session Management](#session-management)
-- [Tools](#tools)
-- [Architecture](#architecture)
-- [Project Intake Questionnaire](#project-intake-questionnaire)
-- [Scrum Standards](#scrum-standards)
-- [Prompt Construction](#prompt-construction)
-- [Guardrails](#guardrails)
-- [Multi-Provider LLM Support](#multi-provider-llm-support)
-- [Development](#development)
-- [Evaluation & Testing](#evaluation--testing)
-- [Agentic Blueprint Reference](#agentic-blueprint-reference)
-
----
-
-## Features
-
-### Interactive experience
-- **Full-screen TUI** — animated splash screen, mode selection with ASCII art titles, session editor, pipeline progress with spinners and elapsed time
-- **Numbered review menus** — `[1] Accept  [2] Edit  [3] Reject` at every pipeline checkpoint (no more accidental rejections from typos)
-- **Rich table rendering** — colour-coded priorities, capacity bars in sprint plans, discipline tags, DoD checklists
-- **Status bar** — bottom toolbar shows project name, current phase, and session info
-- **`/compact` and `/verbose` toggle** — switch between condensed and full-detail output
-- **Terminal bell** — notification after long operations (disable with `--no-bell`)
-- **Dark/light themes** — `--theme light` for white/cream terminal backgrounds
-
-### Smart intake
-- **Adaptive questioning** — extracts answers from your initial description, skips redundant questions, probes vague answers with question-specific follow-ups
-- **30-question discovery** — seven phases covering project context, team capacity, tech stack, codebase, risks, preferences, and capacity planning
-- **Choice questions** — 6 questions rendered as numbered selection menus (project type, sprint length, code hosting, repo structure, estimation style, output format)
-- **`defaults` command** — batch-accept all defaults for the current phase and skip ahead
-- **Dynamic follow-up choices** — vague-answer probes show 2–4 LLM-generated options as numbered menus
-- **Offline questionnaire** — export a blank template, fill in at your own pace, import to skip interactive flow
-- **SCRUM.md context** — drop a `SCRUM.md` file in your project directory; the agent reads it to pre-fill answers and ground output
-- **`scrum-docs/` directory** — place PRDs, design docs (.md, .txt, .rst, .pdf) here for automatic ingestion. PDF support via `pymupdf` (`uv sync --extra pdf`)
-
-### Pipeline & artifacts
-- **Human-in-the-loop** — accept, edit, or reject output at every stage (features, stories, tasks, sprints)
-- **Task labels** — auto-tagged Code, Documentation, Infrastructure, Testing with colour-coded display
-- **Test plans** — auto-generated for Code and Infrastructure tasks (what to test: unit, integration, edge cases)
-- **AI coding prompts** — ARC-structured instruction per task for Cursor, Claude Code, or Copilot, including project context and tech stack
-- **Documentation sub-tasks** — auto-generated for stories with Documentation in their DoD, referencing Confluence/README URLs from intake
-- **Story titles** — short summary titles shown in sprint views and exports (not just the epic name)
-- **Small project handling** — projects with ≤2 sprints and ≤3 goals skip multi-epic decomposition; single sentinel epic named after the project
-- **Prompt quality rating** — deterministic A/B/C/D grade from questionnaire completeness, with actionable suggestions
-- **Pipeline progress** — `[2/5] Generating stories...` with contextual spinner messages and elapsed time per step
-
-### Capacity planning
-- **Dynamic capacity** — computes net velocity per sprint from gross capacity minus deductions
-- **Bank holiday detection** — auto-detects public holidays in your planning window (100+ countries via `holidays` package with 3-layer locale fallback)
-- **PTO/leave tracking** — per-person leave entry with date-based sub-loop, working-day calculation, per-sprint impact
-- **Capacity deductions** — bank holidays, planned leave, unplanned absence %, onboarding ramp-up, KTLO/BAU allocation, discovery tax
-- **Per-sprint velocity** — only bank-holiday-impacted sprints get reduced capacity; others keep full velocity
-- **Capacity overflow** — 3 options when scope exceeds capacity: extend sprints (recommended), increase team size, or keep as-is (overloaded)
-- **Sprint highlighting** — amber border on impacted sprints with holiday/PTO annotations and reduced capacity bars
-- **Context sources display** — analysis screen shows ✓/✗ indicators for SCRUM.md, Repository, and Confluence
-
-### Integrations & export
-- **4 export formats** — Markdown, HTML (self-contained single-file report), JSON (structured, pipeable), and Jira (batch sync)
-- **Jira sync** — idempotent batch creation: Features → Labels, Stories → linked to Epic, Tasks → Sub-tasks, Sprints → created with story assignment. Cascade creation (sprint stage auto-creates stories if not done). Handles team-managed and classic Jira projects
-- **Azure DevOps Boards sync** — idempotent batch creation: Features → Tags, Stories → User Stories linked to Epic, Tasks → Task work items, Sprints → Iterations with story assignment. HTML descriptions, priority mapping (1–4), classification node creation via REST API
-- **30 tools** — GitHub, Azure DevOps, Jira, Confluence, local codebase scanning, bank holiday detection, LLM-powered estimation
-- **3 LLM providers** — Anthropic Claude (default), OpenAI GPT, Google Gemini
-
-### Reliability
-- **Session persistence** — SQLite-backed sessions that survive terminal restarts; resume with `--resume`
-- **Non-interactive mode** — headless pipeline for CI/CD workflows with JSON/HTML/Markdown output
-- **Input guardrails** — prompt injection detection, length cap, profanity filter, off-topic classifier
-- **Output guardrails** — story format validation, AC coverage checks, sprint capacity enforcement
-- **Rate-limit retry** — exponential backoff with live countdown (5s → 10s → 20s, 3 retries)
-- **Per-session log files** — `~/.scrum-agent/logs/`, cleaned up on project deletion
-- **Dry-run mode** — full TUI with mock data and fake delays for UI development
+- [Quick Start](#-quick-start)
+- [Features](#-features)
+- [Getting Started](#-getting-started)
+- [Deploy on AWS Lightsail](#-deploy-on-aws-lightsail-openclaw)
+- [CLI Reference](#%EF%B8%8F-cli-reference)
+- [Intake Modes](#-intake-modes)
+- [Pipeline](#-pipeline)
+- [Export Formats](#-export-formats)
+- [Session Management](#-session-management)
+- [Tools](#-tools)
+- [Architecture](#%EF%B8%8F-architecture)
+- [Project Intake Questionnaire](#-project-intake-questionnaire)
+- [Scrum Standards](#-scrum-standards)
+- [Prompt Construction](#-prompt-construction)
+- [Guardrails](#%EF%B8%8F-guardrails)
+- [Multi-Provider LLM Support](#-multi-provider-llm-support)
+- [Development](#%EF%B8%8F-development)
+- [Evaluation & Testing](#-evaluation--testing)
+- [Tech Stack](#%EF%B8%8F-tech-stack)
+- [Agentic Blueprint Reference](#-agentic-blueprint-reference)
+- [License](#-license)
 
 ---
 
-## Getting Started
+## ✨ Features
+
+🖥️ **Full-screen TUI** — Animated splash, mode selection with ASCII art titles, pipeline progress with spinners and elapsed time, dark/light themes
+
+🧠 **Smart Intake** — Extracts answers from your description, asks only what's missing, adaptive follow-ups with question-specific probes
+
+🔄 **Human-in-the-Loop** — Accept, edit, or reject at every pipeline stage with numbered review menus
+
+📊 **Capacity Planning** — Bank holidays (100+ countries), PTO/leave tracking, unplanned absence %, onboarding ramp-up, per-sprint velocity
+
+🔌 **30 Tools** — GitHub, Azure DevOps, Jira, Confluence, local codebase scanning, bank holiday detection, LLM-powered estimation
+
+📤 **5 Export Formats** — Markdown, HTML, JSON, Jira sync, Azure DevOps Boards sync
+
+🤖 **4 LLM Providers** — Claude (default), GPT, Gemini, AWS Bedrock
+
+💾 **Session Persistence** — SQLite-backed sessions that survive terminal restarts; resume with `--resume`
+
+🛡️ **Guardrails** — Input validation (injection, profanity, relevance), output validation (story format, AC coverage, sprint capacity)
+
+🏷️ **Task Enrichment** — Auto-tagged labels (Code/Docs/Infra/Testing), test plans, AI coding prompts for Cursor/Claude Code/Copilot
+
+📝 **Offline Questionnaire** — Export a blank template, fill in at your own pace, import to skip interactive flow
+
+📄 **SCRUM.md Context** — Drop a `SCRUM.md` in your project directory; the agent reads it to pre-fill answers and ground output
+
+
+
+---
+
+## 🏁 Getting Started
 
 ### Prerequisites
 
@@ -181,7 +176,8 @@ LLM_PROVIDER=google
 GOOGLE_API_KEY=AIza...
 ```
 
-### LangSmith (optional)
+<details>
+<summary>🔍 LangSmith (optional tracing)</summary>
 
 [LangSmith](https://smith.langchain.com/) provides tracing and observability. Add to `.env`:
 
@@ -191,9 +187,14 @@ LANGSMITH_API_KEY=lsv2_pt_...
 LANGSMITH_PROJECT=scrum-agent
 ```
 
+</details>
+
 ---
 
-## Deploy on AWS Lightsail (OpenClaw)
+<details>
+<summary>☁️ Deploy on AWS Lightsail (OpenClaw) — 14 steps</summary>
+
+## ☁️ Deploy on AWS Lightsail (OpenClaw)
 
 Run scrum-agent as a cloud service via [OpenClaw](https://aws.amazon.com/lightsail/openclaw/) on AWS Lightsail. OpenClaw comes pre-installed on the Lightsail blueprint and uses Amazon Bedrock (Claude Sonnet 4.6) as its model provider.
 
@@ -515,9 +516,11 @@ After confirmation, the bot runs `scrum-agent` in the background (~3-5 minutes),
 
 See [`skills/scrum-planner/README.md`](skills/scrum-planner/README.md) for full skill documentation, question-to-CLI mapping, and troubleshooting.
 
+</details>
+
 ---
 
-## CLI Reference
+## ⌨️ CLI Reference
 
 ```
 scrum-agent [OPTIONS]
@@ -568,7 +571,8 @@ scrum-agent [OPTIONS]
 |------|-------------|
 | `--export-questionnaire [PATH]` | Export a blank questionnaire template as Markdown |
 
-### In-session commands
+<details>
+<summary>💻 In-session commands</summary>
 
 These commands are available at the `scrum>` prompt during an interactive session:
 
@@ -589,7 +593,10 @@ These commands are available at the `scrum>` prompt during an interactive sessio
 
 The **status bar** at the bottom of the terminal shows project name, current phase, and session info. It updates automatically as you progress through the pipeline.
 
-### Examples
+</details>
+
+<details>
+<summary>📝 Examples</summary>
 
 ```bash
 scrum-agent                                            # interactive TUI (recommended)
@@ -606,9 +613,11 @@ scrum-agent --non-interactive --description @brief.txt --output json  # JSON to 
 scrum-agent --dry-run                                  # TUI with mock data
 ```
 
+</details>
+
 ---
 
-## Intake Modes
+## 🎯 Intake Modes
 
 The agent supports four intake modes, each balancing thoroughness with speed.
 
@@ -666,11 +675,15 @@ All 30 questions asked one-at-a-time in a conversational flow. Seven phases:
 
 The format is round-trippable (export → edit → import preserves answers exactly).
 
-### SCRUM.md context
+<details>
+<summary>📄 SCRUM.md context</summary>
 
 Drop a `SCRUM.md` file in your project directory with any relevant context — project notes, design decisions, URLs, architecture diagrams. The agent reads it automatically and uses it to pre-fill answers and ground its output. Answers extracted from SCRUM.md are tagged with `*(from SCRUM.md)*` provenance markers in the intake summary. Your typed description always takes priority over SCRUM.md when both provide the same information.
 
-### scrum-docs/ directory
+</details>
+
+<details>
+<summary>📁 scrum-docs/ directory</summary>
 
 Place PRDs, design docs, or reference material in a `scrum-docs/` directory. Supported formats: `.md`, `.txt`, `.rst`, `.pdf`. PDF support requires the `pymupdf` optional dependency:
 
@@ -680,16 +693,25 @@ uv sync --extra pdf
 
 Files are automatically ingested and fed into the project analyzer for grounded output.
 
+</details>
+
 ---
 
-## Pipeline
+## 🔄 Pipeline
 
 After intake confirmation, the agent runs a 5-stage pipeline with a human-in-the-loop checkpoint after each stage:
 
-```
-Project Intake → Project Analyzer → Feature Generator → Story Writer → Task Decomposer → Sprint Planner
-                                          │                   │                │                │
-                                    [accept/edit/reject] [accept/edit/reject] [accept/edit/reject] [accept/edit/reject]
+```mermaid
+graph LR
+    A[📝 Project Intake] --> B[🔍 Project Analyzer]
+    B --> C[🧩 Feature Generator]
+    C --> D[📖 Story Writer]
+    D --> E[✅ Task Decomposer]
+    E --> F[📅 Sprint Planner]
+    C -.-> |accept/edit/reject| C
+    D -.-> |accept/edit/reject| D
+    E -.-> |accept/edit/reject| E
+    F -.-> |accept/edit/reject| F
 ```
 
 | Stage | What it does |
@@ -717,11 +739,15 @@ Every task generated by the Task Decomposer includes:
 
 Stories with "Documentation" marked as applicable in their DoD get a consolidated documentation sub-task referencing Confluence/README URLs from intake.
 
-### Small project handling
+<details>
+<summary>🔹 Small project handling</summary>
 
 For projects with ≤2 sprints and ≤3 goals, the analyzer sets `skip_epics`. Instead of multi-epic decomposition, a single sentinel epic is created using the project name as its title. The rest of the pipeline (stories, tasks, sprints) proceeds normally.
 
-### Prompt quality rating
+</details>
+
+<details>
+<summary>📊 Prompt quality rating</summary>
 
 After intake, the analysis review screen shows a deterministic quality rating:
 
@@ -730,9 +756,11 @@ After intake, the analysis review screen shows a deterministic quality rating:
 - **Actionable suggestions**: "Add a SCRUM.md file", "Answer Q11 (tech stack) for better stories", etc.
 - **Low-confidence areas**: defaulted essential questions flagged for downstream spike recommendations
 
+</details>
+
 ---
 
-## Export Formats
+## 📤 Export Formats
 
 ### Markdown (default)
 
@@ -749,6 +777,8 @@ Self-contained single-file HTML report with embedded CSS, collapsible sections, 
 ```bash
 scrum-agent --non-interactive --description "Build a todo app" --output html
 ```
+
+<!-- TODO: Screenshot — HTML report output -->
 
 ### JSON
 
@@ -790,6 +820,10 @@ Key behaviors:
 - **Confirmation screen** — shows what will be created/skipped before any write operation
 - **Progress screen** — animated per-item status during creation
 - **Jira button** — disabled/dimmed in TUI when `JIRA_API_TOKEN` is not configured
+
+
+<details>
+<summary>🔷 Azure DevOps Boards</summary>
 
 ### Azure DevOps Boards
 
@@ -834,9 +868,11 @@ AZURE_DEVOPS_PROJECT=MyProject
 AZURE_DEVOPS_TEAM=MyProject Team    # optional — defaults to "{project} Team"
 ```
 
+</details>
+
 ---
 
-## Session Management
+## 💾 Session Management
 
 Sessions are persisted to SQLite at `~/.scrum-agent/sessions.db`. Every terminal session gets a unique ID (`new-<8hex>-<YYYY-MM-DD>`) and a human-readable display name derived from the project slug (`todoapp-2026-03-19`).
 
@@ -872,11 +908,12 @@ Sessions older than 30 days are auto-pruned at startup. Configure via `SESSION_P
 
 ---
 
-## Tools
+## 🔧 Tools
 
 The agent has access to 30 tools, organized by integration:
 
-### GitHub
+<details>
+<summary>🐙 GitHub (4 tools)</summary>
 
 | Tool | Description |
 |------|-------------|
@@ -885,7 +922,10 @@ The agent has access to 30 tools, organized by integration:
 | `github_list_issues` | List open issues with labels |
 | `github_read_readme` | Extract README content |
 
-### Azure DevOps
+</details>
+
+<details>
+<summary>🔷 Azure DevOps (9 tools)</summary>
 
 | Tool | Description | Risk |
 |------|-------------|------|
@@ -899,7 +939,10 @@ The agent has access to 30 tools, organized by integration:
 | `azdevops_create_story` | Create a User Story linked to Epic, with story points and priority | High (requires confirmation) |
 | `azdevops_create_iteration` | Create an iteration (sprint) with optional start/finish dates | High (requires confirmation) |
 
-### Jira
+</details>
+
+<details>
+<summary>🎫 Jira (6 tools)</summary>
 
 | Tool | Description | Risk |
 |------|-------------|------|
@@ -910,7 +953,10 @@ The agent has access to 30 tools, organized by integration:
 | `jira_create_story` | Create a story with ACs and story points | High (requires confirmation) |
 | `jira_create_sprint` | Create and configure a sprint | High (requires confirmation) |
 
-### Confluence
+</details>
+
+<details>
+<summary>📚 Confluence (5 tools)</summary>
 
 | Tool | Description | Risk |
 |------|-------------|------|
@@ -920,7 +966,10 @@ The agent has access to 30 tools, organized by integration:
 | `confluence_create_page` | Create a new page | High (requires confirmation) |
 | `confluence_update_page` | Update an existing page | High (requires confirmation) |
 
-### Local codebase
+</details>
+
+<details>
+<summary>💻 Local codebase (3 tools)</summary>
 
 | Tool | Description |
 |------|-------------|
@@ -928,18 +977,26 @@ The agent has access to 30 tools, organized by integration:
 | `read_local_file` | Read a specific file from disk (targeted retrieval when the LLM needs to inspect particular files) |
 | `load_project_context` | High-level codebase overview including `scrum-docs/` PRD/design doc ingestion |
 
-### Calendar
+</details>
+
+<details>
+<summary>📅 Calendar (1 tool)</summary>
 
 | Tool | Description |
 |------|-------------|
 | `detect_bank_holidays` | Detect public holidays in the planning window (auto-fills Q28) |
 
-### LLM-powered
+</details>
+
+<details>
+<summary>🤖 LLM-powered (2 tools)</summary>
 
 | Tool | Description |
 |------|-------------|
 | `estimate_complexity` | Analyze code/requirements for story point estimation |
 | `generate_acceptance_criteria` | Generate Given/When/Then acceptance criteria |
+
+</details>
 
 ### Tool risk levels
 
@@ -951,7 +1008,7 @@ The agent has access to 30 tools, organized by integration:
 
 ---
 
-## Architecture
+## 🏗️ Architecture
 
 ### Four Layers
 
@@ -974,21 +1031,22 @@ Auto-generated via `make graph`:
 
 ![Agent Graph](docs/graph.png)
 
-```
-START → project_intake → [questionnaire loop] → project_analyzer → feature_generator → [human review]
-                                                                                             │
-                                                                         ┌───────────────────┘
-                                                                         ▼
-                                                                   story_writer → [human review]
-                                                                         │
-                                                                         ▼
-                                                                 task_decomposer → [human review]
-                                                                         │
-                                                                         ▼
-                                                                 sprint_planner → [human review]
-                                                                         │
-                                                                         ▼
-                                                                   jira_sync → END
+
+```mermaid
+graph TD
+    START([START]) --> intake[project_intake]
+    intake --> |questionnaire loop| intake
+    intake --> analyzer[project_analyzer]
+    analyzer --> features[feature_generator]
+    features --> |human review| features
+    features --> stories[story_writer]
+    stories --> |human review| stories
+    stories --> tasks[task_decomposer]
+    tasks --> |human review| tasks
+    tasks --> sprints[sprint_planner]
+    sprints --> |human review| sprints
+    sprints --> sync[jira_sync]
+    sync --> END([END])
 ```
 
 ### Node Descriptions
@@ -1003,7 +1061,8 @@ START → project_intake → [questionnaire loop] → project_analyzer → featu
 | **Sprint Planner** | Allocates stories to sprints using per-sprint net velocity (bank holidays, PTO, unplanned %, onboarding, KTLO deducted). Handles capacity overflow with 3 options. Highlights impacted sprints |
 | **Jira Sync** | Pushes the finalized plan to Jira with idempotent batch creation: Features → Labels, Stories → linked to Epic, Tasks → Sub-tasks, Sprints → created and assigned |
 
-### The ReAct Loop
+<details>
+<summary>🔁 The ReAct Loop</summary>
 
 The foundational reasoning pattern:
 
@@ -1015,7 +1074,10 @@ Thought → Action → Observation → (repeat until done)
 2. **Action** — call a tool or take a step
 3. **Observation** — see the result, decide whether to continue or answer
 
-### TUI System
+</details>
+
+<details>
+<summary>🖥️ TUI System</summary>
 
 The `ui/` package provides a full-screen terminal UI with four subsystems:
 
@@ -1035,7 +1097,10 @@ Visual features:
 
 The `repl/` package is the legacy REPL kept for backwards compatibility and CLI-flag-driven flows (`--quick`, `--full-intake`, `--questionnaire`, `--mode`).
 
-### State Schema
+</details>
+
+<details>
+<summary>📦 State Schema</summary>
 
 - **ScrumState** is a `TypedDict` (LangGraph convention for graph state)
 - `messages` uses `Annotated[list[BaseMessage], add_messages]` for append semantics
@@ -1043,7 +1108,10 @@ The `repl/` package is the legacy REPL kept for backwards compatibility and CLI-
 - **Mutable dataclass** for `QuestionnaireState` — updated incrementally by the intake node
 - Artifact lists use `Annotated[list[...], operator.add]` so nodes can return items that get appended
 
-### Agent Classification
+</details>
+
+<details>
+<summary>🏷️ Agent Classification</summary>
 
 | Property | Value |
 |----------|-------|
@@ -1052,9 +1120,14 @@ The `repl/` package is the legacy REPL kept for backwards compatibility and CLI-
 | **Interface** | Terminal CLI (full-screen TUI + legacy REPL) |
 | **Domain** | Scrum project management |
 
+</details>
+
 ---
 
-## Project Intake Questionnaire
+<details>
+<summary>📝 Project Intake Questionnaire — 30 questions across 7 phases</summary>
+
+## 📝 Project Intake Questionnaire
 
 Before generating any Scrum artifacts, the agent runs a structured discovery phase — asking the user questions **one at a time** in a conversational flow. This is the "flipped prompt" technique: the agent gathers what it needs before it acts.
 
@@ -1181,9 +1254,14 @@ Here's what I understand about your project:
 
 Only after the user confirms does the agent proceed to feature generation.
 
+</details>
+
 ---
 
-## Scrum Standards
+<details>
+<summary>📏 Scrum Standards — Issue hierarchy, story format, acceptance criteria, DoD</summary>
+
+## 📏 Scrum Standards
 
 These are the team's codified practices. The agent enforces all of these when generating and validating Scrum artifacts.
 
@@ -1476,13 +1554,15 @@ When a story is too large (estimated above 8 points), split it using one of thes
 
 > The goal is to produce stories that are each independently valuable, testable, and completable within a sprint.
 
+</details>
+
 ---
 
-## Prompt Construction
+## 🧪 Prompt Construction
 
 ### System Prompt Persona
 
-The agent operates as a **senior Scrum Master** and enforces all standards defined in the [Scrum Standards](#scrum-standards) section.
+The agent operates as a **senior Scrum Master** and enforces all standards defined in the [Scrum Standards](#-scrum-standards) section.
 
 Core constraints:
 
@@ -1507,7 +1587,7 @@ Core constraints:
 
 ---
 
-## Guardrails
+## 🛡️ Guardrails
 
 ### Input Guardrails (4 layers)
 
@@ -1533,7 +1613,7 @@ Every pipeline stage has an accept/edit/reject checkpoint. High-risk tool calls 
 
 ---
 
-## Multi-Provider LLM Support
+## 🤖 Multi-Provider LLM Support
 
 The agent supports four LLM providers. Set via `LLM_PROVIDER` in `.env`:
 
@@ -1550,7 +1630,10 @@ Bedrock uses IAM credentials automatically (instance role, `~/.aws/credentials`,
 
 ---
 
-## Development
+<details>
+<summary>🛠️ Development — Commands, project structure, testing, environment</summary>
+
+## 🛠️ Development
 
 ### Commands
 
@@ -1666,9 +1749,11 @@ src/scrum_agent/
 - **PRs**: feature branches merge to `main` via pull request
 - Include `Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>` on AI-assisted commits
 
+</details>
+
 ---
 
-## Evaluation & Testing
+## 🧪 Evaluation & Testing
 
 | Layer | Approach |
 |-------|---------|
@@ -1700,7 +1785,7 @@ src/scrum_agent/
 
 ---
 
-## Tech Stack
+## ⚙️ Tech Stack
 
 | Component | Choice |
 |-----------|--------|
@@ -1720,7 +1805,10 @@ src/scrum_agent/
 
 ---
 
-## Agentic Blueprint Reference
+<details>
+<summary>📘 Agentic Blueprint Reference — LangGraph patterns and code examples</summary>
+
+## 📘 Agentic Blueprint Reference
 
 Condensed technical reference for the LangGraph patterns and LangChain APIs used.
 
@@ -1827,8 +1915,18 @@ for chunk, metadata in app.stream(
 
 **Streaming:** `app.stream()` | `stream_mode="messages"` | `AIMessageChunk`
 
+</details>
+
 ---
 
-## License
+## 📄 License
 
 MIT License. See [LICENSE](LICENSE) for details.
+
+---
+
+<div align="center">
+
+<sub>Built with ❤️ using LangGraph and Claude</sub>
+
+</div>
