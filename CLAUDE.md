@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Terminal-based AI Scrum Master agent built with LangGraph, LangChain, and Anthropic Claude (with OpenAI and Google as alternative providers). Decomposes projects into epics, user stories, tasks, and sprint plans. Version 1.0.0.
+Terminal-based AI Scrum Master agent built with LangGraph, LangChain, and Anthropic Claude (with OpenAI, Google, and AWS Bedrock as alternative providers). Decomposes projects into epics, user stories, tasks, and sprint plans. Version 1.2.0. Deployed on AWS Lightsail via OpenClaw with Bedrock.
 
 ## Commands
 
@@ -92,7 +92,7 @@ src/scrum_agent/
     state.py            — ScrumState TypedDict, artifact dataclasses, enums
     graph.py            — Graph compilation and wiring (create_graph())
     nodes.py            — Node functions (intake, analyzer, generators, planner)
-    llm.py              — LLM provider factory (Anthropic/OpenAI/Google, lazy imports)
+    llm.py              — LLM provider factory (Anthropic/OpenAI/Google/Bedrock, lazy imports)
   prompts/
     system.py           — Base system prompt (Scrum Master persona)
     intake.py           — 30 questions, smart/standard modes, adaptive templates, validation
@@ -224,11 +224,12 @@ Tool modules are imported **inside** `get_tools()`, not at module level. This is
 
 ## LLM Provider Conventions
 
-`agent/llm.py` provides `get_llm()` — a factory supporting Anthropic (default), OpenAI, Google:
+`agent/llm.py` provides `get_llm()` — a factory supporting Anthropic (default), OpenAI, Google, and AWS Bedrock:
 - Each provider is **lazy-imported** inside an if-branch so the module works even if optional packages aren't installed
 - Provider selected via `LLM_PROVIDER` env var; model override via `LLM_MODEL`
-- Default models: `claude-sonnet-4-20250514` (Anthropic), `gpt-4o` (OpenAI), `gemini-2.0-flash` (Google)
-- Install optional providers: `uv sync --extra openai` or `uv sync --extra google`
+- Default models: `claude-sonnet-4-20250514` (Anthropic), `gpt-4o` (OpenAI), `gemini-2.0-flash` (Google), `us.anthropic.claude-sonnet-4-20250514-v1:0` (Bedrock)
+- Install optional providers: `uv sync --extra openai` / `--extra google` / `--extra bedrock`
+- **Bedrock** uses IAM credentials (no API key) — auto-detects AWS profile from `~/.aws/config` via `get_aws_profile()` in `config.py`. On Lightsail, uses `[profile assumed]` with `credential_source=Ec2InstanceMetadata`. The boto3 session is created with explicit profile + increased read timeout (300s) for cross-region inference profiles.
 
 ## State Schema Conventions
 
@@ -300,7 +301,9 @@ The `_dict_to_*()` functions in `sessions.py` use `.get()` for optional fields s
 - `ANTHROPIC_API_KEY` — required when using Anthropic (default provider)
 - `OPENAI_API_KEY` — required when `LLM_PROVIDER=openai`
 - `GOOGLE_API_KEY` — required when `LLM_PROVIDER=google`
-- `LLM_PROVIDER` — `anthropic` (default), `openai`, `google`
+- `AWS_REGION` — required when `LLM_PROVIDER=bedrock` (auto-detected from `~/.aws/config` on Lightsail)
+- `AWS_PROFILE` — optional, auto-detected from `~/.aws/config` (looks for profiles with `credential_source` or `role_arn`)
+- `LLM_PROVIDER` — `anthropic` (default), `openai`, `google`, `bedrock`
 - `LLM_MODEL` — optional model override for the selected provider
 - `GITHUB_TOKEN`, `AZURE_DEVOPS_TOKEN` — optional, for repo context tools
 - `AZURE_DEVOPS_ORG_URL`, `AZURE_DEVOPS_PROJECT`, `AZURE_DEVOPS_TEAM` — optional, for Azure DevOps board sync
@@ -315,10 +318,12 @@ The `_dict_to_*()` functions in `sessions.py` use `.get()` for optional fields s
 ## Version Management
 
 Version is defined in two places that **must be kept in sync**:
-- `src/scrum_agent/__init__.py`: `__version__ = "1.0.0"`
-- `pyproject.toml`: `version = "1.0.0"`
+- `src/scrum_agent/__init__.py`: `__version__ = "1.2.0"`
+- `pyproject.toml`: `version = "1.2.0"`
 
 The `__version__` is imported by `cli.py` for the `--version` flag. Package entry point: `scrum-agent = "scrum_agent.cli:main"`.
+
+Releasing: bump version in both files and merge to main. The `publish.yml` workflow triggers on `v*` tag push → PyPI → GitHub Release → Homebrew tap update.
 
 ## CI/CD
 
@@ -330,8 +335,41 @@ Workflows in `.github/workflows/`:
 | `publish.yml` | Tag push `v*` | test → build → PyPI publish (OIDC) → GitHub Release → Homebrew tap update |
 | `smoke.yml` | Weekly cron | Live API smoke tests |
 | `claude.yml` | PR | Claude Code review |
+| `claude-code-review.yml` | PR | Claude Code review (alternate) |
 
 The `publish.yml` dispatches a `repository_dispatch` event to `omardin14/homebrew-tap` to auto-update the formula SHA256 and version on each release.
+
+## OpenClaw Skill
+
+The `skills/scrum-planner/` directory contains an OpenClaw skill that replicates the smart intake TUI experience conversationally. OpenClaw acts as the front-end (asks questions, handles follow-ups), then invokes `scrum-agent --non-interactive` as the back-end.
+
+**How it works:**
+1. OpenClaw asks ~7 essential questions (matching `SMART_ESSENTIALS` from `prompts/intake.py`)
+2. Answers map to: Q1/Q6/Q8 → CLI args, everything else → temp `SCRUM.md` in CWD
+3. Invokes: `scrum-agent --non-interactive --description "Q1" --team-size Q6 --sprint-length Q8 --output json`
+4. `_load_user_context()` in `nodes.py` reads the SCRUM.md from CWD, `_keyword_extract_fallback()` does keyword scanning
+5. JSON output is parsed and presented to the user
+
+**Key files:**
+- `skills/scrum-planner/SKILL.md` — agent instructions (persona, conversation flow, SCRUM.md generation, CLI invocation, output formatting)
+- `skills/scrum-planner/README.md` — installation and usage docs
+- `skills/scrum-planner/scripts/` — helper scripts for the skill
+- `skills/scrum-planner/references/` — reference material
+
+**Installing the skill:**
+```bash
+scrum-agent --install-skill          # installs to ~/.openclaw/skills/
+scrum-agent --install-skill /path    # custom directory
+```
+
+## Deployment (AWS Lightsail)
+
+scrum-agent is deployed on AWS Lightsail via the OpenClaw blueprint:
+- OpenClaw comes pre-installed on the Lightsail instance
+- Uses Amazon Bedrock (Claude Sonnet 4.6) via IAM instance role — no API key needed
+- Bedrock IAM setup script: `curl -s https://d25b4yjpexuuj4.cloudfront.net/scripts/lightsail/setup-lightsail-openclaw-bedrock-role.sh | bash -s -- <instance-name> <region>`
+- The setup wizard auto-detects the AWS region from `~/.aws/config` and the Bedrock model from OpenClaw's `models.json`
+- See README section "Deploy on AWS Lightsail (OpenClaw)" for full guide
 
 ## Git Conventions
 
