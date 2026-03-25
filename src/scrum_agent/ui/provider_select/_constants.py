@@ -52,7 +52,8 @@ _PROVIDER_CARDS: list[dict[str, Any]] = [
     },
 ]
 
-# Version control providers — step 3
+# Version control providers — GitHub only (Azure DevOps PAT is collected
+# in the Issue Tracking step alongside org URL and project name).
 _VC_OPTIONS: list[dict[str, Any]] = [
     {
         "name": "GitHub",
@@ -62,15 +63,15 @@ _VC_OPTIONS: list[dict[str, Any]] = [
         "color": "rgb(70,100,180)",
     },
     {
-        "name": "Azure DevOps",
-        "env_var": "AZURE_DEVOPS_TOKEN",
+        "name": "Skip",
+        "env_var": "",
         "prefix": "",
-        "instructions": "Get yours at: https://dev.azure.com \u2192 Personal Access Tokens",
+        "instructions": "",
         "color": "rgb(70,100,180)",
     },
 ]
 
-# Issue tracking fields — step 4
+# Issue tracking fields — step 4 (Jira)
 _ISSUE_TRACKING_FIELDS: list[dict[str, Any]] = [
     {
         "env_var": "JIRA_BASE_URL",
@@ -107,4 +108,43 @@ _ISSUE_TRACKING_FIELDS: list[dict[str, Any]] = [
         "masked": False,
         "required": False,
     },
+]
+
+# Issue tracking fields — Azure DevOps Boards
+_AZDEVOPS_TRACKING_FIELDS: list[dict[str, Any]] = [
+    {
+        "env_var": "AZURE_DEVOPS_ORG_URL",
+        "label": "Organization URL",
+        "placeholder": "https://dev.azure.com/myorg",
+        "masked": False,
+        "required": True,
+    },
+    {
+        "env_var": "AZURE_DEVOPS_PROJECT",
+        "label": "Project Name",
+        "placeholder": "MyProject",
+        "masked": False,
+        "required": True,
+    },
+    {
+        "env_var": "AZURE_DEVOPS_TOKEN",
+        "label": "Personal Access Token",
+        "placeholder": "",
+        "masked": True,
+        "required": True,
+    },
+    {
+        "env_var": "AZURE_DEVOPS_TEAM",
+        "label": "Team Name",
+        "placeholder": "MyProject Team",
+        "masked": False,
+        "required": False,
+    },
+]
+
+# Issue tracking provider options — user picks one before seeing fields
+_ISSUE_TRACKING_OPTIONS: list[dict[str, Any]] = [
+    {"name": "Jira", "fields": _ISSUE_TRACKING_FIELDS},
+    {"name": "Azure DevOps Boards", "fields": _AZDEVOPS_TRACKING_FIELDS},
+    {"name": "Skip", "fields": []},
 ]

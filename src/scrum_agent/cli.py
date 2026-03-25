@@ -377,6 +377,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
+        "--install-skill",
+        metavar="DIR",
+        nargs="?",
+        const="__auto__",
+        default=None,
+        help="Install the bundled OpenClaw scrum-planner skill. "
+        "Optionally specify a target directory (default: ~/.openclaw/skills/).",
+    )
+
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         default=False,
@@ -486,10 +496,246 @@ def _run_headless(args: argparse.Namespace) -> None:
     )
 
 
+def _sync_bedrock_config() -> None:
+    """Detect Bedrock model ID and region from OpenClaw's config and sync to scrum-agent's .env.
+
+    Reads ~/.openclaw/agents/main/agent/models.json to find the Bedrock model ID
+    and region, then writes LLM_PROVIDER, LLM_MODEL, and AWS_REGION to
+    ~/.scrum-agent/.env if not already set.
+    """
+    import json as json_mod
+
+    models_json = Path.home() / ".openclaw" / "agents" / "main" / "agent" / "models.json"
+    env_path = Path.home() / ".scrum-agent" / ".env"
+
+    if not models_json.exists():
+        print("[3/5] OpenClaw models.json not found — skipped Bedrock config sync")
+        return
+
+    try:
+        config = json_mod.loads(models_json.read_text())
+    except (json_mod.JSONDecodeError, OSError):
+        print("[3/5] Could not parse OpenClaw models.json — skipped")
+        return
+
+    # Extract Bedrock model ID and region from OpenClaw config.
+    # The provider key may be "bedrock" or "amazon-bedrock" depending on OpenClaw version.
+    providers = config.get("providers", {})
+    bedrock = providers.get("bedrock") or providers.get("amazon-bedrock") or {}
+    models = bedrock.get("models", [])
+    base_url = bedrock.get("baseUrl", "")
+
+    if not models:
+        print("[3/5] No Bedrock models found in OpenClaw config — skipped")
+        return
+
+    model_id = models[0].get("id", "")
+
+    # Extract region from baseUrl: https://bedrock-runtime.{region}.amazonaws.com
+    region = ""
+    if "bedrock-runtime." in base_url:
+        try:
+            region = base_url.split("bedrock-runtime.")[1].split(".amazonaws.com")[0]
+        except IndexError:
+            pass
+
+    if not model_id:
+        # Fallback: scan all providers for any model with "anthropic" or "claude" in the ID
+        for prov in providers.values():
+            if isinstance(prov, dict):
+                for m in prov.get("models", []):
+                    mid = m.get("id", "")
+                    if "anthropic" in mid or "claude" in mid:
+                        model_id = mid
+                        break
+                if model_id:
+                    break
+
+    if not model_id:
+        print("[3/5] No Bedrock model ID found in OpenClaw config — skipped")
+        return
+
+    # Read existing .env to avoid overwriting user settings
+    env_path.parent.mkdir(parents=True, exist_ok=True)
+    existing = env_path.read_text() if env_path.exists() else ""
+
+    additions = []
+    if "LLM_PROVIDER" not in existing:
+        additions.append("LLM_PROVIDER=bedrock")
+
+    # Always ensure LLM_MODEL is set to the OpenClaw model
+    if "LLM_MODEL" not in existing:
+        additions.append(f"LLM_MODEL={model_id}")
+    elif model_id not in existing:
+        # LLM_MODEL exists but with a different value — update it
+        lines = existing.splitlines()
+        lines = [f"LLM_MODEL={model_id}" if line.startswith("LLM_MODEL=") else line for line in lines]
+        existing = "\n".join(lines) + "\n"
+        env_path.write_text(existing)
+
+    if region and "PLACEHOLDER" not in region and "AWS_REGION" not in existing:
+        additions.append(f"AWS_REGION={region}")
+
+    if additions:
+        with open(env_path, "a") as f:
+            f.write("\n".join(additions) + "\n")
+
+    print(f"[3/5] Bedrock config synced: model={model_id}" + (f", region={region}" if region else ""))
+
+
+def _configure_sandbox() -> None:
+    """Disable OpenClaw's Docker sandbox so scrum-agent runs on the host.
+
+    The default sandbox image (bookworm-slim) doesn't include Python, so
+    scrum-agent can't run inside the container. Setting sandbox mode to "off"
+    lets tools execute directly on the host where scrum-agent is installed.
+
+    This is safe for dedicated Lightsail instances running only the
+    scrum-planner skill. For shared or multi-tenant setups, consider building
+    a custom sandbox image with Python instead.
+    """
+    import json as json_mod
+
+    openclaw_json = Path.home() / ".openclaw" / "openclaw.json"
+
+    config: dict = {}
+    if openclaw_json.exists():
+        try:
+            config = json_mod.loads(openclaw_json.read_text())
+        except (json_mod.JSONDecodeError, OSError):
+            pass
+
+    agents = config.setdefault("agents", {})
+    defaults = agents.setdefault("defaults", {})
+    sandbox = defaults.setdefault("sandbox", {})
+
+    current_mode = sandbox.get("mode", "off")
+    if current_mode == "off":
+        print("[4/5] Sandbox already disabled — scrum-agent runs on host")
+        return
+
+    sandbox["mode"] = "off"
+
+    openclaw_json.parent.mkdir(parents=True, exist_ok=True)
+    openclaw_json.write_text(json_mod.dumps(config, indent=2) + "\n")
+
+    print(f"[4/5] Sandbox disabled (was '{current_mode}') — scrum-agent will run on host")
+    print("       ⚠ Tools now execute directly on the host without Docker isolation.")
+
+
+def _install_skill(target_arg: str) -> None:
+    """Install the bundled scrum-planner skill into OpenClaw.
+
+    Full installation flow:
+    1. Copy SKILL.md into the OpenClaw skills registry (for gateway discovery)
+    2. Copy SKILL.md into the sandbox workspace (so the agent can read it at runtime)
+    3. Sync Bedrock model config from OpenClaw's models.json into ~/.scrum-agent/.env
+    4. Disable Docker sandbox so scrum-agent runs on the host
+    5. Restart the OpenClaw gateway to load the new skill
+
+    Args:
+        target_arg: "__auto__" to auto-detect, or a custom path.
+    """
+    import importlib.resources
+    import shutil
+    import subprocess
+
+    # OpenClaw paths
+    openclaw_skills_dir = Path("/usr/lib/node_modules/openclaw/skills")
+    openclaw_workspace_dir = Path.home() / ".openclaw" / "workspace"
+
+    if target_arg == "__auto__":
+        if openclaw_skills_dir.is_dir():
+            target_dir = openclaw_skills_dir / "scrum-planner"
+        else:
+            target_dir = Path.home() / ".openclaw" / "skills" / "scrum-planner"
+    else:
+        target_dir = Path(target_arg) / "scrum-planner"
+
+    # Locate the bundled skill files inside the installed package.
+    # hatch force-include puts them at scrum_agent/skills/scrum-planner/.
+    try:
+        skill_pkg = importlib.resources.files("scrum_agent") / "skills" / "scrum-planner"
+    except (TypeError, ModuleNotFoundError):
+        skill_pkg = Path(__file__).resolve().parent.parent.parent / "skills" / "scrum-planner"
+
+    source_path = Path(str(skill_pkg))
+    if not source_path.is_dir():
+        repo_root = Path(__file__).resolve().parent.parent.parent
+        source_path = repo_root / "skills" / "scrum-planner"
+        if not source_path.is_dir():
+            print(f"Error: bundled skill not found at {source_path}", file=sys.stderr)
+            sys.exit(1)
+
+    # ── Step 1: Copy to skills registry (gateway discovery) ──────────────────
+    # /usr/lib/node_modules/openclaw/skills/ is root-owned, so may need sudo.
+    def _copy_to(dest: Path, label: str, step: str) -> int:
+        """Copy all files and subdirectories from source_path to dest."""
+        try:
+            if dest.exists():
+                shutil.rmtree(dest)
+            shutil.copytree(source_path, dest)
+            count = sum(1 for _ in dest.rglob("*") if _.is_file())
+        except PermissionError:
+            subprocess.run(["sudo", "rm", "-rf", str(dest)], check=True)
+            subprocess.run(["sudo", "cp", "-r", str(source_path), str(dest)], check=True)
+            count = sum(1 for _ in source_path.rglob("*") if _.is_file())
+        print(f"[{step}] {label}: {dest} ({count} files)")
+        return count
+
+    _copy_to(target_dir, "Skill registry", "1/5")
+
+    # ── Step 2: Copy to sandbox workspace (agent runtime access) ─────────────
+    # The OpenClaw sandbox only has access to ~/.openclaw/workspace/.
+    # The agent needs to read SKILL.md at runtime to follow the instructions.
+    workspace_skill_dir = openclaw_workspace_dir / "skills" / "scrum-planner"
+    if openclaw_workspace_dir.is_dir():
+        _copy_to(workspace_skill_dir, "Sandbox workspace", "2/5")
+    else:
+        print("[2/5] Sandbox workspace not found — skipped (not an OpenClaw instance?)")
+
+    # ── Step 3: Sync Bedrock model config from OpenClaw ─────────────────────
+    # OpenClaw's models.json has the exact Bedrock model ID and region.
+    # Detect these and write to ~/.scrum-agent/.env so scrum-agent uses the
+    # same model as OpenClaw (e.g. global.anthropic.claude-sonnet-4-6).
+    _sync_bedrock_config()
+
+    # ── Step 4: Disable sandbox so scrum-agent runs on the host ─────────────
+    # The default sandbox image (bookworm-slim) doesn't include Python.
+    # Disabling the sandbox lets tools execute directly on the host.
+    _configure_sandbox()
+
+    # ── Step 5: Restart OpenClaw gateway ─────────────────────────────────────
+    gateway_available = shutil.which("openclaw") is not None
+    if not gateway_available:
+        print("[5/5] OpenClaw CLI not found — skip restart (run manually)")
+        return
+
+    try:
+        answer = input("\n[5/5] Restart OpenClaw gateway to load the skill? [Y/n] ").strip().lower()
+    except (KeyboardInterrupt, EOFError):
+        print("\nSkipped. Run 'openclaw gateway restart' manually.")
+        return
+
+    if answer in ("", "y", "yes"):
+        try:
+            subprocess.run(["openclaw", "gateway", "restart"], check=True)
+            print("\nDone! The scrum-planner skill is ready to use.")
+        except subprocess.CalledProcessError as e:
+            print(f"\nFailed (exit code {e.returncode}). Try: openclaw gateway restart")
+    else:
+        print("Skipped. Run 'openclaw gateway restart' when ready.")
+
+
 def main(argv: list[str] | None = None) -> None:
     """Entry point for the scrum-agent CLI."""
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    # ── --install-skill: copy bundled skill and exit ─────────────────────────
+    if args.install_skill is not None:
+        _install_skill(args.install_skill)
+        return
 
     # Load ~/.scrum-agent/.env before any credential reads.
     # override=False means shell env vars and project .env always take precedence.

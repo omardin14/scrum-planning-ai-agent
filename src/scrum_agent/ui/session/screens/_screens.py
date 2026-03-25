@@ -33,8 +33,10 @@ _ACTION_COLORS: dict[str, tuple[tuple[int, int, int], ...]] = {
     "Edit": ((100, 100, 120), (140, 140, 160), (40, 40, 50), (50, 50, 60)),
     "Regenerate": ((100, 100, 120), (140, 140, 160), (40, 40, 50), (50, 50, 60)),
     "Export": ((70, 100, 180), (100, 140, 220), (40, 40, 50), (50, 50, 60)),
+    "Jira": ((70, 100, 180), (100, 140, 220), (40, 40, 50), (50, 50, 60)),
+    "Azure DevOps": ((70, 100, 180), (100, 140, 220), (40, 40, 50), (50, 50, 60)),
 }
-_ACTION_BTN_W = 12  # character width per button
+_ACTION_BTN_W = 12  # minimum character width per button
 _ACTION_BTN_GAP = 2  # gap between buttons
 
 
@@ -62,8 +64,6 @@ def _build_action_bar(
     if fades is None:
         fades = [1.0 if i == selected else 0.0 for i in range(len(actions))]
 
-    inner = _ACTION_BTN_W - 2
-
     top = Text(justify="center")
     mid = Text(justify="center")
     bot = Text(justify="center")
@@ -73,6 +73,9 @@ def _build_action_bar(
             top.append(" " * _ACTION_BTN_GAP)
             mid.append(" " * _ACTION_BTN_GAP)
             bot.append(" " * _ACTION_BTN_GAP)
+
+        # Button width adapts to label length (minimum _ACTION_BTN_W)
+        inner = max(_ACTION_BTN_W - 2, len(action) + 2)
 
         colors = _ACTION_COLORS.get(action, _ACTION_COLORS["Edit"])
         t = fades[i] if i < len(fades) else 0.0

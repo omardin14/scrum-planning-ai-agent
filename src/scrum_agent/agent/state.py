@@ -418,6 +418,13 @@ class QuestionnaireState:
     # defaulted_questions, probed_questions) for backward compatibility.
     # See README: "Project Intake Questionnaire" — answer confidence signalling
     answer_sources: dict[int, str] = field(default_factory=dict)
+    # Transient: preferred tracker for velocity/sprint data when both Jira and
+    # Azure DevOps are configured. Set by the user at the start of intake via
+    # a choice prompt. Values: "jira", "azdevops", or "" (not yet chosen).
+    # When only one tracker is configured, this is ignored.
+    _preferred_tracker: str = ""
+    # Transient: True when waiting for the user to pick a tracker (before Q1).
+    _awaiting_tracker_choice: bool = False
 
     @property
     def current_phase(self) -> QuestionnairePhase:
@@ -612,3 +619,16 @@ class ScrumState(_RequiredState, total=False):
     jira_task_keys: Annotated[dict[str, str], _merge_dicts]
     jira_sprint_keys: Annotated[dict[str, str], _merge_dicts]
     jira_epic_key: str
+
+    # Azure DevOps key mappings — populated after azdevops_create_epic / azdevops_create_story calls.
+    # azdevops_epic_id: project-level Epic work item ID.
+    # azdevops_story_keys: maps internal story IDs → AzDO work item IDs.
+    # azdevops_task_keys: maps internal task IDs → AzDO work item IDs.
+    # azdevops_iteration_keys: maps internal sprint IDs → AzDO iteration paths.
+    # The _merge_dicts reducer appends new entries without overwriting existing ones,
+    # so each node/tool call can return only the mappings it just created.
+    # See README: "Tools" — tool types, write tools, human-in-the-loop pattern
+    azdevops_epic_id: str
+    azdevops_story_keys: Annotated[dict[str, str], _merge_dicts]
+    azdevops_task_keys: Annotated[dict[str, str], _merge_dicts]
+    azdevops_iteration_keys: Annotated[dict[str, str], _merge_dicts]

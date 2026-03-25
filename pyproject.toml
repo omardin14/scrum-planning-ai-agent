@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "scrum-agent"
-version = "1.1.0"
+version = "1.2.0"
 description = "A terminal-based AI agent that decomposes projects into epics, user stories, tasks, and sprint plans."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -69,6 +69,12 @@ scrum-agent = "scrum_agent.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/scrum_agent"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"skills/scrum-planner" = "scrum_agent/skills/scrum-planner"
+
+[tool.hatch.build.targets.sdist.force-include]
+"skills/scrum-planner" = "scrum_agent/skills/scrum-planner"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

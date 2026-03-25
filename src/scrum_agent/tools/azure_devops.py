@@ -1,27 +1,32 @@
-"""Azure DevOps read-only tools for fetching repo context.
+"""Azure DevOps tools for fetching repo context and creating work items.
 
 # See README: "Tools" — tool types, @tool decorator, risk levels
 #
-# All three tools are read-only (low risk) — they fetch data from the Azure
-# DevOps REST API and return it as a string for the LLM to reason about. The
-# LLM uses these tools in the ReAct loop (Thought → Action → Observation) to
-# ground its scrum planning in the actual codebase and backlog.
+# Read tools (low risk) — fetch data from the Azure DevOps REST API and return
+# it as a string for the LLM to reason about. Write tools (high risk) — create
+# work items and require user confirmation before invocation.
 #
 # Why azure-devops SDK instead of raw requests?
 # The SDK wraps the REST API with typed objects, handles authentication via
 # BasicAuthentication (PAT), and raises AzureDevOpsServiceError for API
-# failures. This makes error handling predictable across all three tools.
+# failures. This makes error handling predictable across all tools.
 #
 # URL format supported (modern only):
 #   https://dev.azure.com/{org}/{project}/_git/{repo}
 """
 
 import logging
+from datetime import UTC
 
 from azure.devops.exceptions import AzureDevOpsServiceError
 from langchain_core.tools import tool
 
-from scrum_agent.config import get_azure_devops_token
+from scrum_agent.config import (
+    get_azure_devops_org_url,
+    get_azure_devops_project,
+    get_azure_devops_team,
+    get_azure_devops_token,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -302,3 +307,487 @@ def azdevops_list_work_items(repo_url: str, max_items: int = 20, state: str = "A
     except Exception as e:
         logger.error("Unexpected error in azdevops_list_work_items: %s", e)
         return f"Error: {e}"
+
+
+# ---------------------------------------------------------------------------
+# Board / Velocity / Iteration tools (use org-level config, not repo URL)
+# ---------------------------------------------------------------------------
+
+
+def _make_azdo_clients(org_url: str | None = None, token: str | None = None):
+    """Create authenticated WIT and Work clients from a single connection.
+
+    Returns (wit_client, work_client). Uses config defaults when args are None.
+    # See README: "Tools" — authentication pattern
+    """
+    org_url = org_url or get_azure_devops_org_url()
+    token = token or get_azure_devops_token()
+    if not org_url:
+        raise ValueError("AZURE_DEVOPS_ORG_URL is not set. Add it to your .env file.")
+    conn = _make_connection(org_url, token)
+    wit_client = conn.clients.get_work_item_tracking_client()
+    work_client = conn.clients.get_work_client()
+    return wit_client, work_client
+
+
+@tool
+def azdevops_read_board(project: str = "") -> str:
+    """Read board info from an Azure DevOps project: active iteration, backlog count, and average velocity.
+
+    Returns the current iteration name, number of backlog items, and average velocity
+    computed from the last 3 completed iterations. Use this to understand the team's
+    current capacity and throughput before planning sprints.
+    """
+    project = project or get_azure_devops_project() or ""
+    if not project:
+        return "Error: No project specified. Set AZURE_DEVOPS_PROJECT in .env or pass project parameter."
+
+    logger.debug("azdevops_read_board called: project=%r", project)
+    try:
+        from azure.devops.v7_1.work.models import TeamContext
+
+        _, work_client = _make_azdo_clients()
+        team = get_azure_devops_team() or f"{project} Team"
+        team_context = TeamContext(project=project, team=team)
+
+        lines: list[str] = [f"Azure DevOps Board: {project}", f"Team: {team}", ""]
+
+        # Fetch all team iterations and classify by date
+        from datetime import datetime as _dt
+
+        all_iterations = work_client.get_team_iterations(team_context) or []
+        now = _dt.now(UTC)
+        current_iter = None
+        past_iters: list = []
+
+        for it in all_iterations:
+            attrs = getattr(it, "attributes", None)
+            start = getattr(attrs, "start_date", None) if attrs else None
+            end = getattr(attrs, "finish_date", None) if attrs else None
+            if start and end:
+                if start <= now <= end:
+                    current_iter = it
+                elif end < now:
+                    past_iters.append(it)
+
+        # Current iteration
+        if current_iter:
+            attrs = current_iter.attributes
+            start = getattr(attrs, "start_date", None)
+            end = getattr(attrs, "finish_date", None)
+            start_str = start.strftime("%Y-%m-%d") if start else "?"
+            end_str = end.strftime("%Y-%m-%d") if end else "?"
+            lines.append(f"Active iteration: {current_iter.name} ({start_str} to {end_str})")
+        else:
+            lines.append("Active iteration: None")
+
+        # Past iterations for velocity (last 3)
+        try:
+            recent = past_iters[-3:]
+            total_points = 0.0
+            iter_count = 0
+
+            wit_client = _make_azdo_clients()[0]
+            for iteration in recent:
+                iter_id = iteration.id
+                try:
+                    work_items = work_client.get_iteration_work_items(team_context, iter_id)
+                    wi_ids = []
+                    for relation in getattr(work_items, "work_item_relations", []) or []:
+                        target = getattr(relation, "target", None)
+                        if target:
+                            wi_ids.append(target.id)
+                    if wi_ids:
+                        items = wit_client.get_work_items(
+                            wi_ids,
+                            fields=[
+                                "System.State",
+                                "Microsoft.VSTS.Scheduling.StoryPoints",
+                            ],
+                        )
+                        for item in items or []:
+                            state = item.fields.get("System.State", "")
+                            if state in ("Closed", "Done", "Resolved", "Completed"):
+                                pts = item.fields.get("Microsoft.VSTS.Scheduling.StoryPoints")
+                                if pts:
+                                    total_points += float(pts)
+                        iter_count += 1
+                except Exception as e:
+                    logger.warning("Could not fetch iteration %s work items: %s", iteration.name, e)
+
+            if iter_count > 0:
+                avg_velocity = total_points / iter_count
+                lines.append(f"Average velocity (last {iter_count} iterations): {avg_velocity:.1f} points")
+                lines.append(f"Total completed points: {total_points:.0f}")
+            else:
+                lines.append("Velocity: No completed iteration data available")
+        except Exception as e:
+            logger.warning("Could not fetch past iterations: %s", e)
+            lines.append(f"Velocity: Error ({e})")
+
+        return "\n".join(lines)
+
+    except ValueError as e:
+        return f"Error: {e}"
+    except AzureDevOpsServiceError as e:
+        logger.error("AzDO API error in azdevops_read_board: %s", e)
+        return _azdo_error_msg(e)
+    except Exception as e:
+        logger.error("Unexpected error in azdevops_read_board: %s", e)
+        return f"Error: {e}"
+
+
+@tool
+def azdevops_fetch_velocity(project: str = "") -> str:
+    """Fetch team velocity data from Azure DevOps: average points, team size, per-developer velocity.
+
+    Computes velocity from the last 3 completed iterations and team size from unique
+    assignees on completed items. Returns structured data for capacity planning.
+    """
+    project = project or get_azure_devops_project() or ""
+    if not project:
+        return "Error: No project specified. Set AZURE_DEVOPS_PROJECT in .env or pass project parameter."
+
+    logger.debug("azdevops_fetch_velocity called: project=%r", project)
+    try:
+        from azure.devops.v7_1.work.models import TeamContext
+
+        wit_client, work_client = _make_azdo_clients()
+        team = get_azure_devops_team() or f"{project} Team"
+        team_context = TeamContext(project=project, team=team)
+
+        # Fetch all iterations and filter to past (finished before now) by date.
+        # The timeframe="past" parameter is not supported by all AzDO API versions.
+        from datetime import datetime as _dt
+
+        all_iterations = work_client.get_team_iterations(team_context) or []
+        now = _dt.now(UTC)
+        past_iterations = [
+            it
+            for it in all_iterations
+            if getattr(getattr(it, "attributes", None), "finish_date", None) and it.attributes.finish_date < now
+        ]
+        recent = past_iterations[-3:]
+
+        total_points = 0.0
+        iter_count = 0
+        assignees: set[str] = set()
+
+        for iteration in recent:
+            iter_id = iteration.id
+            try:
+                work_items = work_client.get_iteration_work_items(team_context, iter_id)
+                wi_ids = []
+                for relation in getattr(work_items, "work_item_relations", []) or []:
+                    target = getattr(relation, "target", None)
+                    if target:
+                        wi_ids.append(target.id)
+                if wi_ids:
+                    items = wit_client.get_work_items(
+                        wi_ids,
+                        fields=[
+                            "System.State",
+                            "Microsoft.VSTS.Scheduling.StoryPoints",
+                            "System.AssignedTo",
+                        ],
+                    )
+                    for item in items or []:
+                        state = item.fields.get("System.State", "")
+                        if state in ("Closed", "Done", "Resolved", "Completed"):
+                            pts = item.fields.get("Microsoft.VSTS.Scheduling.StoryPoints")
+                            if pts:
+                                total_points += float(pts)
+                            assigned = item.fields.get("System.AssignedTo")
+                            if isinstance(assigned, dict):
+                                name = assigned.get("uniqueName") or assigned.get("displayName", "")
+                            elif assigned:
+                                name = str(assigned)
+                            else:
+                                name = ""
+                            if name:
+                                assignees.add(name)
+                    iter_count += 1
+            except Exception as e:
+                logger.warning("Could not fetch iteration %s: %s", iteration.name, e)
+
+        if iter_count == 0:
+            return "No completed iteration data available for velocity calculation."
+
+        avg_velocity = total_points / iter_count
+        team_size = len(assignees) or 1
+        per_dev = avg_velocity / team_size
+
+        lines = [
+            f"Team velocity: {avg_velocity:.1f} points/iteration (avg of {iter_count} iterations)",
+            f"Team size: {team_size} (unique assignees on completed items)",
+            f"Per-developer velocity: {per_dev:.1f} points/iteration",
+        ]
+        return "\n".join(lines)
+
+    except ValueError as e:
+        return f"Error: {e}"
+    except AzureDevOpsServiceError as e:
+        logger.error("AzDO API error in azdevops_fetch_velocity: %s", e)
+        return _azdo_error_msg(e)
+    except Exception as e:
+        logger.error("Unexpected error in azdevops_fetch_velocity: %s", e)
+        return f"Error: {e}"
+
+
+@tool
+def azdevops_fetch_active_iteration(project: str = "") -> str:
+    """Fetch the active (current) iteration from Azure DevOps.
+
+    Returns sprint number, sprint name, and start date of the current iteration.
+    Use this to determine the team's current sprint for planning purposes.
+    """
+    project = project or get_azure_devops_project() or ""
+    if not project:
+        return "Error: No project specified. Set AZURE_DEVOPS_PROJECT in .env or pass project parameter."
+
+    logger.debug("azdevops_fetch_active_iteration called: project=%r", project)
+    try:
+        import re as _re
+
+        from azure.devops.v7_1.work.models import TeamContext
+
+        _, work_client = _make_azdo_clients()
+        team = get_azure_devops_team() or f"{project} Team"
+        team_context = TeamContext(project=project, team=team)
+
+        # Find the current iteration by date (timeframe="current" not supported
+        # by all AzDO API versions).
+        from datetime import datetime as _dt
+
+        all_iterations = work_client.get_team_iterations(team_context) or []
+        now = _dt.now(UTC)
+        current_iterations = [
+            it
+            for it in all_iterations
+            if getattr(getattr(it, "attributes", None), "start_date", None)
+            and getattr(it.attributes, "finish_date", None)
+            and it.attributes.start_date <= now <= it.attributes.finish_date
+        ]
+        if not current_iterations:
+            return "No active iteration found."
+
+        cur = current_iterations[0]
+        attrs = cur.attributes
+        start = getattr(attrs, "start_date", None)
+        start_str = start.strftime("%Y-%m-%d") if start else ""
+
+        # Extract sprint number from name (e.g. "Sprint 42" → 42)
+        match = _re.search(r"(\d+)\s*$", cur.name or "")
+        sprint_number = int(match.group(1)) if match else 0
+
+        lines = [
+            f"Sprint name: {cur.name}",
+            f"Sprint number: {sprint_number}",
+            f"Start date: {start_str}",
+        ]
+        return "\n".join(lines)
+
+    except ValueError as e:
+        return f"Error: {e}"
+    except AzureDevOpsServiceError as e:
+        logger.error("AzDO API error in azdevops_fetch_active_iteration: %s", e)
+        return _azdo_error_msg(e)
+    except Exception as e:
+        logger.error("Unexpected error in azdevops_fetch_active_iteration: %s", e)
+        return f"Error: {e}"
+
+
+# ---------------------------------------------------------------------------
+# Write tools — create work items (require user confirmation)
+# ---------------------------------------------------------------------------
+
+
+@tool
+def azdevops_create_epic(title: str, description: str = "", project: str = "") -> str:
+    """Create an Epic work item in Azure DevOps. Only call after user confirms.
+
+    Creates a top-level Epic with the given title and description. Returns the
+    work item ID on success.
+    """
+    project = project or get_azure_devops_project() or ""
+    if not project:
+        return "Error: No project specified. Set AZURE_DEVOPS_PROJECT in .env or pass project parameter."
+
+    logger.debug("azdevops_create_epic called: title=%r, project=%r", title, project)
+    try:
+        from azure.devops.v7_1.work_item_tracking.models import JsonPatchOperation
+
+        wit_client = _make_azdo_clients()[0]
+
+        document = [
+            JsonPatchOperation(op="add", path="/fields/System.Title", value=title),
+            JsonPatchOperation(op="add", path="/fields/System.Description", value=description),
+        ]
+
+        work_item = wit_client.create_work_item(document=document, project=project, type="Epic")
+        wi_id = str(work_item.id)
+        logger.info("Created AzDO Epic: %s (ID: %s)", title, wi_id)
+        return f"Created Epic '{title}' — Work Item ID: {wi_id}"
+
+    except AzureDevOpsServiceError as e:
+        logger.error("AzDO API error in azdevops_create_epic: %s", e)
+        return _azdo_error_msg(e)
+    except Exception as e:
+        logger.error("Unexpected error in azdevops_create_epic: %s", e)
+        return f"Error: {e}"
+
+
+@tool
+def azdevops_create_story(
+    summary: str,
+    epic_id: str = "",
+    story_points: int = 0,
+    priority: int = 3,
+    description: str = "",
+    project: str = "",
+) -> str:
+    """Create a User Story work item in Azure DevOps. Only call after user confirms.
+
+    Creates a User Story linked to a parent Epic (if epic_id is provided).
+    Priority: 1=Critical, 2=High, 3=Medium, 4=Low.
+    Returns the work item ID on success.
+    """
+    project = project or get_azure_devops_project() or ""
+    if not project:
+        return "Error: No project specified. Set AZURE_DEVOPS_PROJECT in .env or pass project parameter."
+
+    logger.debug("azdevops_create_story called: summary=%r, epic_id=%r, project=%r", summary, epic_id, project)
+    try:
+        from azure.devops.v7_1.work_item_tracking.models import JsonPatchOperation
+
+        wit_client = _make_azdo_clients()[0]
+
+        document = [
+            JsonPatchOperation(op="add", path="/fields/System.Title", value=summary),
+            JsonPatchOperation(op="add", path="/fields/System.Description", value=description),
+            JsonPatchOperation(
+                op="add",
+                path="/fields/Microsoft.VSTS.Common.Priority",
+                value=priority,
+            ),
+        ]
+
+        if story_points > 0:
+            document.append(
+                JsonPatchOperation(
+                    op="add",
+                    path="/fields/Microsoft.VSTS.Scheduling.StoryPoints",
+                    value=float(story_points),
+                )
+            )
+
+        # Link to parent Epic via System.LinkTypes.Hierarchy-Reverse
+        if epic_id:
+            org_url = get_azure_devops_org_url() or ""
+            document.append(
+                JsonPatchOperation(
+                    op="add",
+                    path="/relations/-",
+                    value={
+                        "rel": "System.LinkTypes.Hierarchy-Reverse",
+                        "url": f"{org_url}/{project}/_apis/wit/workItems/{epic_id}",
+                    },
+                )
+            )
+
+        work_item = wit_client.create_work_item(document=document, project=project, type="User Story")
+        wi_id = str(work_item.id)
+        logger.info("Created AzDO User Story: %s (ID: %s)", summary, wi_id)
+        return f"Created User Story '{summary}' — Work Item ID: {wi_id}"
+
+    except AzureDevOpsServiceError as e:
+        logger.error("AzDO API error in azdevops_create_story: %s", e)
+        return _azdo_error_msg(e)
+    except Exception as e:
+        logger.error("Unexpected error in azdevops_create_story: %s", e)
+        return f"Error: {e}"
+
+
+@tool
+def azdevops_create_iteration(name: str, start_date: str = "", finish_date: str = "", project: str = "") -> str:
+    """Create an iteration (sprint) in Azure DevOps. Only call after user confirms.
+
+    Creates an iteration classification node with optional start and finish dates.
+    start_date and finish_date are ISO date strings (e.g. "2026-03-16").
+    Returns the iteration path on success.
+    """
+    project = project or get_azure_devops_project() or ""
+    if not project:
+        return "Error: No project specified. Set AZURE_DEVOPS_PROJECT in .env or pass project parameter."
+
+    logger.debug("azdevops_create_iteration called: name=%r, project=%r", name, project)
+    try:
+        from scrum_agent.azdevops_sync import _create_iteration_node
+
+        org_url = get_azure_devops_org_url() or ""
+        token = get_azure_devops_token() or ""
+        if not org_url:
+            return "Error: AZURE_DEVOPS_ORG_URL is not set."
+
+        iteration_path = _create_iteration_node(org_url, token, project, name, start_date, finish_date)
+        logger.info("Created AzDO Iteration: %s → %s", name, iteration_path)
+        return f"Created Iteration '{name}' — Path: {iteration_path}"
+    except Exception as e:
+        logger.error("Unexpected error in azdevops_create_iteration: %s", e)
+        return f"Error: {e}"
+
+
+# ---------------------------------------------------------------------------
+# Non-@tool helpers (used by azdevops_sync.py for batch operations)
+# ---------------------------------------------------------------------------
+
+
+def create_task(title: str, description: str, story_id: str, project: str = "") -> str:
+    """Create a Task work item linked to a parent User Story.
+
+    Not a @tool — called directly by azdevops_sync.py during batch sync.
+    Returns the work item ID string.
+    """
+    project = project or get_azure_devops_project() or ""
+    from azure.devops.v7_1.work_item_tracking.models import JsonPatchOperation
+
+    wit_client = _make_azdo_clients()[0]
+    org_url = get_azure_devops_org_url() or ""
+
+    # Area path = "{project}\{team}" — assigns task to the team's board area.
+    team = get_azure_devops_team() or ""
+    area_path = f"{project}\\{team}" if team else project
+
+    document = [
+        JsonPatchOperation(op="add", path="/fields/System.Title", value=title),
+        JsonPatchOperation(op="add", path="/fields/System.Description", value=description),
+        JsonPatchOperation(op="add", path="/fields/System.AreaPath", value=area_path),
+        JsonPatchOperation(
+            op="add",
+            path="/relations/-",
+            value={
+                "rel": "System.LinkTypes.Hierarchy-Reverse",
+                "url": f"{org_url}/{project}/_apis/wit/workItems/{story_id}",
+            },
+        ),
+    ]
+
+    work_item = wit_client.create_work_item(document=document, project=project, type="Task")
+    return str(work_item.id)
+
+
+def add_work_items_to_iteration(work_item_ids: list[str], iteration_path: str, project: str = "") -> None:
+    """Assign work items to an iteration by setting their System.IterationPath field.
+
+    Not a @tool — called directly by azdevops_sync.py during batch sync.
+    """
+    project = project or get_azure_devops_project() or ""
+    from azure.devops.v7_1.work_item_tracking.models import JsonPatchOperation
+
+    wit_client = _make_azdo_clients()[0]
+
+    for wi_id in work_item_ids:
+        document = [
+            JsonPatchOperation(op="add", path="/fields/System.IterationPath", value=iteration_path),
+        ]
+        wit_client.update_work_item(document=document, id=int(wi_id), project=project)

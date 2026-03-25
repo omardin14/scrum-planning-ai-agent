@@ -51,8 +51,10 @@ def _build_project_row(
     submenu_html_fade: float = 0.0,
     submenu_md_fade: float = 0.0,
     submenu_jira_fade: float = 0.0,
+    submenu_azdevops_fade: float = 0.0,
     submenu_visible: float = 0.0,
     jira_enabled: bool = True,
+    azdevops_enabled: bool = False,
 ) -> Table:
     """Build a project card with optional Delete/Export buttons to its right.
 
@@ -113,34 +115,42 @@ def _build_project_row(
 
     if show_export_submenu and submenu_visible > 0 and exp_opacity > 0:
         # Staggered reveal: each button fades in as submenu_visible passes
-        # its index (0=HTML, 1=Markdown, 2=Jira). On close, reverse order.
+        # its index (0=HTML, 1=Markdown, 2+=tracker buttons). On close, reverse order.
         html_opacity = min(1.0, max(0.0, submenu_visible))
         md_opacity = min(1.0, max(0.0, submenu_visible - 1.0))
         jira_opacity = min(1.0, max(0.0, submenu_visible - 2.0))
+        azdevops_opacity = min(1.0, max(0.0, submenu_visible - 3.0))
+
+        # Build dynamic submenu: HTML + Markdown always, then configured trackers
+        _sub_items: list[tuple[str, int, float, float, bool]] = [
+            ("HTML", 0, submenu_html_fade, html_opacity, True),
+            ("Markdown", 1, submenu_md_fade, md_opacity, True),
+        ]
+        _next_idx = 2
+        if jira_enabled:
+            _sub_items.append(("Jira", _next_idx, submenu_jira_fade, jira_opacity, True))
+            _next_idx += 1
+        if azdevops_enabled:
+            _sub_items.append(("Azure DevOps", _next_idx, submenu_azdevops_fade, azdevops_opacity, True))
+            _next_idx += 1
 
         sub_btns: list = []
-        for btn_label, btn_idx, btn_fade, btn_opacity in [
-            ("HTML", 0, submenu_html_fade, html_opacity),
-            ("Markdown", 1, submenu_md_fade, md_opacity),
-            ("Jira", 2, submenu_jira_fade, jira_opacity),
-        ]:
+        for btn_label, btn_idx, btn_fade, btn_opacity, _enabled in _sub_items:
             if btn_opacity > 0:
-                # Jira button is dimmed when credentials are not configured
-                is_jira_btn = btn_label == "Jira"
-                btn_color = (100, 100, 100) if (is_jira_btn and not jira_enabled) else (255, 255, 255)
-                btn_op = opacity * btn_opacity * (0.4 if is_jira_btn and not jira_enabled else 1.0)
+                # Adapt width to label length (min _EXPORT_SUB_BTN_W)
+                _btn_w = max(_EXPORT_SUB_BTN_W, len(btn_label) + 4)
                 sub_btns.append(
                     _build_action_button(
                         btn_label,
-                        focused=(selected and submenu_sel == btn_idx and (not is_jira_btn or jira_enabled)),
+                        focused=(selected and submenu_sel == btn_idx),
                         card_selected=selected,
-                        color=btn_color,
-                        opacity=btn_op,
+                        color=(255, 255, 255),
+                        opacity=opacity * btn_opacity,
                         fade_t=btn_fade,
-                        btn_w=_EXPORT_SUB_BTN_W,
+                        btn_w=_btn_w,
                     )
                 )
-                row.add_column(width=_EXPORT_SUB_BTN_W)
+                row.add_column(width=_btn_w)
         row.add_row(card, *action_btns, *sub_btns)
     else:
         row.add_row(card, *action_btns)
@@ -167,12 +177,14 @@ def _build_project_list_screen(
     submenu_html_fade: float = 0.0,
     submenu_md_fade: float = 0.0,
     submenu_jira_fade: float = 0.0,
+    submenu_azdevops_fade: float = 0.0,
     submenu_visible: float = 0.0,
     delete_popup_name: str = "",
     delete_popup_t: float = 0.0,
     delete_popup_pulse: float = 0.0,
     delete_popup_flash: float = 0.0,
     jira_enabled: bool = True,
+    azdevops_enabled: bool = False,
 ) -> Panel:
     """Build the project list screen with Planning title pinned at top.
 
@@ -278,8 +290,10 @@ def _build_project_list_screen(
                     submenu_html_fade=submenu_html_fade if is_sel else 0.0,
                     submenu_md_fade=submenu_md_fade if is_sel else 0.0,
                     submenu_jira_fade=submenu_jira_fade if is_sel else 0.0,
+                    submenu_azdevops_fade=submenu_azdevops_fade if is_sel else 0.0,
                     submenu_visible=submenu_visible if is_sel else 0.0,
                     jira_enabled=jira_enabled,
+                    azdevops_enabled=azdevops_enabled,
                 )
                 body.append(Padding(row, _card_pad))
             else:

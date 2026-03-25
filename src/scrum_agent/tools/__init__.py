@@ -51,7 +51,13 @@ def get_tools() -> list[BaseTool]:
     # See README: "Tools" — tool types, @tool decorator
     """
     from scrum_agent.tools.azure_devops import (
+        azdevops_create_epic,
+        azdevops_create_iteration,
+        azdevops_create_story,
+        azdevops_fetch_active_iteration,
+        azdevops_fetch_velocity,
         azdevops_list_work_items,
+        azdevops_read_board,
         azdevops_read_file,
         azdevops_read_repo,
     )
@@ -88,6 +94,12 @@ def get_tools() -> list[BaseTool]:
         azdevops_read_repo,
         azdevops_read_file,
         azdevops_list_work_items,
+        azdevops_read_board,
+        azdevops_fetch_velocity,
+        azdevops_fetch_active_iteration,
+        azdevops_create_epic,
+        azdevops_create_story,
+        azdevops_create_iteration,
         read_codebase,
         read_local_file,
         detect_bank_holidays,

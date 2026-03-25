@@ -95,6 +95,30 @@ def get_azure_devops_token() -> str | None:
     return os.getenv("AZURE_DEVOPS_TOKEN") or None
 
 
+def get_azure_devops_org_url() -> str | None:
+    """Return the Azure DevOps organization URL (e.g. https://dev.azure.com/myorg), or None if not set."""
+    return os.getenv("AZURE_DEVOPS_ORG_URL") or None
+
+
+def get_azure_devops_project() -> str | None:
+    """Return the Azure DevOps project name, or None if not set."""
+    return os.getenv("AZURE_DEVOPS_PROJECT") or None
+
+
+def get_azure_devops_team() -> str | None:
+    """Return the Azure DevOps team name, or None if not set.
+
+    Defaults to "{project} Team" when not explicitly set (AzDO's default team naming).
+    """
+    team = os.getenv("AZURE_DEVOPS_TEAM")
+    if team:
+        return team
+    project = get_azure_devops_project()
+    if project:
+        return f"{project} Team"
+    return None
+
+
 def get_jira_base_url() -> str | None:
     """Return the Jira Cloud base URL (e.g. https://org.atlassian.net), or None if not set."""
     return os.getenv("JIRA_BASE_URL") or None

@@ -111,7 +111,8 @@ scrum-agent --non-interactive --description @project-brief.txt --output html --t
 ### Integrations & export
 - **4 export formats** — Markdown, HTML (self-contained single-file report), JSON (structured, pipeable), and Jira (batch sync)
 - **Jira sync** — idempotent batch creation: Features → Labels, Stories → linked to Epic, Tasks → Sub-tasks, Sprints → created with story assignment. Cascade creation (sprint stage auto-creates stories if not done). Handles team-managed and classic Jira projects
-- **23 tools** — GitHub, Azure DevOps, Jira, Confluence, local codebase scanning, bank holiday detection, LLM-powered estimation
+- **Azure DevOps Boards sync** — idempotent batch creation: Features → Tags, Stories → User Stories linked to Epic, Tasks → Task work items, Sprints → Iterations with story assignment. HTML descriptions, priority mapping (1–4), classification node creation via REST API
+- **30 tools** — GitHub, Azure DevOps, Jira, Confluence, local codebase scanning, bank holiday detection, LLM-powered estimation
 - **3 LLM providers** — Anthropic Claude (default), OpenAI GPT, Google Gemini
 
 ### Reliability
@@ -148,9 +149,11 @@ make pre-commit     # installs pre-commit hooks
 
 On first launch (or with `--setup`), an interactive wizard walks you through:
 
-1. **LLM provider selection** — choose Anthropic, OpenAI, or Google
+1. **LLM provider selection** — choose Anthropic, OpenAI, Google, or AWS Bedrock
 2. **API key entry** — with format validation hints (e.g., Anthropic keys start with `sk-ant-`)
-3. **Credential storage** — saved to `~/.scrum-agent/.env`
+3. **Issue tracking** — Jira or Azure DevOps Boards (with org URL, project, and PAT verification)
+4. **Version control** — GitHub PAT token (or skip)
+5. **Credential storage** — saved to `~/.scrum-agent/.env`
 
 ```bash
 scrum-agent --setup   # re-run anytime to update credentials
@@ -261,19 +264,255 @@ scrum-agent --setup
 1. Select **Bedrock** as your LLM provider
 2. The AWS region is auto-detected from `~/.aws/config` (e.g., `eu-west-2`) — press Enter to confirm
 3. The wizard verifies Bedrock access using the IAM role attached by the Bedrock setup script — no API key needed
+4. If OpenClaw is installed, the Bedrock model ID (e.g., `global.anthropic.claude-sonnet-4-6`) is auto-detected and saved to `~/.scrum-agent/.env`
 
 ![Setup wizard — Bedrock provider](docs/lightsail-setup/07-setup-bedrock.png)
 
-### 7. Test end-to-end
+### 7. Test headless mode
+
+Verify scrum-agent works end-to-end before installing the skill:
 
 ```bash
-# Verify headless mode works
 scrum-agent --non-interactive --description "Build a todo app" --output json
 ```
 
-From the OpenClaw dashboard, create a skill that invokes the scrum-agent CLI in headless mode. Verify the JSON output is returned correctly.
+You should see JSON output with features, stories, tasks, and sprints.
 
-![End-to-end test via OpenClaw skill](docs/lightsail-setup/08-e2e-test.png)
+![Headless mode test](docs/lightsail-setup/08-headless-test.png)
+
+### 8. Install the OpenClaw skill
+
+The `scrum-planner` skill lets OpenClaw conduct conversational scrum planning — it asks intake questions (or skips them in quick mode), generates a temp SCRUM.md, invokes `scrum-agent --non-interactive --output json`, and presents results phase-by-phase with accept/edit/regenerate options.
+
+> **Tip:** After every `pipx install --force` (e.g., updating to a new version), re-run `scrum-agent --install-skill` to update the skill files and refresh the configuration.
+
+A single command handles the full setup:
+
+```bash
+scrum-agent --install-skill
+```
+
+This will:
+1. Copy the skill files to the skills registry at `/usr/lib/node_modules/openclaw/skills/scrum-planner/` (may prompt for sudo)
+2. Copy the skill files into the sandbox workspace at `~/.openclaw/workspace/skills/scrum-planner/`
+3. Sync the Bedrock model ID and region from OpenClaw's config into `~/.scrum-agent/.env`
+4. Disable the Docker sandbox so `scrum-agent` runs directly on the host
+5. Restart the OpenClaw gateway to load the new skill
+
+```
+[1/5] Skill registry: /usr/lib/node_modules/openclaw/skills/scrum-planner
+[2/5] Sandbox workspace: /home/ubuntu/.openclaw/workspace/skills/scrum-planner
+[3/5] Bedrock config synced: model=global.anthropic.claude-sonnet-4-6, region=eu-west-2
+[4/5] Sandbox disabled — scrum-agent will run on host
+[5/5] Restart OpenClaw gateway to load the skill? [Y/n]
+```
+
+> **Security note:** This disables OpenClaw's Docker sandbox isolation, meaning tools execute directly on the host. This is safe for dedicated Lightsail instances running only the scrum-planner skill. For shared or multi-tenant setups, consider building a [custom sandbox image](https://docs.openclaw.ai/gateway/sandboxing) with Python pre-installed instead.
+
+To install to a custom skills directory:
+
+```bash
+scrum-agent --install-skill /path/to/openclaw/skills
+```
+
+![Install the OpenClaw skill](docs/lightsail-setup/09-install-skill.png)
+
+### 9. Verify the skill is loaded
+
+Open the OpenClaw dashboard and check the **Skills** page. You should see `scrum-planner` listed under **Installed Skills** with an "eligible" badge.
+
+![Skill visible in OpenClaw dashboard](docs/lightsail-setup/10-skill-dashboard.png)
+
+### 10. Test the skill
+
+Start a new conversation in the OpenClaw dashboard or Slack. Try a detailed project:
+
+> "Plan an e-commerce marketplace — React + Next.js frontend, Python FastAPI backend, PostgreSQL, Redis, Stripe for payments, Auth0 for auth. 4 engineers, 2-week sprints. Deployed on AWS ECS."
+
+You should see:
+1. **Smart extraction** — the skill detects project, tech stack, team size, integrations from your message
+2. **Follow-up questions** — only asks what's missing (project type, definition of done, target sprints)
+3. **Confirmation summary** — your answers + defaults, with option to override
+4. **Background generation** — progress updates as each phase completes (~3-5 minutes)
+5. **Phase-by-phase review** — features, stories, tasks, sprint plan — each with accept/edit/regenerate
+
+For a faster test, try quick mode:
+
+> "just plan it — todo app, FastAPI + PostgreSQL, 1 engineer"
+
+![Skill intake conversation](docs/lightsail-setup/11-skill-intake.png)
+
+![Skill output — generated sprint plan](docs/lightsail-setup/12-skill-output.png)
+
+### 11. Troubleshooting
+
+If the skill doesn't appear in the dashboard:
+
+```bash
+# Re-install and restart
+scrum-agent --install-skill
+```
+
+If `scrum-agent` fails inside the skill:
+
+```bash
+# Test headless mode directly
+scrum-agent --non-interactive --description "Build a todo app" --team-size 3 --sprint-length 2 --output json
+
+# Check logs
+ls -lt ~/.scrum-agent/logs/ | head -5
+tail -50 ~/.scrum-agent/logs/*.log
+
+# Check credentials
+grep LLM_PROVIDER ~/.scrum-agent/.env
+```
+
+### 12. Connect Slack (optional)
+
+Connect OpenClaw to your Slack workspace so users can trigger the scrum-planner skill via `@mention`.
+
+#### Quick setup (interactive)
+
+```bash
+openclaw channels add
+```
+
+Follow the interactive prompts — OpenClaw walks you through each step.
+
+#### Manual setup
+
+If you prefer to set up the Slack App manually:
+
+1. Go to [Slack API → Create App](https://api.slack.com/apps) → **From manifest** and paste the JSON below
+2. **Socket Mode** → Enable it → copy the **App-Level Token** (`xapp-...`)
+3. **Install App** to your workspace → copy the **Bot Token** (`xoxb-...`)
+4. **Event Subscriptions** → already configured via the manifest (socket mode)
+5. **App Home** → Messages tab is enabled for DMs
+
+<details>
+<summary>Slack App manifest (click to expand)</summary>
+
+```json
+{
+  "display_information": {
+    "name": "OpenClaw",
+    "description": "OpenClaw connector"
+  },
+  "features": {
+    "bot_user": {
+      "display_name": "OpenClaw",
+      "always_online": false
+    },
+    "app_home": {
+      "messages_tab_enabled": true,
+      "messages_tab_read_only_enabled": false
+    },
+    "slash_commands": [
+      {
+        "command": "/openclaw",
+        "description": "Send a message to OpenClaw",
+        "should_escape": false
+      }
+    ]
+  },
+  "oauth_config": {
+    "scopes": {
+      "bot": [
+        "chat:write",
+        "channels:history",
+        "channels:read",
+        "groups:history",
+        "im:history",
+        "mpim:history",
+        "users:read",
+        "app_mentions:read",
+        "reactions:read",
+        "reactions:write",
+        "pins:read",
+        "pins:write",
+        "emoji:read",
+        "commands",
+        "files:read",
+        "files:write",
+        "canvases:read",
+        "canvases:write"
+      ]
+    }
+  },
+  "settings": {
+    "socket_mode_enabled": true,
+    "event_subscriptions": {
+      "bot_events": [
+        "app_mention",
+        "message.channels",
+        "message.groups",
+        "message.im",
+        "message.mpim",
+        "reaction_added",
+        "reaction_removed",
+        "member_joined_channel",
+        "member_left_channel",
+        "channel_rename",
+        "pin_added",
+        "pin_removed"
+      ]
+    }
+  }
+}
+```
+
+</details>
+
+> **Important:** The manifest includes `canvases:read` and `canvases:write` scopes. These are required for OpenClaw to post the finalized sprint plan as a Slack Canvas. Without them, the plan will be posted as threaded messages instead (which also works, but Canvas gives a better reading experience for large plans).
+
+Set the tokens on the Lightsail instance:
+
+```bash
+openclaw channels add
+# When prompted, enter:
+#   App-Level Token: xapp-...
+#   Bot Token: xoxb-...
+```
+
+![Connect Slack channel](docs/lightsail-setup/13-slack-channel-add.png)
+
+![Configure Slack channel](docs/lightsail-setup/14-slack-channel-configure.png)
+
+### 13. Use the skill in Slack
+
+Once Slack is connected, `@mention` the bot in a channel to invite it. Send a casual first message to establish the thread — the bot's first reply won't appear in a thread, so keep it simple:
+
+
+> **You:** @OpenClaw hey, how's it going?
+![OpenClaw invite & first message](docs/lightsail-setup/15-slack-openclaw-invite.png)
+
+
+Then start your planning session in a **new message** (this one will create a proper thread):
+
+> **You:** @OpenClaw Plan a mobile banking app — React Native, Node.js, PostgreSQL, 6 engineers
+
+The skill runs the same conversational intake as the dashboard, directly in a Slack thread:
+
+1. **Smart extraction** — the bot detects answers from your initial message and shows what it found
+2. **Follow-up questions** — numbered choices for project type, sprint length, and target sprints
+3. **Adaptive probes** — "You said 6 engineers — what are their roles?"
+4. **Confirmation** — summary list with answer sources and defaults before generating
+
+After confirmation, the bot runs `scrum-agent` in the background (~3-5 minutes), then presents results phase-by-phase with accept/edit/regenerate options.
+
+![Slack conversation — intake](docs/lightsail-setup/16-slack-intake.png)
+![Slack conversation — output message](docs/lightsail-setup/17-slack-output-message.png)
+![Slack conversation — output canvas](docs/lightsail-setup/18-slack-output-canvas.png)
+
+
+### 14. Next steps
+
+- **Push to Jira** — Configure Jira credentials in `scrum-agent --setup`, then the skill offers "Push to Jira" after plan finalization.
+- **Customize the skill** — Edit `~/.openclaw/workspace/skills/scrum-planner/SKILL.md` to adjust question flow, add domain-specific defaults, or change the output format.
+- **Review diagnostics** — Check `~/.scrum-agent/logs/` for detailed run logs if anything looks off.
+- **Secure with Teleport** — For production use, add Teleport for identity-aware access to the Lightsail instance and OpenClaw dashboard.
+
+See [`skills/scrum-planner/README.md`](skills/scrum-planner/README.md) for full skill documentation, question-to-CLI mapping, and troubleshooting.
 
 ---
 
@@ -551,6 +790,49 @@ Key behaviors:
 - **Progress screen** — animated per-item status during creation
 - **Jira button** — disabled/dimmed in TUI when `JIRA_API_TOKEN` is not configured
 
+### Azure DevOps Boards
+
+Batch sync with idempotent creation, available from TUI pipeline review at any stage:
+
+| Artifact | Azure DevOps Mapping |
+|----------|---------------------|
+| **Features** | Tags (`System.Tags`, semicolon-separated) |
+| **Epic** | 1 project-level Epic work item |
+| **Stories** | User Story work items linked to Epic via `System.LinkTypes.Hierarchy-Reverse`, with story points, priority (1–4), HTML descriptions |
+| **Tasks** | Task work items linked to parent Stories |
+| **Sprints** | Iterations (classification nodes created via REST API); stories assigned via `System.IterationPath` |
+
+Key behaviors:
+- **Idempotency** — checks `azdevops_*_keys` state before creating; skips already-synced artifacts
+- **Cascade creation** — Task stage auto-creates Stories if not yet synced; Iteration stage auto-creates Stories if not yet synced
+- **Team area path** — sets `System.AreaPath` to `{project}\{team}` so work items appear on the correct team board
+- **Description updates on re-sync** — already-created items get descriptions updated (DoD, rationale, AI prompts added later)
+- **Sprint naming convention** — detects board's existing iteration naming pattern and renames LLM-generated names to match
+- **Iteration dates** — sets start/finish dates on iterations based on sprint start date and sprint length
+- **Velocity auto-detection** — fetches velocity from past iterations during intake (falls back from Jira to AzDO)
+- **HTML descriptions** — acceptance criteria, Definition of Done, and points rationale rendered as `<h3>`, `<strong>`, `<ul><li>` (not Jira wiki markup)
+- **Priority mapping** — `critical → 1`, `high → 2`, `medium → 3`, `low → 4`
+- **Confirmation screen** — shows what will be created/skipped before any write operation
+- **Progress screen** — animated per-item status during creation
+- **Azure DevOps button** — disabled/dimmed in TUI when credentials are not configured
+
+#### PAT permissions required
+
+Create a [Personal Access Token](https://learn.microsoft.com/en-us/azure/devops/organizations/accounts/use-personal-access-tokens-to-authenticate) with the following scopes:
+
+| Scope | Access | Used for |
+|-------|--------|----------|
+| **Work Items** | Read & Write | Reading board/backlog, creating Epics/Stories/Tasks |
+| **Project and Team** | Read | Listing iterations, team settings, velocity data |
+| **Code** | Read | Reading repo file tree and file contents (optional, for repo context tools) |
+
+```
+AZURE_DEVOPS_TOKEN=your-pat-token
+AZURE_DEVOPS_ORG_URL=https://dev.azure.com/your-org
+AZURE_DEVOPS_PROJECT=MyProject
+AZURE_DEVOPS_TEAM=MyProject Team    # optional — defaults to "{project} Team"
+```
+
 ---
 
 ## Session Management
@@ -591,7 +873,7 @@ Sessions older than 30 days are auto-pruned at startup. Configure via `SESSION_P
 
 ## Tools
 
-The agent has access to 23 tools, organized by integration:
+The agent has access to 30 tools, organized by integration:
 
 ### GitHub
 
@@ -604,11 +886,17 @@ The agent has access to 23 tools, organized by integration:
 
 ### Azure DevOps
 
-| Tool | Description |
-|------|-------------|
-| `azdevops_read_repo` | Fetch repo metadata |
-| `azdevops_read_file` | Read a single file |
-| `azdevops_list_work_items` | List work items |
+| Tool | Description | Risk |
+|------|-------------|------|
+| `azdevops_read_repo` | Fetch repo metadata and file tree | Low |
+| `azdevops_read_file` | Read a single file from a repo | Low |
+| `azdevops_list_work_items` | List work items (backlog, active, etc.) | Low |
+| `azdevops_read_board` | Board info, active iteration, average velocity | Low |
+| `azdevops_fetch_velocity` | Team velocity, team size, per-developer velocity | Low |
+| `azdevops_fetch_active_iteration` | Current sprint name, number, start date | Low |
+| `azdevops_create_epic` | Create an Epic work item | High (requires confirmation) |
+| `azdevops_create_story` | Create a User Story linked to Epic, with story points and priority | High (requires confirmation) |
+| `azdevops_create_iteration` | Create an iteration (sprint) with optional start/finish dates | High (requires confirmation) |
 
 ### Jira
 
@@ -1354,6 +1642,16 @@ src/scrum_agent/
 | `OPENAI_API_KEY` | If using OpenAI | GPT API key |
 | `GOOGLE_API_KEY` | If using Google | Gemini API key |
 | `LLM_PROVIDER` | No | Provider selection: `anthropic` (default), `openai`, `google` |
+| `GITHUB_TOKEN` | No | GitHub PAT for repo context tools |
+| `AZURE_DEVOPS_TOKEN` | No | Azure DevOps PAT (Code=Read, Work Items=Read+Write, Project=Read) |
+| `AZURE_DEVOPS_ORG_URL` | If using AzDO Boards | Organization URL (e.g. `https://dev.azure.com/myorg`) |
+| `AZURE_DEVOPS_PROJECT` | If using AzDO Boards | Project name |
+| `AZURE_DEVOPS_TEAM` | No | Team name (defaults to `{project} Team`) |
+| `JIRA_BASE_URL` | If using Jira | Jira Cloud URL (e.g. `https://org.atlassian.net`) |
+| `JIRA_EMAIL` | If using Jira | Atlassian account email |
+| `JIRA_API_TOKEN` | If using Jira | Jira API token |
+| `JIRA_PROJECT_KEY` | If using Jira | Project key (e.g. `MYPROJ`) |
+| `CONFLUENCE_SPACE_KEY` | No | Confluence space key (shares Atlassian auth with Jira) |
 | `LANGSMITH_TRACING` | No | Enable LangSmith tracing (`true`) |
 | `LANGSMITH_API_KEY` | No | LangSmith API key |
 | `LANGSMITH_PROJECT` | No | LangSmith project name |

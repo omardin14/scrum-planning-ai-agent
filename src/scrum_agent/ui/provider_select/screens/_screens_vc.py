@@ -235,16 +235,21 @@ def _build_issue_tracking_screen(
     verified: dict[int, bool] | None = None,
     border_overrides: dict[int, str] | None = None,
     fade_style: str = "",
+    fields: list[dict[str, Any]] | None = None,
+    subtitle: str = "Issue Tracking",
 ) -> Panel:
     """Build the issue tracking multi-field form screen with viewport scrolling.
 
     scroll_offset: index of the first visible field (0-based).
     Fields that don't fit in the available height are clipped; scroll indicators
     (^/v) show when there's content above or below.
+    fields: optional field definitions to use instead of the default Jira fields.
+    subtitle: label shown in the screen header (e.g. "Jira", "Azure DevOps Boards").
     """
     errors = errors or {}
     verified = verified or {}
     border_overrides = border_overrides or {}
+    active_fields = fields if fields is not None else _ISSUE_TRACKING_FIELDS
 
     box_w = min(70, width - 10)
     field_h = 5  # each field box is 5 lines tall (padding 1 + content 1 + padding 1 + 2 border)
@@ -258,7 +263,7 @@ def _build_issue_tracking_screen(
     fields_available_h = max(field_h, inner_h - chrome_h)
     max_visible = fields_available_h // field_h
 
-    n = len(_ISSUE_TRACKING_FIELDS)
+    n = len(active_fields)
 
     # Clamp scroll_offset so selected field is always visible
     if selected < scroll_offset:
@@ -274,7 +279,7 @@ def _build_issue_tracking_screen(
 
     # Visible fields
     for vi, i in enumerate(range(scroll_offset, visible_end)):
-        field = _ISSUE_TRACKING_FIELDS[i]
+        field = active_fields[i]
         is_active = i == selected
         val = values.get(i, "")
         err = errors.get(i, "")
@@ -299,7 +304,7 @@ def _build_issue_tracking_screen(
             body_h += 1
 
     return _build_screen_frame(
-        subtitle="Atlassian",
+        subtitle=subtitle,
         step=2,
         body_items=body,
         body_height=body_h,

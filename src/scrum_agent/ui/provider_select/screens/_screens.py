@@ -22,7 +22,7 @@ from scrum_agent.ui.shared._ascii_font import render_ascii_text
 # Rendering helpers
 # ---------------------------------------------------------------------------
 
-_STEPS = ["LLM Provider", "Version Control", "Atlassian"]
+_STEPS = ["LLM Provider", "Issue Tracking", "Version Control"]
 
 
 def _build_progress(current_step: int) -> Text:
