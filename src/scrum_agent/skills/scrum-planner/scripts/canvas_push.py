@@ -12,12 +12,10 @@ Usage:
 import json
 import os
 import re
-import sys
 import time
-import urllib.request
 import urllib.error
+import urllib.request
 from pathlib import Path
-
 
 CHANNEL_ID = os.environ.get("SCRUM_CHANNEL_ID", "C0AMR19S057")
 # Support both host path and container mount path
@@ -46,9 +44,11 @@ def get_bot_token() -> str:
 
 def slack_api(method: str, payload: dict, token: str) -> dict:
     import ssl
+
     url = f"https://slack.com/api/{method}"
     req = urllib.request.Request(
-        url, data=json.dumps(payload).encode(),
+        url,
+        data=json.dumps(payload).encode(),
         headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
     )
     ca = os.environ.get("SSL_CERT_FILE") or os.environ.get("CURL_CA_BUNDLE")
@@ -102,20 +102,28 @@ def push_to_canvas(content: str, token: str, existing_canvas_id: str | None) -> 
 
     # Try to update existing canvas first
     if existing_canvas_id:
-        r = slack_api("canvases.edit", {
-            "canvas_id": existing_canvas_id,
-            "changes": [{"operation": "replace", "document_content": {"type": "markdown", "markdown": formatted}}]
-        }, token)
+        r = slack_api(
+            "canvases.edit",
+            {
+                "canvas_id": existing_canvas_id,
+                "changes": [{"operation": "replace", "document_content": {"type": "markdown", "markdown": formatted}}],
+            },
+            token,
+        )
         if r.get("ok"):
             print(f"[canvas_push] Updated canvas {existing_canvas_id}")
             return existing_canvas_id
         print(f"[canvas_push] Update failed ({r.get('error')}) — creating new")
 
     # conversations.canvases.create attaches to the channel canvas tab (visible in sidebar)
-    r = slack_api("conversations.canvases.create", {
-        "channel_id": CHANNEL_ID,
-        "document_content": {"type": "markdown", "markdown": formatted},
-    }, token)
+    r = slack_api(
+        "conversations.canvases.create",
+        {
+            "channel_id": CHANNEL_ID,
+            "document_content": {"type": "markdown", "markdown": formatted},
+        },
+        token,
+    )
 
     if r.get("ok"):
         # conversations.canvases.create doesn't return a canvas_id directly
@@ -131,15 +139,19 @@ def push_to_canvas(content: str, token: str, existing_canvas_id: str | None) -> 
 
     # Last resort: standalone canvas shared to channel
     print(f"[canvas_push] conversations.canvases.create failed ({r.get('error')}), trying standalone")
-    r3 = slack_api("canvases.create", {
-        "title": title,
-        "document_content": {"type": "markdown", "markdown": formatted},
-    }, token)
+    r3 = slack_api(
+        "canvases.create",
+        {
+            "title": title,
+            "document_content": {"type": "markdown", "markdown": formatted},
+        },
+        token,
+    )
     canvas_id = r3.get("canvas_id")
     if canvas_id:
-        slack_api("canvases.access.set", {
-            "canvas_id": canvas_id, "access_level": "write", "channel_ids": [CHANNEL_ID]
-        }, token)
+        slack_api(
+            "canvases.access.set", {"canvas_id": canvas_id, "access_level": "write", "channel_ids": [CHANNEL_ID]}, token
+        )
         print(f"[canvas_push] Created standalone canvas {canvas_id}: {title}")
     else:
         print(f"[canvas_push] All canvas methods failed: {r3.get('error')}")
@@ -157,15 +169,15 @@ def run_once():
     last_mtime = state.get("last_mtime", 0)
 
     if mtime <= last_mtime:
-        print(f"[canvas_push] No change since last push")
+        print("[canvas_push] No change since last push")
         return
 
     content = PLAN_FILE.read_text().strip()
     if not content:
-        print(f"[canvas_push] Plan file is empty")
+        print("[canvas_push] Plan file is empty")
         return
 
-    print(f"[canvas_push] Pushing to canvas...")
+    print("[canvas_push] Pushing to canvas...")
     token = get_bot_token()
     canvas_id = push_to_canvas(content, token, state.get("canvas_id"))
     if canvas_id:
@@ -189,7 +201,7 @@ def run_watch():
                     last_mtime = mtime
                     content = PLAN_FILE.read_text().strip()
                     if content:
-                        print(f"[canvas_push] Change detected, pushing to canvas...")
+                        print("[canvas_push] Change detected, pushing to canvas...")
                         token = get_bot_token()
                         canvas_id = push_to_canvas(content, token, state.get("canvas_id"))
                         if canvas_id:
@@ -204,6 +216,7 @@ def run_watch():
 
 def main():
     import argparse
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--once", action="store_true", help="Check once and exit (don't watch)")
     args = parser.parse_args()

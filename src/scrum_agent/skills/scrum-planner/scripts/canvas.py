@@ -13,9 +13,8 @@ Usage:
 
 import argparse
 import json
-import sys
-import urllib.request
 import urllib.error
+import urllib.request
 from pathlib import Path
 
 
@@ -34,7 +33,8 @@ def slack_api(method: str, payload: dict, token: str) -> dict:
     url = f"https://slack.com/api/{method}"
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
-        url, data=data,
+        url,
+        data=data,
         headers={
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json; charset=utf-8",
@@ -134,18 +134,26 @@ def create_channel_canvas(channel_id: str, content: str, token: str) -> dict:
             break
 
     # canvases.create produces better rendering than conversations.canvases.create
-    result = slack_api("canvases.create", {
-        "title": title,
-        "document_content": {"type": "markdown", "markdown": formatted},
-    }, token)
+    result = slack_api(
+        "canvases.create",
+        {
+            "title": title,
+            "document_content": {"type": "markdown", "markdown": formatted},
+        },
+        token,
+    )
 
     canvas_id = result.get("canvas_id")
     if canvas_id:
-        slack_api("canvases.access.set", {
-            "canvas_id": canvas_id,
-            "access_level": "write",
-            "channel_ids": [channel_id],
-        }, token)
+        slack_api(
+            "canvases.access.set",
+            {
+                "canvas_id": canvas_id,
+                "access_level": "write",
+                "channel_ids": [channel_id],
+            },
+            token,
+        )
 
     return result
 
@@ -153,28 +161,36 @@ def create_channel_canvas(channel_id: str, content: str, token: str) -> dict:
 def update_canvas(canvas_id: str, content: str, token: str) -> dict:
     """Update an existing canvas with new content."""
     formatted = format_canvas_markdown(content)
-    result = slack_api("canvases.edit", {
-        "canvas_id": canvas_id,
-        "changes": [
-            {
-                "operation": "replace",
-                "document_content": {
-                    "type": "markdown",
-                    "markdown": formatted,
+    result = slack_api(
+        "canvases.edit",
+        {
+            "canvas_id": canvas_id,
+            "changes": [
+                {
+                    "operation": "replace",
+                    "document_content": {
+                        "type": "markdown",
+                        "markdown": formatted,
+                    },
                 }
-            }
-        ]
-    }, token)
+            ],
+        },
+        token,
+    )
     return result
 
 
 def get_channel_canvas(channel_id: str, token: str) -> dict | None:
     """Get the canvas attached to a channel, or None if none exists."""
     try:
-        result = slack_api("conversations.info", {
-            "channel": channel_id,
-            "include_num_members": False,
-        }, token)
+        result = slack_api(
+            "conversations.info",
+            {
+                "channel": channel_id,
+                "include_num_members": False,
+            },
+            token,
+        )
         canvas = result.get("channel", {}).get("properties", {}).get("canvas", {})
         return canvas if canvas.get("file_id") else None
     except RuntimeError:
