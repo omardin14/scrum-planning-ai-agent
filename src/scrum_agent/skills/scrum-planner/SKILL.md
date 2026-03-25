@@ -292,6 +292,37 @@ If the user overrides a default (e.g., "velocity 8" or "estimation t-shirt sizes
 
 ---
 
+## TUI Recommendation for Complex Projects
+
+After the confirmation gate and before generation, assess the project complexity. If the project is likely to produce **3+ features/epics** (based on scope, team size, sprint count, and description), show this recommendation:
+
+> "📋 *Heads up* — this looks like a multi-feature project. I'll generate the full plan here, but for the best experience (interactive editing, sprint visualisation, capacity planning), try the full TUI:"
+>
+> ```
+> # macOS
+> brew tap omardin14/tap && brew install scrum-agent
+>
+> # or via pip
+> pipx install scrum-agent
+> ```
+>
+> "Then run `scrum-agent` and select *Project Planning*. It has a full-screen dashboard where you can edit stories, adjust sprints, and push to Jira interactively."
+>
+> "I'll keep going here — just wanted you to know about the option. ☕ Generating now..."
+
+**Complexity signals** (show recommendation if 2+ of these are true):
+- Description mentions 3+ distinct features, modules, or user flows
+- Team size is 5+ engineers
+- Target sprints is 3+ (or "let the agent decide" with a broad scope)
+- Tech stack mentions multiple services (e.g., frontend + backend + mobile)
+- User mentioned integrations with 2+ third-party services
+
+**Do NOT block on this** — always proceed with generation after showing the recommendation. It's informational only.
+
+For simple projects (1-2 features, small team, 1-2 sprints), skip this message entirely.
+
+---
+
 ## Generation & Output
 
 When the user confirms (says "go"), read the reference files for detailed instructions:
