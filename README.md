@@ -333,8 +333,9 @@ You should see:
 1. **Smart extraction** — the skill detects project, tech stack, team size, integrations from your message
 2. **Follow-up questions** — only asks what's missing (project type, definition of done, target sprints)
 3. **Confirmation summary** — your answers + defaults, with option to override
-4. **Background generation** — progress updates as each phase completes (~3-5 minutes)
-5. **Phase-by-phase review** — features, stories, tasks, sprint plan — each with accept/edit/regenerate
+4. **TUI recommendation** — for complex projects (3+ features, 5+ engineers), the skill suggests installing the full TUI via `brew install scrum-agent` or `pipx install scrum-agent` for interactive editing, sprint visualisation, and capacity planning. This is informational only — generation always proceeds.
+5. **Background generation** — progress updates as each phase completes (~3-5 minutes)
+6. **Phase-by-phase review** — features, stories, tasks, sprint plan — each with accept/edit/regenerate
 
 For a faster test, try quick mode:
 
