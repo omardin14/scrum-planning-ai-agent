@@ -2887,6 +2887,7 @@ def project_intake(state: ScrumState) -> dict:
         else:
             questionnaire._preferred_tracker = "jira"  # default to Jira
         questionnaire._awaiting_tracker_choice = False
+        questionnaire._follow_up_choices.pop(1, None)  # clear the tracker choice from Q1
         logger.info("User chose tracker for velocity/sprint: %s", questionnaire._preferred_tracker)
         # Now proceed — the questionnaire exists but has no answers yet,
         # so we fall through to the "subsequent calls" branch which will
@@ -2994,8 +2995,10 @@ def project_intake(state: ScrumState) -> dict:
             # ── Tracker choice prompt when both are configured ─────────
             if _is_jira_configured() and _is_azdevops_configured() and not qs._preferred_tracker:
                 qs._awaiting_tracker_choice = True
-                qs.current_question = 0  # synthetic question so TUI renders the choice menu
-                qs._follow_up_choices[0] = ("Jira", "Azure DevOps")
+                # Use Q1 slot with follow-up choices so the TUI accordion renders
+                # a proper choice menu (Q0 doesn't exist in the accordion height map).
+                qs.current_question = 1
+                qs._follow_up_choices[1] = ("Jira", "Azure DevOps")
                 return {
                     "questionnaire": qs,
                     "messages": [
