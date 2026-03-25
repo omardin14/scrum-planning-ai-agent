@@ -654,10 +654,16 @@ def _phase_pipeline(
             actions = ["Accept", "Edit", "Export"]
 
         # Add tracker sync buttons to stages that produce syncable artifacts.
-        # Both Jira and Azure DevOps buttons are shown when both are configured.
+        # When the user chose a preferred tracker at intake (both were configured),
+        # only show that tracker's button. Otherwise show all configured trackers.
         # Feature stage does NOT get sync buttons — features map to labels/tags, not issues.
         # See README: "Tools" — tool types, write tools, human-in-the-loop pattern
         _active_trackers = _get_active_trackers()
+        _qs = graph_state.get("questionnaire")
+        _pref = getattr(_qs, "_preferred_tracker", "") if _qs else ""
+        if _pref:
+            # User chose a preferred tracker — only show that one
+            _active_trackers = [_pref] if _pref in _active_trackers else _active_trackers
         if _active_trackers and (is_story_stage or is_task_stage or is_sprint_stage):
             for _trk in _active_trackers:
                 actions.append("Jira" if _trk == "jira" else "Azure DevOps")
