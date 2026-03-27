@@ -712,6 +712,33 @@ def export_team_profile_html(
         _nav("repos", "Repos")
         sections.append(_section("repos", "Repository Activity", repo_content))
 
+    # ── Acceptance Criteria Patterns ──────────────────────────────────
+    ac_pat = ex.get("ac_patterns", {})
+    if isinstance(ac_pat, dict) and ac_pat.get("stories_with_ac_pct") is not None:
+        ac_pct = ac_pat.get("stories_with_ac_pct", 0)
+        if ac_pct > 0 or ac_pat.get("themes"):
+            spec = ac_pat.get("specificity", {})
+            ac_rows: list[tuple[str, str]] = [
+                ("Stories with ACs", f"{ac_pct}%"),
+                ("Median ACs/story", str(ac_pat.get("median_ac", 0))),
+                ("Specificity", f"{spec.get('label', '?')} ({spec.get('precise_pct', 0)}% precise)"),
+            ]
+            themes = ac_pat.get("themes", {})
+            if themes:
+                parts = " &middot; ".join(f"{t} {p}%" for t, p in list(themes.items())[:5])
+                ac_rows.append(("Common topics", parts))
+            by_disc = ac_pat.get("by_discipline", {})
+            if len(by_disc) >= 2:
+                parts = " &middot; ".join(f"{d} {v['avg_ac']:.0f} avg" for d, v in by_disc.items())
+                ac_rows.append(("By discipline", parts))
+            spill = ac_pat.get("spillover_correlation", {})
+            low_s = spill.get("low_ac_spill_pct", 0)
+            high_s = spill.get("high_ac_spill_pct", 0)
+            if low_s > high_s + 5 and spill.get("low_ac_count", 0) >= 5:
+                ac_rows.append(("Spillover impact", f"0-1 ACs: {low_s}% spill vs 3+ ACs: {high_s}% spill"))
+            _nav("ac-patterns", "ACs")
+            sections.append(_section("ac-patterns", "Acceptance Criteria Patterns", _kv_table(ac_rows)))
+
     # ── Epic Sizing ─────────────────────────────────────────────────
     epic = profile.epic_pattern
     if epic.sample_count > 0:
@@ -904,6 +931,11 @@ def export_team_profile_html(
                     "These are zombie stories &mdash; split or kill them.",
                 )
             )
+
+    _html_ac = ex.get("ac_patterns", {})
+    if isinstance(_html_ac, dict) and _html_ac.get("recommendations"):
+        for r in _html_ac["recommendations"][:3]:
+            recs.append(("Acceptance criteria", _e(r)))
 
     _html_pdod = ex.get("proposed_dod", {})
     if isinstance(_html_pdod, dict) and _html_pdod.get("health") == "weak":
@@ -1449,6 +1481,39 @@ def export_team_profile_md(
                     lines.append(f"- {pts_key}pt: {', '.join(str(r) for r in pt_repos[:3])}")
             lines.append("")
 
+    # ── Acceptance Criteria Patterns ──────────────────────────────────
+    ac_pat = ex.get("ac_patterns", {})
+    if isinstance(ac_pat, dict) and ac_pat.get("stories_with_ac_pct") is not None:
+        ac_pct = ac_pat.get("stories_with_ac_pct", 0)
+        if ac_pct > 0 or ac_pat.get("themes"):
+            spec = ac_pat.get("specificity", {})
+            lines.extend(["## Acceptance Criteria Patterns", ""])
+            lines.append(f"- **Stories with ACs:** {ac_pct}%")
+            lines.append(f"- **Median ACs/story:** {ac_pat.get('median_ac', 0)}")
+            lines.append(
+                f"- **Specificity:** {spec.get('label', '?')} "
+                f"({spec.get('precise_pct', 0)}% precise, {spec.get('vague_pct', 0)}% vague)"
+            )
+            themes = ac_pat.get("themes", {})
+            if themes:
+                parts = " · ".join(f"{t} {p}%" for t, p in list(themes.items())[:5])
+                lines.append(f"- **Common topics:** {parts}")
+            by_disc = ac_pat.get("by_discipline", {})
+            if len(by_disc) >= 2:
+                parts = " · ".join(f"{d} {v['avg_ac']:.0f} avg" for d, v in by_disc.items())
+                lines.append(f"- **By discipline:** {parts}")
+            spill = ac_pat.get("spillover_correlation", {})
+            low_s = spill.get("low_ac_spill_pct", 0)
+            high_s = spill.get("high_ac_spill_pct", 0)
+            if low_s > high_s + 5 and spill.get("low_ac_count", 0) >= 5:
+                lines.append(f"- **Spillover impact:** 0-1 ACs: {low_s}% spill vs 3+ ACs: {high_s}% spill")
+            ac_recs = ac_pat.get("recommendations", [])
+            if ac_recs:
+                lines.append("")
+                for r in ac_recs[:3]:
+                    lines.append(f"> {r}")
+            lines.append("")
+
     # ── Epic Sizing ─────────────────────────────────────────────────
     epic = profile.epic_pattern
     if epic.sample_count > 0:
@@ -1543,6 +1608,11 @@ def export_team_profile_md(
         _md_ch = _md_sc.get("carry_over_chains", [])
         if len(_md_ch) >= 3:
             recs.append(("Carry-over chains", f"{len(_md_ch)} stories bounced across 3+ sprints."))
+
+    _md_ac = ex.get("ac_patterns", {})
+    if isinstance(_md_ac, dict) and _md_ac.get("recommendations"):
+        for r in _md_ac["recommendations"][:3]:
+            recs.append(("Acceptance criteria", r))
 
     _md_pdod = ex.get("proposed_dod", {})
     if isinstance(_md_pdod, dict) and _md_pdod.get("health") == "weak":

@@ -902,6 +902,55 @@ def _build_team_analysis_screen(
         for wp_label, wp_val, wp_sty in wp_items:
             _kv(wp_label, wp_val, wp_sty)
 
+    # ── Acceptance Criteria Patterns ─────────────────────────────────
+    ac_pat = _ex.get("ac_patterns", {})
+    if isinstance(ac_pat, dict) and ac_pat.get("stories_with_ac_pct") is not None:
+        ac_pct = ac_pat.get("stories_with_ac_pct", 0)
+        if ac_pct > 0 or ac_pat.get("themes"):
+            _heading("Acceptance Criteria Patterns")
+
+            # Coverage + specificity summary
+            spec = ac_pat.get("specificity", {})
+            spec_label = spec.get("label", "unknown")
+            spec_sty = c_good if spec_label == "precise" else (c_warn if spec_label == "moderate" else c_bad)
+            _kv("Stories with ACs", f"{ac_pct}%", c_good if ac_pct >= 70 else (c_warn if ac_pct >= 40 else c_bad))
+            _kv("Median ACs/story", str(ac_pat.get("median_ac", 0)))
+            _kv(
+                "Specificity",
+                f"{spec_label} ({spec.get('precise_pct', 0)}% precise, {spec.get('vague_pct', 0)}% vague)",
+                spec_sty,
+            )
+
+            # Themes
+            themes = ac_pat.get("themes", {})
+            if themes:
+                row = Text(_PAD + "  ", justify="left")
+                row.append("Common topics: ", style=c_muted)
+                t_parts = [f"{t} {p}%" for t, p in list(themes.items())[:5]]
+                row.append(" \u00b7 ".join(t_parts), style=c_value)
+                _add(row)
+
+            # By discipline
+            by_disc = ac_pat.get("by_discipline", {})
+            if len(by_disc) >= 2:
+                row = Text(_PAD + "  ", justify="left")
+                row.append("By discipline: ", style=c_muted)
+                d_parts = [f"{d} {v['avg_ac']:.0f} avg" for d, v in by_disc.items()]
+                row.append(" \u00b7 ".join(d_parts), style=c_value)
+                _add(row)
+
+            # Spillover correlation
+            spill = ac_pat.get("spillover_correlation", {})
+            low_s = spill.get("low_ac_spill_pct", 0)
+            high_s = spill.get("high_ac_spill_pct", 0)
+            if low_s > high_s + 5 and spill.get("low_ac_count", 0) >= 5:
+                row = Text(_PAD + "  ", justify="left")
+                row.append(f"0-1 ACs: {low_s}% spill", style=c_bad)
+                row.append(" vs ", style=c_dim)
+                row.append(f"3+ ACs: {high_s}% spill", style=c_good)
+                row.append(" \u2014 more ACs = better completion", style=c_dim)
+                _add(row)
+
     # ── Epic Sizing ───────────────────────────────────────────────────
     epic = profile.epic_pattern
     if epic.sample_count > 0:
@@ -1061,6 +1110,12 @@ def _build_team_analysis_screen(
                     "and helps the team track progress.",
                 )
             )
+
+    # AC pattern recommendations
+    _ac_recs = _ex.get("ac_patterns", {})
+    if isinstance(_ac_recs, dict) and _ac_recs.get("recommendations"):
+        for rec_text in _ac_recs["recommendations"][:3]:
+            recs.append(("\u2139 Acceptance criteria", rec_text))
 
     # Scope change recommendations
     scope = _ex.get("scope_changes", {})

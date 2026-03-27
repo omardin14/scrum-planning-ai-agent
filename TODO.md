@@ -1036,10 +1036,10 @@ _Bring Azure DevOps to full feature parity with Jira — read board/velocity, cr
 ### 16b: Acceptance criteria patterns
 - [x] Detect Given/When/Then format (`uses_given_when_then`)
 - [x] Compute median AC count per story (`median_ac_count`)
-- [ ] Learn AC *content* patterns — what topics do ACs typically cover? (e.g. "error handling", "validation", "edge cases", "performance")
-- [ ] Detect AC coverage by discipline — do frontend stories have more ACs than backend?
-- [ ] Learn AC specificity — are ACs vague ("it should work") or precise ("returns 200 with JSON body")?
-- [ ] Detect missing AC patterns — stories that shipped bugs often had fewer ACs
+- [x] Learn AC *content* patterns — 8 theme regexes (error handling, validation, edge cases, performance, security, UX, integration, data)
+- [x] Detect AC coverage by discipline — avg AC count per discipline with sample sizes
+- [x] Learn AC specificity — vague/moderate/precise classification with precise% and vague%
+- [x] Detect missing AC patterns — spillover correlation (0-1 ACs vs 3+ ACs spill rates)
 
 ### 16c: Ticket naming and organisation
 - [x] Extract common title patterns per point value (`common_patterns`)

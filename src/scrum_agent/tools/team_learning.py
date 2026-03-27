@@ -1215,6 +1215,9 @@ def _run_parallel_analysis(
         delivery_stories,
     )
 
+    # Acceptance criteria pattern analysis
+    examples["ac_patterns"] = _analyse_acceptance_criteria(delivery_stories)  # type: ignore[assignment]
+
     # Repository analysis from PR links in story text
     examples["repositories"] = _analyse_repositories(delivery_stories)  # type: ignore[assignment]
 
@@ -1757,6 +1760,183 @@ def _analyse_proposed_dod(
         "health": health,
         "ordering": ordering,
         "custom_steps": custom_steps,
+    }
+
+
+def _analyse_acceptance_criteria(delivery_stories: list[dict]) -> dict:
+    """Analyse acceptance criteria patterns across stories.
+
+    Scans story descriptions to detect:
+    - AC content themes (error handling, validation, edge cases, performance, etc.)
+    - AC coverage by discipline (do frontend stories have more ACs?)
+    - AC specificity (vague vs precise language)
+    - Correlation between AC count and spillover (fewer ACs → more spills?)
+
+    Returns a dict for the examples store and TUI/export rendering.
+    """
+    if not delivery_stories:
+        return {}
+
+    # ── AC content themes ──────────────────────────────────────────
+    # Scan description text for common AC topic patterns
+    theme_regexes = {
+        "Error handling": re.compile(
+            r"\b(error|exception|fail|invalid|reject|timeout|retry|fallback)\b",
+            re.IGNORECASE,
+        ),
+        "Validation": re.compile(
+            r"\b(validat|required\s*field|input\s*check|format\s*check|constraint|boundary)\b",
+            re.IGNORECASE,
+        ),
+        "Edge cases": re.compile(
+            r"\b(edge\s*case|empty|null|zero|negative|overflow|concurrent|race\s*condition)\b",
+            re.IGNORECASE,
+        ),
+        "Performance": re.compile(
+            r"\b(performance|latency|throughput|response\s*time|load|scalab|cache|optimi[sz])\b",
+            re.IGNORECASE,
+        ),
+        "Security": re.compile(
+            r"\b(auth|permission|role|encrypt|token|secure|RBAC|CORS|XSS|injection)\b",
+            re.IGNORECASE,
+        ),
+        "User experience": re.compile(
+            r"\b(user\s*(can|should|sees|is\s*shown)|display|responsive|accessible|usab)\b",
+            re.IGNORECASE,
+        ),
+        "Integration": re.compile(
+            r"\b(API|endpoint|webhook|third.party|external\s*service|upstream|downstream)\b",
+            re.IGNORECASE,
+        ),
+        "Data": re.compile(
+            r"\b(database|migration|schema|storage|persist|CRUD|query|index)\b",
+            re.IGNORECASE,
+        ),
+    }
+
+    theme_counts: dict[str, int] = defaultdict(int)
+    stories_with_ac = [s for s in delivery_stories if s.get("ac_count", 0) > 0]
+    n_with_ac = len(stories_with_ac) or 1
+
+    for s in stories_with_ac:
+        desc = s.get("description", "") or ""
+        for theme, regex in theme_regexes.items():
+            if regex.search(desc):
+                theme_counts[theme] += 1
+
+    theme_pcts = {t: round(c / n_with_ac * 100) for t, c in sorted(theme_counts.items(), key=lambda x: -x[1]) if c > 0}
+
+    # ── AC by discipline ───────────────────────────────────────────
+    disc_ac: dict[str, list[int]] = defaultdict(list)
+    for s in delivery_stories:
+        ac = s.get("ac_count", 0)
+        disc = s.get("discipline", "fullstack")
+        disc_ac[disc].append(ac)
+
+    ac_by_discipline = {}
+    for disc, counts in sorted(disc_ac.items()):
+        if len(counts) >= 3:
+            avg = round(sum(counts) / len(counts), 1)
+            with_ac = sum(1 for c in counts if c > 0)
+            pct = round(with_ac / len(counts) * 100)
+            ac_by_discipline[disc] = {
+                "avg_ac": avg,
+                "stories_with_ac_pct": pct,
+                "sample": len(counts),
+            }
+
+    # ── AC specificity ─────────────────────────────────────────────
+    # Vague: "it should work", "everything is correct", "as expected"
+    # Precise: contains numbers, status codes, specific field names, measurable criteria
+    _vague_re = re.compile(
+        r"\b(should\s*work|as\s*expected|correct(ly)?|proper(ly)?|appropriate(ly)?|no\s*issues)\b",
+        re.IGNORECASE,
+    )
+    _precise_re = re.compile(
+        r"(\b\d{3}\b|returns?\s*\d|timeout\s*\d|\d+\s*(ms|seconds?|minutes?|MB|GB)|"
+        r"field\s*['\"]?\w+['\"]?|endpoint\s*/\w|status\s*code|JSON|HTTP\s*\d|"
+        r"must\s*(not\s*)?exceed|at\s*least\s*\d|no\s*more\s*than\s*\d)",
+        re.IGNORECASE,
+    )
+
+    vague_count = 0
+    precise_count = 0
+    for s in stories_with_ac:
+        desc = s.get("description", "") or ""
+        has_vague = bool(_vague_re.search(desc))
+        has_precise = bool(_precise_re.search(desc))
+        if has_precise:
+            precise_count += 1
+        elif has_vague:
+            vague_count += 1
+
+    specificity_pct = round(precise_count / n_with_ac * 100) if n_with_ac else 0
+    vague_pct = round(vague_count / n_with_ac * 100) if n_with_ac else 0
+
+    if specificity_pct >= 40:
+        specificity_label = "precise"
+    elif specificity_pct >= 15:
+        specificity_label = "moderate"
+    else:
+        specificity_label = "vague"
+
+    # ── AC count vs spillover correlation ──────────────────────────
+    # Do stories with fewer ACs spill more often?
+    low_ac_stories = [s for s in delivery_stories if s.get("ac_count", 0) <= 1]
+    high_ac_stories = [s for s in delivery_stories if s.get("ac_count", 0) >= 3]
+    low_ac_spill = (
+        round(sum(1 for s in low_ac_stories if s.get("carried_over")) / len(low_ac_stories) * 100)
+        if low_ac_stories
+        else 0
+    )
+    high_ac_spill = (
+        round(sum(1 for s in high_ac_stories if s.get("carried_over")) / len(high_ac_stories) * 100)
+        if high_ac_stories
+        else 0
+    )
+
+    # ── Summary ────────────────────────────────────────────────────
+    total = len(delivery_stories)
+    with_ac_pct = round(len(stories_with_ac) / total * 100) if total else 0
+    median_ac = statistics.median([s.get("ac_count", 0) for s in stories_with_ac]) if stories_with_ac else 0
+
+    recommendations: list[str] = []
+    if with_ac_pct < 50:
+        recommendations.append(
+            f"Only {with_ac_pct}% of stories have acceptance criteria. Add explicit ACs to every story for clarity."
+        )
+    if specificity_label == "vague":
+        recommendations.append(
+            f"{vague_pct}% of ACs use vague language. Use measurable criteria (status codes, field names, thresholds)."
+        )
+    if low_ac_spill > high_ac_spill + 10 and len(low_ac_stories) >= 5:
+        recommendations.append(
+            f"Stories with 0-1 ACs spill {low_ac_spill}% vs {high_ac_spill}% for 3+ ACs. "
+            "More ACs correlate with better completion."
+        )
+    missing_themes = [t for t in ("Error handling", "Validation", "Edge cases") if t not in theme_pcts]
+    if missing_themes:
+        recommendations.append(
+            f"ACs rarely cover {', '.join(missing_themes).lower()}. Consider adding these as standard AC topics."
+        )
+
+    return {
+        "stories_with_ac_pct": with_ac_pct,
+        "median_ac": median_ac,
+        "themes": theme_pcts,
+        "by_discipline": ac_by_discipline,
+        "specificity": {
+            "label": specificity_label,
+            "precise_pct": specificity_pct,
+            "vague_pct": vague_pct,
+        },
+        "spillover_correlation": {
+            "low_ac_spill_pct": low_ac_spill,
+            "high_ac_spill_pct": high_ac_spill,
+            "low_ac_count": len(low_ac_stories),
+            "high_ac_count": len(high_ac_stories),
+        },
+        "recommendations": recommendations,
     }
 
 
