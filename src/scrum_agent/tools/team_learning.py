@@ -1819,7 +1819,7 @@ def _analyse_acceptance_criteria(delivery_stories: list[dict]) -> dict:
     n_with_ac = len(stories_with_ac) or 1
 
     for s in stories_with_ac:
-        desc = s.get("description", "") or ""
+        desc = re.sub(r"<[^>]+>", " ", s.get("description", "") or "")
         for theme, regex in theme_regexes.items():
             if regex.search(desc):
                 theme_counts[theme] += 1
@@ -1862,7 +1862,7 @@ def _analyse_acceptance_criteria(delivery_stories: list[dict]) -> dict:
     vague_count = 0
     precise_count = 0
     for s in stories_with_ac:
-        desc = s.get("description", "") or ""
+        desc = re.sub(r"<[^>]+>", " ", s.get("description", "") or "")
         has_vague = bool(_vague_re.search(desc))
         has_precise = bool(_precise_re.search(desc))
         if has_precise:
@@ -3039,11 +3039,13 @@ def _fetch_jira_history(project_key: str, sprint_count: int) -> list[dict]:
             description = getattr(issue.fields, "description", "") or ""
 
             # AC count: approximate by counting bullet/checklist items in description
+            # Strip HTML tags first (Jira descriptions can contain rich HTML)
+            _desc_text = re.sub(r"<[^>]+>", " ", description).strip()
             ac_count = 0
-            if description:
-                ac_count = len(re.findall(r"(?m)^[\s]*[-*●•]\s", description))
+            if _desc_text:
+                ac_count = len(re.findall(r"(?m)^[\s]*[-*●•]\s", _desc_text))
                 if ac_count == 0:
-                    ac_count = len(re.findall(r"(?m)^\s*\d+[.)]\s", description))
+                    ac_count = len(re.findall(r"(?m)^\s*\d+[.)]\s", _desc_text))
 
             # Fetch comments for DoD signal analysis (with timestamps for ordering)
             comments_text: list[str] = []
@@ -3379,14 +3381,21 @@ def _fetch_azdevops_history(project_key: str, sprint_count: int) -> list[dict]:
             pts = _safe_float(fields.get("Microsoft.VSTS.Scheduling.StoryPoints"))
             title = fields.get("System.Title", "") or ""
             desc = fields.get("System.Description", "") or ""
-            ac_text = fields.get("Microsoft.VSTS.Common.AcceptanceCriteria", "") or ""
-            full_desc = f"{desc}\n{ac_text}"
+            ac_text_raw = fields.get("Microsoft.VSTS.Common.AcceptanceCriteria", "") or ""
+            # Strip HTML tags for text analysis (AzDO AC fields are often rich HTML)
+            ac_text = re.sub(r"<[^>]+>", " ", ac_text_raw).strip()
+            ac_text = re.sub(r"\s+", " ", ac_text)
+            full_desc = f"{desc}\n{ac_text_raw}"
 
             ac_count = 0
             if ac_text:
+                # Try bullet/numbered list patterns first
                 ac_count = len(re.findall(r"(?m)^[\s]*[-*●•]\s", ac_text))
                 if ac_count == 0:
                     ac_count = len(re.findall(r"(?m)^\s*\d+[.)]\s", ac_text))
+                # If AC field has text but no list structure, count as 1 AC
+                if ac_count == 0 and len(ac_text) > 10:
+                    ac_count = 1
 
             is_done = state in ("Closed", "Done", "Resolved")
             ct = None
