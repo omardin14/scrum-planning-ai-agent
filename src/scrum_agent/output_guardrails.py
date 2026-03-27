@@ -20,7 +20,7 @@ from __future__ import annotations
 import logging
 import re
 
-from scrum_agent.agent.state import Sprint, UserStory
+from scrum_agent.agent.state import Discipline, Sprint, UserStory
 
 logger = logging.getLogger(__name__)
 
@@ -137,6 +137,80 @@ def validate_scope_vs_capacity(
 
 
 # ---------------------------------------------------------------------------
+# Team calibration validation
+# ---------------------------------------------------------------------------
+
+# Threshold: warn when discipline avg-points deviation exceeds this factor.
+# e.g. team avg backend = 3 pts, plan has backend avg = 7 pts → 2.3x → warn
+_CALIBRATION_DEVIATION_FACTOR = 1.8
+
+
+def validate_estimation_calibration(
+    stories: list[UserStory],
+    team_profile: object,
+) -> list[str]:
+    """Warn when generated estimates deviate significantly from team norms.
+
+    Compares average story points per discipline against historical team patterns.
+    Emits a warning (not an error) when the plan's discipline averages are more
+    than _CALIBRATION_DEVIATION_FACTOR times the team's historical average.
+
+    # See README: "Scrum Standards" — team learning, self-calibrating estimates
+
+    Args:
+        stories: Generated user stories with story_points and discipline fields.
+        team_profile: A TeamProfile instance (or None to skip this check).
+
+    Returns:
+        List of warning strings (empty = no calibration issues detected).
+    """
+    if not stories or team_profile is None:
+        return []
+
+    story_shapes = getattr(team_profile, "story_shapes", ())
+    if not story_shapes:
+        return []
+
+    # Build a lookup: discipline → team's historical avg_points
+    team_avg: dict[str, float] = {
+        shape.discipline: shape.avg_points for shape in story_shapes if shape.sample_count >= 3 and shape.avg_points > 0
+    }
+    if not team_avg:
+        return []
+
+    # Compute plan's per-discipline averages
+    by_discipline: dict[str, list[int]] = {}
+    for story in stories:
+        disc = story.discipline.value if isinstance(story.discipline, Discipline) else str(story.discipline)
+        pts = story.story_points.value if hasattr(story.story_points, "value") else int(story.story_points)
+        by_discipline.setdefault(disc, []).append(pts)
+
+    warnings: list[str] = []
+    for disc, pts_list in by_discipline.items():
+        if disc not in team_avg:
+            continue
+        plan_avg = sum(pts_list) / len(pts_list)
+        hist_avg = team_avg[disc]
+        if hist_avg <= 0:
+            continue
+        ratio = plan_avg / hist_avg
+        if ratio > _CALIBRATION_DEVIATION_FACTOR:
+            warnings.append(
+                f"Calibration: {disc} stories avg {plan_avg:.1f} pts in plan vs "
+                f"{hist_avg:.1f} pts historically — consider splitting large {disc} stories"
+            )
+        elif ratio < (1 / _CALIBRATION_DEVIATION_FACTOR):
+            warnings.append(
+                f"Calibration: {disc} stories avg {plan_avg:.1f} pts in plan vs "
+                f"{hist_avg:.1f} pts historically — stories may be too granular"
+            )
+
+    if warnings:
+        logger.warning("Estimation calibration: %d issue(s) found", len(warnings))
+    return warnings
+
+
+# ---------------------------------------------------------------------------
 # Aggregate runner
 # ---------------------------------------------------------------------------
 
@@ -145,6 +219,7 @@ def validate_output(
     stories: list[UserStory] | None = None,
     sprints: list[Sprint] | None = None,
     velocity: int = 0,
+    team_profile: object = None,
 ) -> list[str]:
     """Run all applicable output guardrails and return combined warnings."""
     logger.debug("Running output validation")
@@ -152,6 +227,8 @@ def validate_output(
     if stories:
         warnings.extend(validate_story_format(stories))
         warnings.extend(validate_ac_coverage(stories))
+        if team_profile is not None:
+            warnings.extend(validate_estimation_calibration(stories, team_profile))
     if sprints and stories:
         warnings.extend(validate_sprint_capacity(sprints, stories, velocity))
         warnings.extend(validate_scope_vs_capacity(sprints, stories, velocity))

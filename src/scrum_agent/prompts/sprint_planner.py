@@ -47,6 +47,7 @@ def get_sprint_planner_prompt(
     enforce_target: bool = False,
     sprint_capacities: list[dict] | None = None,
     team_override_from: int | None = None,
+    team_calibration: str = "",
     review_feedback: str | None = None,
     review_mode: str | None = None,
     previous_output: str | None = None,
@@ -170,8 +171,7 @@ def get_sprint_planner_prompt(
         f"{velocity_section}\n"
         f"**{target_note}**\n\n"
         "## Stories to Allocate\n\n"
-        f"{stories_block}\n\n"
-        "## Task\n\n"
+        f"{stories_block}\n\n" + (team_calibration + "\n" if team_calibration else "") + "## Task\n\n"
         "Allocate ALL stories above into sprints. Return a JSON array matching this exact schema:\n\n"
         f"```json\n{_JSON_SCHEMA}\n```\n\n"
         "## Rules\n\n"

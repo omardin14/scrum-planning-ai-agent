@@ -13,6 +13,7 @@ not selectable.
 
 from __future__ import annotations
 
+import logging
 import math
 import time
 from pathlib import Path
@@ -21,12 +22,15 @@ from rich.console import Console
 from rich.live import Live
 
 from scrum_agent.ui.mode_select.screens._project_cards import (  # noqa: F401
+    ProfileSummary,
     ProjectSummary,
     _build_action_button,
     _build_empty_state_card,
+    _build_new_analysis_card,
     _build_new_project_card,
     _build_peek_above,
     _build_peek_below,
+    _build_profile_card,
     _build_project_card,
     _compute_viewport,
 )
@@ -49,6 +53,7 @@ from scrum_agent.ui.mode_select.screens._screens_secondary import (  # noqa: F40
     _build_intake_screen,
     _build_offline_screen,
     _build_project_export_success_screen,
+    _build_team_analysis_screen,
 )
 from scrum_agent.ui.shared._animations import (
     COLOR_RGB,
@@ -58,6 +63,9 @@ from scrum_agent.ui.shared._animations import (
     ease_out_cubic,
 )
 from scrum_agent.ui.shared._input import read_key as _read_key
+
+logger = logging.getLogger(__name__)
+
 
 # ---------------------------------------------------------------------------
 # Constants used only by the orchestrator
@@ -252,6 +260,715 @@ def select_mode(
                 )
                 time.sleep(_FRAME_TIME)
 
+            # ── Route: Team Analysis mode → dedicated analysis flow ──────
+            if chosen["key"] == "team-analysis":
+                from scrum_agent.azdevops_sync import is_azdevops_board_configured as _azdevops_check
+                from scrum_agent.jira_sync import is_jira_configured as _jira_check
+
+                _jira_ok = _jira_check()
+                _azdevops_ok = _azdevops_check()
+                _board_configured = _jira_ok or _azdevops_ok
+
+                if not _board_configured:
+                    # No board configured — show message and return to mode select
+                    w, h = console.size
+                    live.update(
+                        _build_project_export_success_screen(
+                            "No board configured.\n\n"
+                            "Set JIRA_BASE_URL + JIRA_API_TOKEN\n"
+                            "or AZURE_DEVOPS_ORG_URL + AZURE_DEVOPS_TOKEN\n"
+                            "in your .env file.",
+                            width=w,
+                            height=h,
+                            subtitle="Board required",
+                            hint="Press any key to go back.",
+                        )
+                    )
+                    while True:
+                        k = read_key(timeout=_FRAME_TIME) if _supports_timeout else read_key()
+                        if k:
+                            break
+                    _restart_mode_select = True
+                    _skip_fade_in = True
+                    continue
+
+                # Load existing team profiles
+                _profiles_for_analysis: list = []
+                try:
+                    from datetime import UTC, datetime
+
+                    from scrum_agent.team_profile import TeamProfileStore
+
+                    _tp_db = Path.home() / ".scrum-agent" / "sessions.db"
+                    if _tp_db.exists():
+                        with TeamProfileStore(_tp_db) as _tp_store:
+                            _raw_profiles = _tp_store.list_profiles()
+                        for _rp in _raw_profiles:
+                            days = 0
+                            if _rp.updated_at:
+                                try:
+                                    _up = datetime.fromisoformat(_rp.updated_at)
+                                    days = (datetime.now(UTC) - _up).days
+                                except Exception:
+                                    pass
+                            _profiles_for_analysis.append(
+                                ProfileSummary(
+                                    team_id=_rp.team_id,
+                                    source=_rp.source,
+                                    project_key=_rp.project_key,
+                                    sample_sprints=_rp.sample_sprints,
+                                    velocity_avg=_rp.velocity_avg,
+                                    sample_stories=_rp.sample_stories,
+                                    updated="today" if days == 0 else (f"{days} day{'s' if days != 1 else ''} ago"),
+                                    staleness_days=days,
+                                )
+                            )
+                except Exception:
+                    pass
+
+                # Always one button; board picker popup shown if both configured
+                _ana_labels = ["+ New Analysis"]
+
+                # Show profile list or go straight to analysis
+                _ana_items = _profiles_for_analysis + _ana_labels  # type: ignore[operator]
+                _ana_selected = 0
+                _ana_n = len(_profiles_for_analysis) + len(_ana_labels)
+
+                # Stagger reveal
+                _reveal_target = float(_ana_n)
+                _cards_visible = 0.0
+                _reveal_speed = 15.0
+                _reveal_start = time.monotonic()
+                while _cards_visible < _reveal_target:
+                    dt_r = time.monotonic() - _reveal_start
+                    _cards_visible = min(_reveal_target, dt_r * _reveal_speed)
+                    w, h = console.size
+                    live.update(
+                        _build_project_list_screen(
+                            [],
+                            _ana_selected,
+                            width=w,
+                            height=h,
+                            cards_visible=_cards_visible,
+                            card_fade=1.0,
+                            jira_enabled=_jira_ok,
+                            azdevops_enabled=_azdevops_ok,
+                            profiles=_profiles_for_analysis,
+                            new_analysis_labels=_ana_labels,
+                            mode="analysis",
+                        )
+                    )
+                    time.sleep(_FRAME_TIME)
+
+                # Analysis mode interaction loop
+                _team_popup_result = ""
+                _ana_focus = 0
+                _ana_card_fade = 1.0
+                _ana_restart = True
+                while _ana_restart:
+                    _ana_restart = False
+                    _ana_focus = 0
+                    _ana_action_btns = 0.0
+                    _has_prof = _profiles_for_analysis and _ana_selected < len(_profiles_for_analysis)
+                    _ana_action_btns_target = 2.0 if _has_prof else 0.0
+                    _ana_del_fade = 0.0
+                    _ana_exp_fade = 0.0
+                    _ana_export_submenu = False
+                    _ana_sub_sel = 0
+                    _ana_sub_html_fade = 0.0
+                    _ana_sub_md_fade = 0.0
+                    _ana_sub_visible = 0.0
+                    _ana_sub_visible_target = 0.0
+                    _ana_del_popup_open = False
+                    _ana_del_popup_t = 0.0
+                    _ana_del_popup_target = 0.0
+                    _ana_del_popup_name = ""
+                    _ana_del_popup_pulse = 0.0
+                    _ana_del_popup_flash = 0.0
+                    _ana_del_pending = False
+                    _ana_prev = time.monotonic()
+
+                    while True:
+                        key = read_key(timeout=_FRAME_TIME) if _supports_timeout else read_key()
+                        _is_profile = _ana_selected < len(_profiles_for_analysis)
+                        _is_analysis_btn = _ana_selected >= len(_profiles_for_analysis)
+
+                        # ── Export submenu mode ───────────────────────────
+                        if _ana_export_submenu and key:
+                            if key == "left":
+                                _ana_sub_sel = max(0, _ana_sub_sel - 1)
+                                _ana_sub_html_fade = 1.0 if _ana_sub_sel == 0 else 0.0
+                                _ana_sub_md_fade = 1.0 if _ana_sub_sel == 1 else 0.0
+                            elif key == "right":
+                                _ana_sub_sel = min(1, _ana_sub_sel + 1)
+                                _ana_sub_html_fade = 1.0 if _ana_sub_sel == 0 else 0.0
+                                _ana_sub_md_fade = 1.0 if _ana_sub_sel == 1 else 0.0
+                            elif key == "enter":
+                                _sel_p = _profiles_for_analysis[_ana_selected]
+                                _tp_db = Path.home() / ".scrum-agent" / "sessions.db"
+                                _full_p = None
+                                _st_ex: dict | None = None
+                                if _tp_db.exists():
+                                    from scrum_agent.team_profile import TeamProfileStore
+
+                                    with TeamProfileStore(_tp_db) as _s:
+                                        _full_p, _st_ex = _s.load_with_examples(_sel_p.team_id)
+                                if _full_p:
+                                    if _ana_sub_sel == 0:
+                                        from scrum_agent.team_profile_exporter import export_team_profile_html
+
+                                        _ep = export_team_profile_html(_full_p, examples=_st_ex)
+                                    else:
+                                        from scrum_agent.team_profile_exporter import export_team_profile_md
+
+                                        _ep = export_team_profile_md(_full_p, examples=_st_ex)
+                                    w, h = console.size
+                                    live.update(
+                                        _build_project_export_success_screen(
+                                            str(_ep),
+                                            width=w,
+                                            height=h,
+                                            subtitle="Team profile exported",
+                                        )
+                                    )
+                                    _et = time.monotonic()
+                                    while True:
+                                        ek = read_key(timeout=_FRAME_TIME) if _supports_timeout else read_key()
+                                        if time.monotonic() - _et > 1.5 and ek:
+                                            break
+                                _ana_export_submenu = False
+                                _ana_sub_visible_target = 0.0
+                                _ana_sub_html_fade = 0.0
+                                _ana_sub_md_fade = 0.0
+                                _ana_exp_fade = 1.0
+                            elif key in ("esc", "q"):
+                                _ana_export_submenu = False
+                                _ana_sub_visible_target = 0.0
+                                _ana_sub_html_fade = 0.0
+                                _ana_sub_md_fade = 0.0
+                                _ana_exp_fade = 1.0
+                            continue
+
+                        # ── Delete confirmation popup ─────────────────
+                        if _ana_del_popup_open and key:
+                            if key == "enter":
+                                _ana_del_popup_flash = 1.0
+                                _ana_del_pending = True
+                            elif key in ("esc", "q"):
+                                _ana_del_popup_target = 0.0
+                            continue
+
+                        # Perform delete after popup slides out
+                        if _ana_del_popup_open and _ana_del_popup_target == 0.0 and _ana_del_popup_t <= 0:
+                            if _ana_del_pending:
+                                try:
+                                    from scrum_agent.team_profile import TeamProfileStore
+
+                                    _tp_db = Path.home() / ".scrum-agent" / "sessions.db"
+                                    if _tp_db.exists():
+                                        _del_p = _profiles_for_analysis[_ana_selected]
+                                        with TeamProfileStore(_tp_db) as _s:
+                                            _s.delete(_del_p.team_id)
+                                    _profiles_for_analysis.pop(_ana_selected)
+                                    _ana_n = len(_profiles_for_analysis) + len(_ana_labels)
+                                    _ana_selected = min(_ana_selected, _ana_n - 1)
+                                    _ana_focus = 0
+                                    _ana_action_btns = 0.0
+                                    _has_prof = _profiles_for_analysis and _ana_selected < len(_profiles_for_analysis)
+                                    _ana_action_btns_target = 2.0 if _has_prof else 0.0
+                                except Exception:
+                                    pass
+                            _ana_del_popup_open = False
+                            _ana_del_popup_name = ""
+                            _ana_del_pending = False
+
+                        if key in ("up", "scroll_up"):
+                            _ana_selected = (_ana_selected - 1) % _ana_n
+                            _ana_focus = 0
+                            _ana_action_btns = 0.0
+                            _is_profile = _ana_selected < len(_profiles_for_analysis)
+                            _ana_action_btns_target = 2.0 if _is_profile else 0.0
+                            _ana_del_fade = 0.0
+                            _ana_exp_fade = 0.0
+                            _ana_export_submenu = False
+                            _ana_sub_visible_target = 0.0
+                        elif key in ("down", "scroll_down"):
+                            _ana_selected = (_ana_selected + 1) % _ana_n
+                            _ana_focus = 0
+                            _ana_action_btns = 0.0
+                            _is_profile = _ana_selected < len(_profiles_for_analysis)
+                            _ana_action_btns_target = 2.0 if _is_profile else 0.0
+                            _ana_del_fade = 0.0
+                            _ana_exp_fade = 0.0
+                            _ana_export_submenu = False
+                            _ana_sub_visible_target = 0.0
+                        elif key == "left":
+                            if _ana_focus > 0:
+                                _ana_focus -= 1
+                            _ana_del_fade = 0.0 if _ana_focus != 1 else 1.0
+                            _ana_exp_fade = 0.0 if _ana_focus != 2 else 1.0
+                        elif key == "right":
+                            if _is_profile and _ana_focus < 2:
+                                _ana_focus += 1
+                            _ana_del_fade = 0.0 if _ana_focus != 1 else 1.0
+                            _ana_exp_fade = 0.0 if _ana_focus != 2 else 1.0
+                        elif key == "enter":
+                            if _is_profile and _ana_focus == 0:
+                                # View profile results
+                                _sel_p = _profiles_for_analysis[_ana_selected]
+                                from scrum_agent.team_profile import TeamProfileStore
+
+                                _tp_db = Path.home() / ".scrum-agent" / "sessions.db"
+                                _full = None
+                                _stored_ex: dict | None = None
+                                if _tp_db.exists():
+                                    with TeamProfileStore(_tp_db) as _s:
+                                        _full, _stored_ex = _s.load_with_examples(
+                                            _sel_p.team_id,
+                                        )
+                                if _full:
+                                    from scrum_agent.ui.mode_select.screens._screens_secondary import (
+                                        _build_team_analysis_screen,
+                                    )
+
+                                    _scr = 0
+                                    _esel = 2
+                                    while True:
+                                        kk = read_key(timeout=_FRAME_TIME) if _supports_timeout else read_key()
+                                        if kk in ("up", "scroll_up"):
+                                            _scr = max(0, _scr - 1)
+                                        elif kk in ("down", "scroll_down"):
+                                            _scr += 1
+                                        elif kk == "left":
+                                            _esel = max(0, _esel - 1)
+                                        elif kk == "right":
+                                            _esel = min(2, _esel + 1)
+                                        elif kk == "enter" or kk == " ":
+                                            if _esel == 2:
+                                                break
+                                            if _esel == 0:
+                                                from scrum_agent.team_profile_exporter import export_team_profile_html
+
+                                                _ep = export_team_profile_html(
+                                                    _full,
+                                                    examples=_stored_ex,
+                                                )
+                                            else:
+                                                from scrum_agent.team_profile_exporter import export_team_profile_md
+
+                                                _ep = export_team_profile_md(
+                                                    _full,
+                                                    examples=_stored_ex,
+                                                )
+                                            w, h = console.size
+                                            live.update(
+                                                _build_project_export_success_screen(
+                                                    str(_ep),
+                                                    width=w,
+                                                    height=h,
+                                                    subtitle="Team profile exported",
+                                                )
+                                            )
+                                            _et = time.monotonic()
+                                            while True:
+                                                ek = read_key(timeout=_FRAME_TIME) if _supports_timeout else read_key()
+                                                if time.monotonic() - _et > 1.5 and ek:
+                                                    break
+                                        elif kk in ("esc", "q"):
+                                            break
+                                        w, h = console.size
+                                        live.update(
+                                            _build_team_analysis_screen(
+                                                _full,
+                                                scroll_offset=_scr,
+                                                width=w,
+                                                height=h,
+                                                export_sel=_esel,
+                                                examples=_stored_ex,
+                                            )
+                                        )
+                                continue
+                            elif _is_profile and _ana_focus == 1:
+                                # Delete profile — open confirmation popup
+                                _sel_p = _profiles_for_analysis[_ana_selected]
+                                _ana_del_popup_open = True
+                                _ana_del_popup_target = 1.0
+                                _ana_del_popup_name = f"{_sel_p.source}/{_sel_p.project_key}"
+                                _ana_del_popup_pulse = 0.0
+                                _ana_del_popup_flash = 0.0
+                                _ana_del_pending = False
+                                continue
+                            elif _is_profile and _ana_focus == 2:
+                                # Export → open submenu
+                                _ana_export_submenu = True
+                                _ana_sub_sel = 0
+                                _ana_sub_visible_target = 2.0
+                                _ana_sub_html_fade = 1.0
+                                _ana_sub_md_fade = 0.0
+                                _ana_exp_fade = 0.0
+                                continue
+                            elif _is_analysis_btn:
+                                # New analysis — if both boards, show picker popup
+                                if _jira_ok and _azdevops_ok:
+                                    from rich.console import Group
+                                    from rich.text import Text
+
+                                    _ana_popup_sel = 0  # 0=Jira, 1=AzDO
+                                    _ana_popup_open = True
+                                    while _ana_popup_open:
+                                        w, h = console.size
+                                        # Render a simple inline picker
+                                        _pick_lines: list = [Text("")]
+                                        _ph = Text("      Which board to analyse?", style="bold white", justify="left")
+                                        _pick_lines.append(_ph)
+                                        _pick_lines.append(Text(""))
+                                        _pb = Text("      ", justify="left")
+                                        for bi, bl in enumerate(["Jira", "Azure DevOps"]):
+                                            if bi > 0:
+                                                _pb.append("    ")
+                                            sty = "bold white" if bi == _ana_popup_sel else "dim"
+                                            _pb.append(f"[ {bl} ]", style=sty)
+                                        _pick_lines.append(_pb)
+                                        _pick_lines.append(Text(""))
+                                        import rich.box as _rbox
+                                        from rich.panel import Panel as _PickPanel
+
+                                        from scrum_agent.ui.shared._components import analysis_title as _at
+
+                                        _ana_title = _at()
+                                        live.update(
+                                            _PickPanel(
+                                                Group(_ana_title, Text(""), *_pick_lines),
+                                                border_style="white",
+                                                box=_rbox.ROUNDED,
+                                                expand=True,
+                                                height=h,
+                                                padding=(1, 2),
+                                            )
+                                        )
+                                        pk = read_key(timeout=_FRAME_TIME) if _supports_timeout else read_key()
+                                        if pk == "left":
+                                            _ana_popup_sel = 0
+                                        elif pk == "right":
+                                            _ana_popup_sel = 1
+                                        elif pk == "enter":
+                                            _team_popup_result = (
+                                                "analyse_jira" if _ana_popup_sel == 0 else "analyse_azdevops"
+                                            )
+                                            _ana_popup_open = False
+                                        elif pk in ("esc", "q"):
+                                            _ana_popup_open = False
+                                    if _team_popup_result.startswith("analyse"):
+                                        break
+                                    continue  # user pressed Esc on picker
+                                elif _jira_ok:
+                                    _team_popup_result = "analyse"
+                                else:
+                                    _team_popup_result = "analyse_azdevops"
+                                break
+                        elif key in ("esc", "q"):
+                            _restart_mode_select = True
+                            _skip_fade_in = True
+                            break
+
+                        # Animate
+                        _now = time.monotonic()
+                        _dt = _now - _ana_prev
+                        _ana_prev = _now
+                        _astep = _dt * 12.0
+                        if _ana_action_btns < _ana_action_btns_target:
+                            _ana_action_btns = min(_ana_action_btns + _astep, _ana_action_btns_target)
+                        elif _ana_action_btns > _ana_action_btns_target:
+                            _ana_action_btns = max(_ana_action_btns - _astep, _ana_action_btns_target)
+                        if _ana_sub_visible < _ana_sub_visible_target:
+                            _ana_sub_visible = min(_ana_sub_visible + _astep, _ana_sub_visible_target)
+                        elif _ana_sub_visible > _ana_sub_visible_target:
+                            _ana_sub_visible = max(_ana_sub_visible - _astep, _ana_sub_visible_target)
+                        # Delete popup animation
+                        if _ana_del_popup_t < _ana_del_popup_target:
+                            _ana_del_popup_t = min(_ana_del_popup_t + _astep * 0.5, _ana_del_popup_target)
+                        elif _ana_del_popup_t > _ana_del_popup_target:
+                            _ana_del_popup_t = max(_ana_del_popup_t - _astep * 0.5, _ana_del_popup_target)
+                        if _ana_del_popup_open:
+                            _ana_del_popup_pulse += _dt * 4.0
+                        if _ana_del_popup_flash > 0:
+                            _ana_del_popup_flash = max(0.0, _ana_del_popup_flash - _dt * 3.0)
+                            if _ana_del_popup_flash <= 0.1 and _ana_del_pending:
+                                _ana_del_popup_target = 0.0
+
+                        w, h = console.size
+                        live.update(
+                            _build_project_list_screen(
+                                [],
+                                _ana_selected,
+                                width=w,
+                                height=h,
+                                jira_enabled=_jira_ok,
+                                azdevops_enabled=_azdevops_ok,
+                                profiles=_profiles_for_analysis,
+                                new_analysis_labels=_ana_labels,
+                                profile_focus=_ana_focus,
+                                profile_del_fade=_ana_del_fade,
+                                profile_card_fade=1.0,
+                                profile_action_btns_visible=_ana_action_btns,
+                                profile_exp_fade=_ana_exp_fade,
+                                profile_export_submenu=_ana_export_submenu,
+                                profile_submenu_sel=_ana_sub_sel,
+                                profile_submenu_html_fade=_ana_sub_html_fade,
+                                profile_submenu_md_fade=_ana_sub_md_fade,
+                                profile_submenu_visible=_ana_sub_visible,
+                                delete_popup_name=_ana_del_popup_name,
+                                delete_popup_t=_ana_del_popup_t,
+                                delete_popup_pulse=_ana_del_popup_pulse,
+                                delete_popup_flash=_ana_del_popup_flash,
+                                mode="analysis",
+                            )
+                        )
+
+                    if _restart_mode_select:
+                        break  # break out of _ana_restart loop → back to mode select
+
+                    # Run team analysis (reuse Phase 3a logic)
+                    if _team_popup_result.startswith("analyse"):
+                        import threading
+
+                        from scrum_agent.team_profile import TeamProfileStore
+                        from scrum_agent.tools.team_learning import (
+                            _fetch_azdevops_history,
+                            _fetch_jira_history,
+                            _run_parallel_analysis,
+                        )
+
+                        if _team_popup_result == "analyse_jira":
+                            _ta_source = "jira"
+                        elif _team_popup_result == "analyse_azdevops":
+                            _ta_source = "azdevops"
+                        else:
+                            _ta_source = "jira" if _jira_ok else "azdevops"
+
+                        _ta_project_key = ""
+                        _ta_team_name = ""
+                        try:
+                            if _ta_source == "jira":
+                                from scrum_agent.config import get_jira_project_key
+
+                                _ta_project_key = get_jira_project_key() or ""
+                            else:
+                                from scrum_agent.config import (
+                                    get_azure_devops_project,
+                                    get_azure_devops_team,
+                                )
+
+                                _ta_project_key = get_azure_devops_project() or ""
+                                _ta_team_name = get_azure_devops_team() or ""
+                        except Exception:
+                            pass
+
+                        _ta_progress: list[str] = ["Fetching sprint history\u2026"]
+                        _ta_profile_box: list = [None]
+                        _ta_examples_box: list = [None]
+                        _ta_sprint_names_box: list = [[]]
+                        _ta_error_box: list[str] = [""]
+                        _ta_done = threading.Event()
+
+                        def _run_team_analysis_mode():
+                            try:
+                                if _ta_source == "jira":
+                                    sprint_data = _fetch_jira_history(_ta_project_key, 8)
+                                else:
+                                    sprint_data = _fetch_azdevops_history(_ta_project_key, 8)
+                                if not sprint_data:
+                                    _ta_error_box[0] = "No closed sprints found."
+                                else:
+                                    _ta_sprint_names_box[0] = [sd.get("sprint_name", "") for sd in sprint_data]
+                                    _result = _run_parallel_analysis(
+                                        _ta_source,
+                                        _ta_project_key or "unknown",
+                                        sprint_data,
+                                        _ta_progress,
+                                    )
+                                    _ta_profile_box[0] = _result[0]
+                                    _ta_examples_box[0] = _result[1]
+                            except Exception as exc:
+                                _ta_error_box[0] = str(exc)
+                            finally:
+                                _ta_done.set()
+
+                        _ta_thread_start = time.monotonic()
+                        _ta_thread = threading.Thread(
+                            target=_run_team_analysis_mode,
+                            daemon=True,
+                        )
+                        _ta_thread.start()
+
+                        _ta_anim_tick = 0.0
+                        while not _ta_done.is_set():
+                            _ta_anim_tick += _FRAME_TIME
+                            _ta_dots = int(_ta_anim_tick * 3) % 4
+                            dots_str = "." * _ta_dots + " " * (3 - _ta_dots)
+                            w, h = console.size
+                            live.update(
+                                _build_project_export_success_screen(
+                                    "\n".join(_ta_progress),
+                                    width=w,
+                                    height=h,
+                                    subtitle=f"Analysing team board{dots_str}",
+                                    hint="",
+                                )
+                            )
+                            time.sleep(_FRAME_TIME)
+                        _ta_thread.join()
+
+                        _ta_profile = _ta_profile_box[0]
+                        _ta_duration = time.monotonic() - _ta_thread_start
+                        if _ta_profile:
+                            db_dir = Path.home() / ".scrum-agent"
+                            db_dir.mkdir(parents=True, exist_ok=True)
+                            with TeamProfileStore(db_dir / "sessions.db") as store:
+                                store.save(_ta_profile, examples=_ta_examples_box[0])
+                            try:
+                                from scrum_agent.team_profile_exporter import write_analysis_log
+
+                                write_analysis_log(
+                                    _ta_profile,
+                                    examples=_ta_examples_box[0],
+                                    sprint_names=_ta_sprint_names_box[0],
+                                    duration_secs=_ta_duration,
+                                )
+                            except Exception:
+                                pass
+
+                            # Show results
+                            from scrum_agent.ui.mode_select.screens._screens_secondary import (
+                                _build_team_analysis_screen,
+                            )
+
+                            _ta_scroll = 0
+                            _ta_export_sel = 2
+                            _ta_examples = _ta_examples_box[0] or {}
+                            _ta_sprint_names = _ta_sprint_names_box[0]
+                            while True:
+                                kk = read_key(timeout=_FRAME_TIME) if _supports_timeout else read_key()
+                                if kk in ("up", "scroll_up"):
+                                    _ta_scroll = max(0, _ta_scroll - 1)
+                                elif kk in ("down", "scroll_down"):
+                                    _ta_scroll += 1
+                                elif kk == "left":
+                                    _ta_export_sel = max(0, _ta_export_sel - 1)
+                                elif kk == "right":
+                                    _ta_export_sel = min(2, _ta_export_sel + 1)
+                                elif kk == "enter" or kk == " ":
+                                    if _ta_export_sel == 2:
+                                        break
+                                    if _ta_export_sel == 0:
+                                        from scrum_agent.team_profile_exporter import export_team_profile_html
+
+                                        _ep = export_team_profile_html(
+                                            _ta_profile,
+                                            examples=_ta_examples,
+                                            sprint_names=_ta_sprint_names,
+                                        )
+                                    else:
+                                        from scrum_agent.team_profile_exporter import export_team_profile_md
+
+                                        _ep = export_team_profile_md(
+                                            _ta_profile,
+                                            examples=_ta_examples,
+                                            sprint_names=_ta_sprint_names,
+                                        )
+                                    w, h = console.size
+                                    live.update(
+                                        _build_project_export_success_screen(
+                                            str(_ep),
+                                            width=w,
+                                            height=h,
+                                            subtitle="Team profile exported",
+                                        )
+                                    )
+                                    _et = time.monotonic()
+                                    while True:
+                                        ek = read_key(timeout=_FRAME_TIME) if _supports_timeout else read_key()
+                                        if time.monotonic() - _et > 1.5 and ek:
+                                            break
+                                elif kk in ("esc", "q"):
+                                    break
+                                w, h = console.size
+                                live.update(
+                                    _build_team_analysis_screen(
+                                        _ta_profile,
+                                        scroll_offset=_ta_scroll,
+                                        width=w,
+                                        height=h,
+                                        export_sel=_ta_export_sel,
+                                        examples=_ta_examples,
+                                        sprint_names=_ta_sprint_names,
+                                        team_name=_ta_team_name,
+                                    )
+                                )
+                        elif _ta_error_box[0]:
+                            w, h = console.size
+                            live.update(
+                                _build_project_export_success_screen(
+                                    _ta_error_box[0],
+                                    width=w,
+                                    height=h,
+                                    subtitle="Analysis failed",
+                                    hint="Press any key to continue.",
+                                )
+                            )
+                            while True:
+                                k = read_key(timeout=_FRAME_TIME) if _supports_timeout else read_key()
+                                if k:
+                                    break
+
+                        # Reload profiles and restart analysis list
+                        try:
+                            from datetime import UTC, datetime
+
+                            from scrum_agent.team_profile import TeamProfileStore
+
+                            _tp_db = Path.home() / ".scrum-agent" / "sessions.db"
+                            if _tp_db.exists():
+                                with TeamProfileStore(_tp_db) as _tp_s:
+                                    _raw2 = _tp_s.list_profiles()
+                                _profiles_for_analysis = []
+                                for _rp in _raw2:
+                                    days = 0
+                                    if _rp.updated_at:
+                                        try:
+                                            _up = datetime.fromisoformat(_rp.updated_at)
+                                            days = (datetime.now(UTC) - _up).days
+                                        except Exception:
+                                            pass
+                                    _profiles_for_analysis.append(
+                                        ProfileSummary(
+                                            team_id=_rp.team_id,
+                                            source=_rp.source,
+                                            project_key=_rp.project_key,
+                                            sample_sprints=_rp.sample_sprints,
+                                            velocity_avg=_rp.velocity_avg,
+                                            sample_stories=_rp.sample_stories,
+                                            updated="today"
+                                            if days == 0
+                                            else (f"{days} day{'s' if days != 1 else ''} ago"),
+                                            staleness_days=days,
+                                        )
+                                    )
+                        except Exception:
+                            pass
+                        _ana_n = len(_profiles_for_analysis) + len(_ana_labels)
+                        _ana_selected = 0
+                        _ana_restart = True
+                        _team_popup_result = ""
+                        continue
+
+                    # Esc from analysis list → back to mode select
+                    _restart_mode_select = True
+                    _skip_fade_in = True
+
+                # Always return to mode select after analysis mode exits
+                continue
+
             # 2d: Smooth fade-in — all cards appear together, opacity 0→1
             # See README: "Memory & State" — load persisted project history
             from scrum_agent.persistence import load_projects as _load_projects
@@ -271,6 +988,37 @@ def select_mode(
             _azdevops_ok = _azdevops_check()
             # Submenu has HTML(0), Markdown(1), then tracker buttons dynamically
             _submenu_max = 1 + (1 if _jira_ok else 0) + (1 if _azdevops_ok else 0)
+
+            # Check team profile staleness for the popup on "+ New Project"
+            _board_configured = _jira_ok or _azdevops_ok
+            _staleness_days: int | None = None
+            if _board_configured:
+                try:
+                    from scrum_agent.team_profile import TeamProfileStore
+
+                    _tp_db = Path.home() / ".scrum-agent" / "sessions.db"
+                    if _tp_db.exists():
+                        with TeamProfileStore(_tp_db) as _tp_store:
+                            _tp_profiles = _tp_store.list_profiles()
+                        if _tp_profiles:
+                            from datetime import UTC
+                            from datetime import datetime as _dt
+
+                            _latest = _tp_profiles[0]
+                            if _latest.updated_at:
+                                try:
+                                    _up = _dt.fromisoformat(_latest.updated_at)
+                                    _staleness_days = (_dt.now(UTC) - _up).days
+                                except Exception:
+                                    pass
+                except Exception:
+                    pass
+            logger.debug(
+                "Board config: jira=%s, azdevops=%s, staleness_days=%s",
+                _jira_ok,
+                _azdevops_ok,
+                _staleness_days,
+            )
 
             # Staggered vertical reveal — cards pop in one by one, fast.
             _reveal_target = float(proj_n)
@@ -324,6 +1072,7 @@ def select_mode(
                 exp_fade_target = 0.0
                 card_fade_target = 1.0
                 fade_speed = 6.0  # units per second — full transition ≈ 0.17s
+
                 _is_project_row = lambda: projects and proj_selected < len(projects)  # noqa: E731
 
                 # Action buttons (Delete/Export) stagger-reveal on the selected row
@@ -353,6 +1102,15 @@ def select_mode(
                 delete_popup_pulse = 0.0  # sine-wave phase for red pulsing
                 delete_popup_flash = 0.0  # white flash on confirm (1→0 decay)
                 _delete_pending = False  # True after Enter confirm, delete after slide-out
+
+                # Team analysis popup state — staleness prompt when profile >30d old
+                team_popup_open = False
+                team_popup_t = 0.0
+                team_popup_target = 0.0
+                team_popup_sel = 0  # 0 = Yes Analyse, 1 = Skip
+                team_popup_pulse = 0.0
+                _team_popup_result = ""  # "analyse" or "skip"
+                _team_popup_msg = ""  # dynamic staleness message
 
                 prev_tick = time.monotonic()
 
@@ -543,6 +1301,34 @@ def select_mode(
                             submenu_azdevops_fade_target = 0.0
                             exp_fade_target = 1.0  # restore Export highlight
 
+                    # ── Team analysis popup mode ──────────────────────────────
+                    # Button selector: Left/Right navigates, Enter confirms.
+                    # When both boards configured: [Jira] [AzDO] [Skip] (3 buttons)
+                    # When one board configured:   [Yes, Analyse] [Skip] (2 buttons)
+                    elif team_popup_open:
+                        _both_boards = _jira_ok and _azdevops_ok
+                        _popup_btn_count = 3 if _both_boards else 2
+                        if key == "left":
+                            team_popup_sel = max(0, team_popup_sel - 1)
+                        elif key == "right":
+                            team_popup_sel = min(_popup_btn_count - 1, team_popup_sel + 1)
+                        elif key == "enter":
+                            if _both_boards:
+                                # 0=Jira, 1=AzDO, 2=Skip
+                                if team_popup_sel == 0:
+                                    _team_popup_result = "analyse_jira"
+                                elif team_popup_sel == 1:
+                                    _team_popup_result = "analyse_azdevops"
+                                else:
+                                    _team_popup_result = "skip"
+                            else:
+                                # 0=Yes, 1=Skip
+                                _team_popup_result = "analyse" if team_popup_sel == 0 else "skip"
+                            team_popup_target = 0.0  # slide out
+                        elif key in ("esc", "q"):
+                            _team_popup_result = "skip"
+                            team_popup_target = 0.0
+
                     # ── Delete popup mode ─────────────────────────────────────
                     # When the popup is open, Enter confirms delete, Esc dismisses.
                     # All other keys are ignored so the user can't navigate away.
@@ -564,7 +1350,7 @@ def select_mode(
                         focus = 0
                         del_fade_target = 0.0
                         exp_fade_target = 0.0
-                        card_fade = 0.0  # reset so it fades in on the new card
+                        card_fade = 0.0
                         card_fade_target = 1.0
                         action_btns_visible = 0.0
                         action_btns_visible_target = 2.0 if _is_project_row() else 0.0
@@ -587,7 +1373,6 @@ def select_mode(
                             card_fade_target = 1.0
                             action_btns_visible = 0.0
                             action_btns_visible_target = 2.0 if _is_project_row() else 0.0
-                        # Update fade targets based on new focus
                         del_fade_target = 1.0 if focus == 1 else 0.0
                         exp_fade_target = 1.0 if focus == 2 else 0.0
                     elif key == "right":
@@ -619,14 +1404,26 @@ def select_mode(
                             submenu_md_fade_target = 0.0
                             exp_fade_target = 0.0  # grey out Export while submenu is active
 
-                        # ── Focus 0: Card (open project / new project) ────
-                        elif not projects:
-                            # Pulse flash before transitioning
-                            pulse = 1.0
-                            break  # → intake mode selection
-                        elif proj_selected == len(projects):
-                            pulse = 1.0
-                            break  # → intake mode selection
+                        # ── Focus 0: Card (empty state / new project) ────
+                        elif not projects or proj_selected == len(projects):
+                            # Check freshness — show popup only if stale (>30d) or missing
+                            _profile_fresh = _staleness_days is not None and _staleness_days <= 30
+                            if _board_configured and not team_popup_open and not _profile_fresh:
+                                # Build dynamic staleness message
+                                if _staleness_days is not None:
+                                    _team_popup_msg = (
+                                        f"Your team analysis is {_staleness_days} days old. Re-analyse before planning?"
+                                    )
+                                else:
+                                    _team_popup_msg = "No team analysis found. Analyse your board before planning?"
+                                team_popup_open = True
+                                team_popup_target = 1.0
+                                team_popup_sel = 0
+                                team_popup_pulse = 0.0
+                                _team_popup_result = ""
+                            else:
+                                pulse = 1.0
+                                break  # → intake mode selection
                         else:
                             # White pulse flash on selected card before opening
                             pulse = 1.0
@@ -831,6 +1628,26 @@ def select_mode(
                     elif submenu_azdevops_fade > submenu_azdevops_fade_target:
                         submenu_azdevops_fade = max(submenu_azdevops_fade - step, submenu_azdevops_fade_target)
 
+                    # Team analysis popup slide animation
+                    if team_popup_t < team_popup_target:
+                        team_popup_t = min(team_popup_t + step, team_popup_target)
+                    elif team_popup_t > team_popup_target:
+                        team_popup_t = max(team_popup_t - step, team_popup_target)
+
+                    if team_popup_open and team_popup_t > 0:
+                        team_popup_pulse += dt
+                    elif team_popup_t <= 0:
+                        team_popup_pulse = 0.0
+
+                    # When team popup finishes sliding out, resolve the result.
+                    if team_popup_open and team_popup_target == 0.0 and team_popup_t <= 0:
+                        team_popup_open = False
+                        if _team_popup_result.startswith("analyse"):
+                            break
+                        # "skip" falls through to normal intake
+                        pulse = 1.0
+                        break  # → intake mode selection
+
                     # Delete popup slide animation
                     if delete_popup_t < delete_popup_target:
                         delete_popup_t = min(delete_popup_t + step, delete_popup_target)
@@ -912,6 +1729,10 @@ def select_mode(
                             delete_popup_t=delete_popup_t,
                             delete_popup_pulse=delete_popup_pulse,
                             delete_popup_flash=delete_popup_flash,
+                            team_popup_t=team_popup_t,
+                            team_popup_sel=team_popup_sel,
+                            team_popup_pulse=team_popup_pulse,
+                            team_popup_message=_team_popup_msg,
                             jira_enabled=_jira_ok,
                             azdevops_enabled=_azdevops_ok,
                         )
@@ -920,6 +1741,248 @@ def select_mode(
                 # Guard: Esc from project list sets _restart_mode_select → skip to outer loop
                 if _restart_mode_select:
                     break
+
+                # ── Phase 3a: Team analysis (if user selected "Analyse") ──────────
+                if _team_popup_result.startswith("analyse"):
+                    import threading
+
+                    from scrum_agent.team_profile import TeamProfileStore
+                    from scrum_agent.tools.team_learning import (
+                        _fetch_azdevops_history,
+                        _fetch_jira_history,
+                        _run_parallel_analysis,
+                    )
+
+                    # Determine source from popup result
+                    if _team_popup_result == "analyse_jira":
+                        _ta_source = "jira"
+                    elif _team_popup_result == "analyse_azdevops":
+                        _ta_source = "azdevops"
+                    else:
+                        _ta_source = "jira" if _jira_ok else "azdevops"
+                    _ta_project_key = ""
+                    _ta_team_name = ""
+                    try:
+                        if _ta_source == "jira":
+                            from scrum_agent.config import get_jira_project_key
+
+                            _ta_project_key = get_jira_project_key() or ""
+                        else:
+                            from scrum_agent.config import (
+                                get_azure_devops_project,
+                                get_azure_devops_team,
+                            )
+
+                            _ta_project_key = get_azure_devops_project() or ""
+                            _ta_team_name = get_azure_devops_team() or ""
+                    except Exception:
+                        pass
+
+                    _ta_progress: list[str] = ["Fetching sprint history\u2026"]
+                    _ta_profile_box: list = [None]
+                    _ta_examples_box: list = [None]
+                    _ta_sprint_names_box: list = [[]]
+                    _ta_error_box: list[str] = [""]
+                    _ta_done = threading.Event()
+
+                    def _run_team_analysis():
+                        try:
+                            if _ta_source == "jira":
+                                sprint_data = _fetch_jira_history(_ta_project_key, 8)
+                            else:
+                                sprint_data = _fetch_azdevops_history(_ta_project_key, 8)
+                            if not sprint_data:
+                                _ta_error_box[0] = "No closed sprints found."
+                            else:
+                                _ta_sprint_names_box[0] = [sd.get("sprint_name", "") for sd in sprint_data]
+                                _result = _run_parallel_analysis(
+                                    _ta_source, _ta_project_key or "unknown", sprint_data, _ta_progress
+                                )
+                                _ta_profile_box[0] = _result[0]
+                                _ta_examples_box[0] = _result[1]
+                        except Exception as exc:
+                            _ta_error_box[0] = str(exc)
+                        finally:
+                            _ta_done.set()
+
+                    logger.info(
+                        "Starting team analysis: source=%s, project=%s",
+                        _ta_source,
+                        _ta_project_key,
+                    )
+                    _ta_thread_start = time.monotonic()
+                    _ta_thread = threading.Thread(target=_run_team_analysis, daemon=True)
+                    _ta_thread.start()
+
+                    # Processing animation while waiting
+                    _ta_anim_tick = 0.0
+                    _ta_dots = 0
+                    while not _ta_done.is_set():
+                        _ta_anim_tick += _FRAME_TIME
+                        _ta_dots = int(_ta_anim_tick * 3) % 4
+                        dots_str = "." * _ta_dots + " " * (3 - _ta_dots)
+                        w, h = console.size
+                        live.update(
+                            _build_project_export_success_screen(
+                                "\n".join(_ta_progress),
+                                width=w,
+                                height=h,
+                                subtitle=f"Analysing team board{dots_str}",
+                                hint="",
+                            )
+                        )
+                        time.sleep(_FRAME_TIME)
+                    _ta_thread.join()
+
+                    _ta_profile = _ta_profile_box[0]
+                    _ta_duration = time.monotonic() - _ta_thread_start
+                    if _ta_profile:
+                        logger.info(
+                            "Analysis complete: %s — %d sprints, %d stories (%.1fs)",
+                            _ta_profile.team_id,
+                            _ta_profile.sample_sprints,
+                            _ta_profile.sample_stories,
+                            _ta_duration,
+                        )
+
+                        # Save the fresh profile
+                        db_dir = Path.home() / ".scrum-agent"
+                        db_dir.mkdir(parents=True, exist_ok=True)
+                        with TeamProfileStore(db_dir / "sessions.db") as store:
+                            store.save(_ta_profile, examples=_ta_examples_box[0])
+                        logger.info("Profile saved to %s/sessions.db", db_dir)
+
+                        # Write structured analysis log to ~/.scrum-agent/logs/
+                        try:
+                            from scrum_agent.team_profile_exporter import write_analysis_log
+
+                            _log_path = write_analysis_log(
+                                _ta_profile,
+                                examples=_ta_examples_box[0],
+                                sprint_names=_ta_sprint_names_box[0],
+                                duration_secs=_ta_duration,
+                            )
+                            logger.info("Analysis log: %s", _log_path)
+                        except Exception as _log_exc:
+                            logger.warning("Failed to write analysis log: %s", _log_exc)
+
+                        # Show results screen
+                        from scrum_agent.ui.mode_select.screens._screens_secondary import (
+                            _build_team_analysis_screen,
+                        )
+
+                        _ta_scroll = 0
+                        _ta_export_sel = 2  # 0=HTML, 1=Markdown, 2=Continue (default Continue)
+                        _ta_export_fade = 0.0
+                        _ta_export_fade_target = 0.0
+
+                        _ta_examples = _ta_examples_box[0] or {}
+                        _ta_sprint_names = _ta_sprint_names_box[0]
+
+                        # Initial render before waiting for input
+                        w, h = console.size
+                        live.update(
+                            _build_team_analysis_screen(
+                                _ta_profile,
+                                scroll_offset=_ta_scroll,
+                                width=w,
+                                height=h,
+                                export_sel=_ta_export_sel,
+                                examples=_ta_examples,
+                                sprint_names=_ta_sprint_names,
+                                team_name=_ta_team_name,
+                            )
+                        )
+
+                        while True:
+                            key = read_key(timeout=_FRAME_TIME) if _supports_timeout else read_key()
+
+                            if key in ("up", "scroll_up"):
+                                _ta_scroll = max(0, _ta_scroll - 1)
+                            elif key in ("down", "scroll_down"):
+                                _ta_scroll += 1
+                            elif key == "left":
+                                _ta_export_sel = max(0, _ta_export_sel - 1)
+                            elif key == "right":
+                                _ta_export_sel = min(2, _ta_export_sel + 1)
+                            elif key == "enter" or key == " ":
+                                if _ta_export_sel == 0:
+                                    from scrum_agent.team_profile_exporter import export_team_profile_html
+
+                                    _exp_path = export_team_profile_html(
+                                        _ta_profile,
+                                        examples=_ta_examples,
+                                        sprint_names=_ta_sprint_names,
+                                    )
+                                    w, h = console.size
+                                    live.update(
+                                        _build_project_export_success_screen(
+                                            str(_exp_path),
+                                            width=w,
+                                            height=h,
+                                            subtitle="Team profile exported",
+                                        )
+                                    )
+                                    _exp_t0 = time.monotonic()
+                                    while True:
+                                        k = read_key(timeout=_FRAME_TIME) if _supports_timeout else read_key()
+                                        if time.monotonic() - _exp_t0 > 1.5 and k:
+                                            break
+                                elif _ta_export_sel == 1:
+                                    from scrum_agent.team_profile_exporter import export_team_profile_md
+
+                                    _exp_path = export_team_profile_md(
+                                        _ta_profile,
+                                        examples=_ta_examples,
+                                        sprint_names=_ta_sprint_names,
+                                    )
+                                    w, h = console.size
+                                    live.update(
+                                        _build_project_export_success_screen(
+                                            str(_exp_path),
+                                            width=w,
+                                            height=h,
+                                            subtitle="Team profile exported",
+                                        )
+                                    )
+                                    _exp_t0 = time.monotonic()
+                                    while True:
+                                        k = read_key(timeout=_FRAME_TIME) if _supports_timeout else read_key()
+                                        if time.monotonic() - _exp_t0 > 1.5 and k:
+                                            break
+                                else:
+                                    break  # Continue → intake
+                            elif key in ("esc", "q"):
+                                break
+
+                            w, h = console.size
+                            live.update(
+                                _build_team_analysis_screen(
+                                    _ta_profile,
+                                    scroll_offset=_ta_scroll,
+                                    width=w,
+                                    height=h,
+                                    export_sel=_ta_export_sel,
+                                    examples=_ta_examples,
+                                    sprint_names=_ta_sprint_names,
+                                    team_name=_ta_team_name,
+                                )
+                            )
+                    elif _ta_error_box[0]:
+                        w, h = console.size
+                        live.update(
+                            _build_project_export_success_screen(
+                                _ta_error_box[0],
+                                width=w,
+                                height=h,
+                                subtitle="Analysis failed",
+                                hint="Press any key to continue.",
+                            )
+                        )
+                        while True:
+                            k = read_key(timeout=_FRAME_TIME) if _supports_timeout else read_key()
+                            if k:
+                                break
 
                 # ── Phase 3b: Transition to intake mode selection ─────────────────
                 # Show title + new subtitle, then stagger-reveal intake options.

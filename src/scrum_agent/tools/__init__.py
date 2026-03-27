@@ -85,6 +85,7 @@ def get_tools() -> list[BaseTool]:
         jira_read_board,
     )
     from scrum_agent.tools.llm_tools import estimate_complexity, generate_acceptance_criteria
+    from scrum_agent.tools.team_learning import analyze_team_history, compare_plan_to_actuals
 
     return [
         github_read_repo,
@@ -117,4 +118,6 @@ def get_tools() -> list[BaseTool]:
         confluence_read_space,
         confluence_create_page,
         confluence_update_page,
+        analyze_team_history,
+        compare_plan_to_actuals,
     ]

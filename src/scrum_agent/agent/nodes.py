@@ -1583,6 +1583,103 @@ def _load_user_context(path: str | None = None, docs_dir: str | None = None) -> 
         return None, {"name": "User context", "status": "error", "detail": str(e)[:80]}
 
 
+def _load_team_profile() -> object | None:
+    """Load the team profile from SQLite if one exists for the configured tracker.
+
+    # See README: "Scrum Standards" — team learning, self-calibrating estimates
+    #
+    # Checks both Jira and AzDO project keys against the team_profiles table.
+    # Returns the TeamProfile if found, or None. Non-fatal — never raises.
+
+    Returns:
+        A TeamProfile instance or None.
+    """
+    try:
+        from pathlib import Path
+
+        from scrum_agent.team_profile import TeamProfileStore
+
+        db_path = Path.home() / ".scrum-agent" / "sessions.db"
+        if not db_path.exists():
+            return None
+
+        with TeamProfileStore(db_path) as store:
+            # Try Jira first
+            try:
+                from scrum_agent.config import get_jira_project_key
+
+                jira_key = get_jira_project_key()
+                if jira_key:
+                    profile = store.load_by_project(jira_key, "jira")
+                    if profile:
+                        logger.debug("Loaded team profile for jira/%s", jira_key)
+                        return profile
+            except Exception:
+                pass
+
+            # Try AzDO
+            try:
+                from scrum_agent.config import get_azdevops_project
+
+                azdevops_project = get_azdevops_project()
+                if azdevops_project:
+                    profile = store.load_by_project(azdevops_project, "azdevops")
+                    if profile:
+                        logger.debug("Loaded team profile for azdevops/%s", azdevops_project)
+                        return profile
+            except Exception:
+                pass
+
+        return None
+    except Exception:
+        logger.debug("Team profile load failed (non-fatal)", exc_info=True)
+        return None
+
+
+def _load_team_examples() -> dict | None:
+    """Load the examples dict for the team profile from SQLite.
+
+    Companion to ``_load_team_profile()`` — loads the ``examples_json`` column
+    so that ``_format_team_calibration`` can inject analysis data (spillover
+    correlation, discipline calibration, task patterns, scope changes, etc.)
+    that lives in the examples dict rather than the TeamProfile dataclass.
+    """
+    try:
+        from pathlib import Path
+
+        from scrum_agent.team_profile import TeamProfileStore
+
+        db_path = Path.home() / ".scrum-agent" / "sessions.db"
+        if not db_path.exists():
+            return None
+
+        with TeamProfileStore(db_path) as store:
+            try:
+                from scrum_agent.config import get_jira_project_key
+
+                jira_key = get_jira_project_key()
+                if jira_key:
+                    _, ex = store.load_with_examples(f"jira-{jira_key}")
+                    if ex:
+                        return ex
+            except Exception:
+                pass
+            try:
+                from scrum_agent.config import get_azdevops_project
+
+                azdevops_project = get_azdevops_project()
+                if azdevops_project:
+                    _, ex = store.load_with_examples(f"azdevops-{azdevops_project}")
+                    if ex:
+                        return ex
+            except Exception:
+                pass
+
+        return None
+    except Exception:
+        return None
+
+
 def _extract_confluence_page_ids(text: str) -> list[str]:
     """Extract Confluence page IDs from URLs found in free-form text (e.g. SCRUM.md).
 
@@ -4642,6 +4739,13 @@ def project_analyzer(state: ScrumState) -> dict:
         "CONFLUENCE: result status=%s detail=%s", confluence_status.get("status"), confluence_status.get("detail")
     )
 
+    # Load team profile for calibration-aware analysis.
+    # Non-fatal — if no profile exists, the prompt runs without calibration context.
+    # See README: "Scrum Standards" — team learning, self-calibrating estimates
+    team_profile = _load_team_profile()
+    team_calibration_text = _format_team_calibration(team_profile, examples=_load_team_examples())
+    team_profile_summary = team_calibration_text.strip()
+
     # Build the formatted answers block for the prompt
     answers_block = _build_answers_block(questionnaire)
     prompt = get_analyzer_prompt(
@@ -4651,6 +4755,7 @@ def project_analyzer(state: ScrumState) -> dict:
         repo_context=repo_context,
         confluence_context=confluence_context,
         user_context=user_context,
+        team_profile_summary=team_profile_summary,
         review_feedback=review_feedback if review_mode else None,
         review_mode=review_mode,
         previous_output=previous_output,
@@ -5034,6 +5139,311 @@ def _format_features_for_prompt(features: list[Feature]) -> str:
         lines.append(f"**{feature.id}: {feature.title}** (Priority: {feature.priority.value})")
         lines.append(f"  {feature.description}")
         lines.append("")
+    return "\n".join(lines)
+
+
+def _format_team_calibration(profile: object, *, examples: dict | None = None) -> str:
+    """Render a TeamProfile into prompt-ready calibration text.
+
+    # See README: "Scrum Standards" — team learning, self-calibrating estimates
+    #
+    # Injected into story_writer and sprint_planner prompts so the LLM uses
+    # team-specific patterns instead of generic Fibonacci rules. The profile
+    # is passed as `object` to avoid importing TeamProfile (circular import risk).
+    # The optional ``examples`` dict provides analysis data (spillover
+    # correlation, discipline calibration, task patterns, scope changes) that
+    # lives outside the TeamProfile dataclass.
+
+    Args:
+        profile: A TeamProfile instance (from team_profile.py).
+        examples: Optional analysis examples dict from TeamProfileStore.
+
+    Returns:
+        A formatted markdown section, or "" if the profile has no useful data.
+    """
+    if profile is None:
+        return ""
+
+    sample_sprints = getattr(profile, "sample_sprints", 0)
+    sample_stories = getattr(profile, "sample_stories", 0)
+    if sample_sprints == 0:
+        return ""
+
+    lines = [
+        f"\n## Team Calibration Data (from {sample_sprints} sprints, {sample_stories} stories)\n",
+    ]
+
+    # Point calibrations with confidence levels
+    calibrations = getattr(profile, "point_calibrations", ())
+    if calibrations:
+        lines.append("### What story points mean for THIS team:\n")
+        for cal in calibrations:
+            if cal.sample_count > 0:
+                patterns = ", ".join(cal.common_patterns) if cal.common_patterns else ""
+                pattern_note = f' — typically "{patterns}"' if patterns else ""
+                overshoot_note = f", overshoots {cal.overshoot_pct:.0f}% of time" if cal.overshoot_pct > 10 else ""
+                # Confidence scoring based on sample size
+                if cal.sample_count >= 15:
+                    conf = " **(HIGH confidence)**"
+                elif cal.sample_count >= 5:
+                    conf = " *(medium confidence)*"
+                else:
+                    conf = " *(low confidence — few samples, use cautiously)*"
+                lines.append(
+                    f"- **{cal.point_value} pt**: avg {cal.avg_cycle_time_days:.1f} day cycle time, "
+                    f"~{cal.typical_task_count:.0f} tasks ({cal.sample_count} samples)"
+                    f"{pattern_note}{overshoot_note}{conf}"
+                )
+        lines.append("")
+
+    # Story shapes with discipline-specific guidance
+    shapes = getattr(profile, "story_shapes", ())
+    if shapes:
+        lines.append("### Story shape patterns by discipline:\n")
+        for shape in shapes:
+            if shape.sample_count > 0:
+                if shape.sample_count >= 15:
+                    conf = " **(reliable)**"
+                elif shape.sample_count >= 5:
+                    conf = ""
+                else:
+                    conf = " *(few samples)*"
+                lines.append(
+                    f"- **{shape.discipline}** stories: avg {shape.avg_points:.1f} pts, "
+                    f"{shape.avg_ac_count:.0f} ACs, {shape.avg_task_count:.1f} tasks "
+                    f"({shape.sample_count} samples){conf}"
+                )
+        lines.append("")
+
+    # Velocity with trend context
+    vel_avg = getattr(profile, "velocity_avg", 0)
+    vel_std = getattr(profile, "velocity_stddev", 0)
+    if vel_avg > 0:
+        var_pct = vel_std / vel_avg * 100 if vel_avg else 0
+        stability = "stable" if var_pct < 20 else ("moderate variance" if var_pct < 35 else "HIGH variance")
+        lines.append(f"### Velocity: {vel_avg:.0f} ± {vel_std:.0f} pts/sprint ({stability})\n")
+
+    # Sprint completion
+    completion = getattr(profile, "sprint_completion_rate", 0)
+    if completion > 0:
+        lines.append(f"### Sprint completion rate: {completion:.0f}%")
+        if completion < 70:
+            lines.append("**WARNING:** Low completion rate — plan conservatively, target 80% of historical velocity.\n")
+        else:
+            lines.append("")
+
+    # Spillover with root-cause hints
+    spillover = getattr(profile, "spillover", None)
+    if spillover and getattr(spillover, "carried_over_pct", 0) > 0:
+        pct = spillover.carried_over_pct
+        lines.append(
+            f"### Spillover: {pct:.0f}% of stories "
+            f"carried to next sprint (avg {spillover.avg_spillover_pts:.1f} pts/sprint)"
+        )
+        if spillover.most_common_spillover_reason:
+            lines.append(f"- Most common cause: {spillover.most_common_spillover_reason}")
+        # Actionable guidance based on spillover severity
+        if pct > 20:
+            lines.append(
+                "- **High spillover — split stories aggressively.** "
+                "Prefer 2-3pt stories over 5-8pt. Add buffer for unknowns.\n"
+            )
+        elif pct > 10:
+            lines.append(
+                "- **Moderate spillover — be cautious with large stories.** "
+                "Consider splitting 8pt stories into smaller pieces.\n"
+            )
+        else:
+            lines.append("")
+
+    # Estimation accuracy
+    accuracy = getattr(profile, "estimation_accuracy_pct", 0)
+    if accuracy > 0:
+        lines.append(f"### Estimation accuracy: {accuracy:.0f}% of stories completed at original estimate")
+        if accuracy < 60:
+            lines.append("- Estimates are frequently wrong — add explicit unknowns/risks to ACs.\n")
+        else:
+            lines.append("")
+
+    # Epic patterns
+    epic = getattr(profile, "epic_pattern", None)
+    if epic and getattr(epic, "sample_count", 0) > 0:
+        lines.append(
+            f"### Epic sizing: avg {epic.avg_stories_per_epic:.0f} stories/epic, "
+            f"{epic.avg_points_per_epic:.0f} pts/epic "
+            f"(range {epic.typical_story_count_range[0]}–{epic.typical_story_count_range[1]} stories)\n"
+        )
+
+    # Definition of Done signals
+    dod = getattr(profile, "dod_signal", None)
+    if dod:
+        pr_pct = getattr(dod, "stories_with_pr_link_pct", 0)
+        review_pct = getattr(dod, "stories_with_review_mention_pct", 0)
+        test_pct = getattr(dod, "stories_with_testing_mention_pct", 0)
+        deploy_pct = getattr(dod, "stories_with_deploy_mention_pct", 0)
+        if pr_pct > 0 or review_pct > 0:
+            lines.append("### Definition of Done (observed behaviour):\n")
+            if pr_pct > 0:
+                lines.append(f"- PR linked before close: {pr_pct:.0f}% of stories")
+            if review_pct > 0:
+                lines.append(f"- Code review mentioned: {review_pct:.0f}% of stories")
+            if test_pct > 0:
+                lines.append(f"- Testing mentioned: {test_pct:.0f}% of stories")
+            if deploy_pct > 0:
+                lines.append(f"- Deploy/release mentioned: {deploy_pct:.0f}% of stories")
+            checklist = getattr(dod, "common_checklist_items", ())
+            if checklist:
+                items = ", ".join(f'"{c}"' for c in checklist[:4])
+                lines.append(f"- Common checklist items: {items}")
+            lines.append(
+                "\nWhen generating tasks, include steps that match this team's "
+                "DoD pattern (e.g. code review, testing, PR).\n"
+            )
+
+    # Writing patterns
+    wp = getattr(profile, "writing_patterns", None)
+    if wp:
+        gwt = getattr(wp, "uses_given_when_then", False)
+        median_ac = getattr(wp, "median_ac_count", 0)
+        median_tasks = getattr(wp, "median_task_count_per_story", 0)
+        personas = getattr(wp, "common_personas", ())
+        if gwt or median_ac > 0 or personas:
+            lines.append("### Writing patterns (match this team's style):\n")
+            if gwt:
+                lines.append("- Acceptance criteria use Given/When/Then format")
+            if median_ac > 0:
+                lines.append(f"- Median acceptance criteria per story: {median_ac:.0f}")
+            if median_tasks > 0:
+                lines.append(f"- Median tasks per story: {median_tasks:.0f}")
+            if personas:
+                lines.append(f"- Common personas: {', '.join(personas[:5])}")
+            lines.append("")
+
+    # ── Sections from examples dict (analysis data not in TeamProfile) ──
+    _ex = examples or {}
+
+    # 1A: Spillover correlation — which sizes/disciplines spill most
+    spill_corr = _ex.get("spillover_correlation", {})
+    if isinstance(spill_corr, dict):
+        by_size = spill_corr.get("by_size", {})
+        by_disc = spill_corr.get("by_discipline", {})
+        if by_size or by_disc:
+            lines.append("### Spillover risk factors:\n")
+            for sz in sorted(by_size.keys(), key=lambda x: int(x)):
+                pct = by_size[sz]
+                if pct > 0:
+                    risk = " ⚠ HIGH RISK" if pct >= 30 else ""
+                    lines.append(f"- {sz}pt stories spill {pct:.0f}% of the time{risk}")
+            for disc, pct in sorted(by_disc.items(), key=lambda x: -x[1]):
+                if pct > 0:
+                    lines.append(f"- {disc} stories spill {pct:.0f}%")
+            # Actionable guidance
+            high_spill_sizes = [sz for sz, p in by_size.items() if p >= 25]
+            if high_spill_sizes:
+                sizes = ", ".join(f"{s}pt" for s in sorted(high_spill_sizes, key=int))
+                lines.append(f"\n→ {sizes} stories are spill-prone. Prefer smaller slices.\n")
+            else:
+                lines.append("")
+
+    # 1B: Velocity trend — improving/degrading/stable
+    vel_trend = _ex.get("velocity_trend", {})
+    if isinstance(vel_trend, dict) and vel_trend.get("trend"):
+        trend = vel_trend["trend"]
+        slope = vel_trend.get("slope", 0)
+        first_v = vel_trend.get("first_velocity", 0)
+        last_v = vel_trend.get("last_velocity", 0)
+        if trend not in ("insufficient_data", ""):
+            lines.append(f"### Velocity trend: {trend.upper()} ({first_v}→{last_v}, {slope:+.1f}/sprint)\n")
+            if trend == "degrading":
+                lines.append(
+                    f"→ Velocity is declining. Plan using recent velocity ({last_v} pts), "
+                    "not the average. Investigate root causes.\n"
+                )
+            elif trend == "improving":
+                lines.append(
+                    f"→ Velocity is improving. Recent sprints deliver {last_v} pts. "
+                    "Can plan slightly above the historical average.\n"
+                )
+
+    # 1C: Discipline-specific calibration
+    disc_cal = _ex.get("discipline_calibration", {})
+    if isinstance(disc_cal, dict) and len(disc_cal) > 1:
+        lines.append("### Discipline calibration:\n")
+        for disc, entries in sorted(disc_cal.items()):
+            if not isinstance(entries, list):
+                continue
+            for e in entries:
+                if not isinstance(e, dict):
+                    continue
+                pts = e.get("points", 0)
+                cycle = e.get("avg_cycle_days", 0)
+                spill = e.get("spill_pct", 0)
+                samples = e.get("samples", 0)
+                conf = "reliable" if samples >= 10 else ("moderate" if samples >= 5 else "low data")
+                risk = " — ⚠ high spill" if spill >= 25 else ""
+                lines.append(
+                    f"- **{disc}** {pts}pt: {cycle:.1f}d cycle, {spill:.0f}% spill ({samples} samples) — {conf}{risk}"
+                )
+        lines.append("")
+
+    # 1D: Task decomposition patterns
+    task_decomp = _ex.get("task_decomposition", {})
+    if isinstance(task_decomp, dict) and task_decomp.get("total_stories", 0) > 0:
+        avg_tasks = task_decomp.get("avg_tasks_per_story", 0)
+        sw_tasks = task_decomp.get("stories_with_tasks", 0)
+        tot_s = task_decomp.get("total_stories", 0)
+        task_pct = round(sw_tasks / tot_s * 100) if tot_s else 0
+        completion = task_decomp.get("task_completion_rate", 100)
+        type_dist = task_decomp.get("type_distribution", {})
+        bottlenecks = task_decomp.get("bottlenecks", [])
+        common = task_decomp.get("common_tasks", [])
+
+        lines.append("### Task decomposition patterns (historical):\n")
+        if avg_tasks > 0:
+            lines.append(f"- Avg tasks per story: {avg_tasks:.1f} ({task_pct}% of stories have subtasks)")
+        if type_dist:
+            dist_parts = ", ".join(f"{t} {p:.0f}%" for t, p in type_dist.items() if p > 0)
+            if dist_parts:
+                lines.append(f"- Type distribution: {dist_parts}")
+        if completion < 70:
+            lines.append(f"- ⚠ Task completion rate: {completion:.0f}% — make tasks smaller and more actionable")
+        for cat, rate, count in bottlenecks[:2]:
+            lines.append(f"- ⚠ {cat} bottleneck: only {rate}% completion ({count} tasks)")
+        if common:
+            task_names = ", ".join(f'"{t}"' for t in common[:5])
+            lines.append(f"- Common task patterns: {task_names}")
+        lines.append("\n→ When generating subtasks, match this team's task style and naming conventions.\n")
+
+    # 1E: Committed vs delivered + scope churn
+    scope_changes = _ex.get("scope_changes", {})
+    if isinstance(scope_changes, dict) and scope_changes.get("totals"):
+        sc_totals = scope_changes["totals"]
+        committed = sc_totals.get("avg_committed_velocity", 0.0)
+        delivered = sc_totals.get("avg_delivered_velocity", 0.0)
+        if committed > 0:
+            accuracy = round(delivered / committed * 100)
+            lines.append("### Committed vs Delivered:\n")
+            lines.append(f"- Avg committed: {committed:g} pts/sprint")
+            lines.append(f"- Avg delivered: {delivered:g} pts/sprint ({accuracy}% delivery rate)")
+            # Compute avg churn from per-sprint data
+            per_sprint = scope_changes.get("per_sprint", [])
+            churns = [s.get("scope_churn", 0) for s in per_sprint if s.get("scope_churn") is not None]
+            if churns:
+                avg_churn = sum(churns) / len(churns)
+                lines.append(f"- Avg scope churn: {avg_churn:.0%}")
+            if accuracy < 80:
+                lines.append(
+                    f"\n→ Plan sprints at {delivered:g} pts (delivered velocity), "
+                    f"not {committed:g}. Leave buffer for mid-sprint scope changes.\n"
+                )
+            else:
+                lines.append("")
+
+    lines.append(
+        "### Estimation note: Use THESE team-specific patterns, not generic Fibonacci rules. "
+        "Weight HIGH confidence calibrations heavily; treat low confidence data as rough guidance only.\n"
+    )
+
     return "\n".join(lines)
 
 
@@ -5606,6 +6016,11 @@ def story_writer(state: ScrumState) -> dict:
     # See README: "Prompt Construction" — pre-formatted strings pattern
     features_block = _format_features_for_prompt(features)
 
+    # Load team calibration for team-specific estimation rules.
+    # See README: "Scrum Standards" — team learning, self-calibrating estimates
+    team_profile = _load_team_profile()
+    team_calibration_text = _format_team_calibration(team_profile, examples=_load_team_examples())
+
     prompt = get_story_writer_prompt(
         project_name=analysis.project_name,
         project_description=analysis.project_description,
@@ -5616,6 +6031,7 @@ def story_writer(state: ScrumState) -> dict:
         constraints=_format_epic_list(analysis.constraints),
         features_block=features_block,
         out_of_scope=_format_epic_list(analysis.out_of_scope),
+        team_calibration=team_calibration_text,
         review_feedback=review_feedback if review_mode else None,
         review_mode=review_mode,
         previous_output=previous_output,
@@ -5965,6 +6381,7 @@ def _parallel_task_decompose(
     project_type: str,
     tech_stack: str,
     doc_context: str | None,
+    team_calibration: str = "",
 ) -> list[Task]:
     """Decompose stories into tasks with parallel LLM calls per feature.
 
@@ -6013,6 +6430,7 @@ def _parallel_task_decompose(
             tech_stack=tech_stack,
             stories_block=stories_block,
             doc_context=doc_context,
+            team_calibration=team_calibration,
         )
 
         try:
@@ -6098,6 +6516,11 @@ def task_decomposer(state: ScrumState) -> dict:
     doc_context = _build_doc_context(state)
     tech_stack_str = _format_epic_list(analysis.tech_stack)
 
+    # Load team calibration for team-specific task patterns.
+    # See README: "Scrum Standards" — team learning, self-calibrating estimates
+    team_profile = _load_team_profile()
+    team_calibration_text = _format_team_calibration(team_profile, examples=_load_team_examples())
+
     # ── Parallel task decomposition by feature ────────────────────────────
     # Split stories into per-feature groups and decompose concurrently.
     # Each feature is independent — tasks in Feature 1 don't depend on
@@ -6117,6 +6540,7 @@ def task_decomposer(state: ScrumState) -> dict:
             tech_stack=tech_stack_str,
             stories_block=stories_block,
             doc_context=doc_context,
+            team_calibration=team_calibration_text,
             review_feedback=review_feedback,
             review_mode=review_mode,
             previous_output=previous_output,
@@ -6138,6 +6562,7 @@ def task_decomposer(state: ScrumState) -> dict:
             project_type=analysis.project_type,
             tech_stack=tech_stack_str,
             doc_context=doc_context,
+            team_calibration=team_calibration_text,
         )
 
     # Format the tasks for display
@@ -6870,6 +7295,11 @@ def sprint_planner(state: ScrumState) -> dict:
     # only needs points, priority, and discipline for capacity allocation.
     stories_block = _format_stories_for_sprint_planner(stories, features)
 
+    # Load team calibration for velocity-aware sprint planning.
+    # See README: "Scrum Standards" — team learning, self-calibrating estimates
+    team_profile = _load_team_profile()
+    team_calibration_text = _format_team_calibration(team_profile, examples=_load_team_examples())
+
     prompt = get_sprint_planner_prompt(
         project_name=analysis.project_name,
         project_description=analysis.project_description,
@@ -6881,6 +7311,7 @@ def sprint_planner(state: ScrumState) -> dict:
         enforce_target=enforce_target,
         sprint_capacities=sprint_caps or None,
         team_override_from=original_team_size if state.get("_capacity_team_override", 0) > 0 else None,
+        team_calibration=team_calibration_text,
         review_feedback=review_feedback if review_mode else None,
         review_mode=review_mode,
         previous_output=previous_output,

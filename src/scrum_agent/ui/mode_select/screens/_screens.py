@@ -30,6 +30,13 @@ _MODE_CARDS: list[dict[str, Any]] = [
         "available": True,
         "color": "rgb(70,100,180)",
     },
+    {
+        "key": "team-analysis",
+        "title": "Analysis",
+        "description": "Analyse your team's board to learn velocity, estimation patterns, and delivery signals.",
+        "available": True,
+        "color": "rgb(100,180,100)",
+    },
 ]
 
 # ---------------------------------------------------------------------------

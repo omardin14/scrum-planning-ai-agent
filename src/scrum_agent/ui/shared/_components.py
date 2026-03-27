@@ -55,6 +55,17 @@ def planning_title() -> Text:
     return title
 
 
+def analysis_title() -> Text:
+    """Return the Analysis ASCII title styled with the green accent colour."""
+    ascii_lines = render_ascii_text("Analysis")
+    base_r, base_g, base_b = COLOR_RGB.get("rgb(100,180,100)", (100, 180, 100))
+    title_style = f"bold rgb({base_r},{base_g},{base_b})"
+    title = Text(justify="left")
+    title.append(PAD + ascii_lines[0] + "\n", style=title_style)
+    title.append(PAD + ascii_lines[1], style=title_style)
+    return title
+
+
 def build_popup(
     message: str,
     *,

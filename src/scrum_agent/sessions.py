@@ -128,7 +128,7 @@ CREATE TABLE IF NOT EXISTS sessions_meta (
 #   stored < current → run migrations, UPDATE to current
 #   stored == current → schema_mismatch=False
 # See README: "Memory & State" — session persistence
-CURRENT_SCHEMA_VERSION = 2  # v1=Phase 8A, v2=Phase 8B (session_state column)
+CURRENT_SCHEMA_VERSION = 3  # v1=Phase 8A, v2=Phase 8B (session_state column), v3=team_profiles table
 
 _SCHEMA_INFO = """\
 CREATE TABLE IF NOT EXISTS schema_info (
@@ -448,6 +448,7 @@ class SessionStore:
         if row is None:
             # Pre-8C DB or brand-new DB — stamp with current version
             self._conn.execute("INSERT INTO schema_info (schema_version) VALUES (?)", (CURRENT_SCHEMA_VERSION,))
+            self._run_migrations(0)
             self.schema_mismatch = False
         elif row[0] > CURRENT_SCHEMA_VERSION:
             # DB was written by a newer version of the code — warn but don't crash
@@ -455,8 +456,20 @@ class SessionStore:
         else:
             # row[0] <= CURRENT_SCHEMA_VERSION — up to date (or migrated above)
             if row[0] < CURRENT_SCHEMA_VERSION:
+                self._run_migrations(row[0])
                 self._conn.execute("UPDATE schema_info SET schema_version = ?", (CURRENT_SCHEMA_VERSION,))
             self.schema_mismatch = False
+
+    def _run_migrations(self, from_version: int) -> None:
+        """Run schema migrations from from_version to CURRENT_SCHEMA_VERSION.
+
+        v3: Create team_profiles table for team learning calibration data.
+        """
+        if from_version < 3:
+            from scrum_agent.team_profile import _TEAM_PROFILES_SCHEMA
+
+            self._conn.execute(_TEAM_PROFILES_SCHEMA)
+            logger.info("Migration v3: created team_profiles table")
 
     # ── Lifecycle ─────────────────────────────────────────────────────────
 

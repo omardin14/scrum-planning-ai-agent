@@ -44,6 +44,7 @@ def get_task_decomposer_prompt(
     stories_block: str,
     *,
     doc_context: str | None = None,
+    team_calibration: str = "",
     review_feedback: str | None = None,
     review_mode: str | None = None,
     previous_output: str | None = None,
@@ -93,7 +94,8 @@ def get_task_decomposer_prompt(
         f"**Type:** {project_type}\n\n"
         f"### Tech Stack\n{tech_stack}\n"
         f"{doc_context_section}\n"
-        "## Stories to Decompose\n\n"
+        + (team_calibration + "\n" if team_calibration else "")
+        + "## Stories to Decompose\n\n"
         f"{stories_block}\n\n"
         "## Task\n\n"
         f"Break each user story into {MIN_TASKS_PER_STORY}-{MAX_TASKS_PER_STORY} concrete implementation tasks. "

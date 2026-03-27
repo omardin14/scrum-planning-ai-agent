@@ -87,6 +87,7 @@ def get_story_writer_prompt(
     features_block: str,
     *,
     out_of_scope: str = "",
+    team_calibration: str = "",
     review_feedback: str | None = None,
     review_mode: str | None = None,
     previous_output: str | None = None,
@@ -145,8 +146,7 @@ def get_story_writer_prompt(
         f"### Constraints\n{constraints}\n\n"
         f"### Out of Scope\n{out_of_scope}\n\n"
         "## Features to Decompose\n\n"
-        f"{features_block}\n\n"
-        "## Task\n\n"
+        f"{features_block}\n\n" + (team_calibration + "\n" if team_calibration else "") + "## Task\n\n"
         f"{task_instruction}"
         "## Rules\n\n"
         f"{count_rule}"

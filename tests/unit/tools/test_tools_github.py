@@ -391,7 +391,7 @@ class TestGithubReadReadme:
 class TestGetTools:
     def test_returns_thirty_tools(self):
         tools = get_tools()
-        assert len(tools) == 30
+        assert len(tools) == 32
 
     def test_all_are_base_tools(self):
         from langchain_core.tools import BaseTool

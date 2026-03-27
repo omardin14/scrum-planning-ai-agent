@@ -430,6 +430,30 @@ def build_parser() -> argparse.ArgumentParser:
         help="Sprint length in weeks (maps to intake Q8). Only used with --non-interactive.",
     )
 
+    # ── Team learning flags ───────────────────────────────────────────────
+    parser.add_argument(
+        "--learn",
+        action="store_true",
+        default=False,
+        help="Analyse historical Jira/AzDO sprint data and store a team calibration profile. "
+        "Subsequent planning sessions use this profile to calibrate estimates.",
+    )
+    parser.add_argument(
+        "--team-profile",
+        action="store_true",
+        default=False,
+        help="Display the current stored team calibration profile and exit.",
+    )
+    parser.add_argument(
+        "--retro",
+        metavar="SESSION_ID",
+        nargs="?",
+        const="latest",
+        default=None,
+        help="Compare a past session's plan to actual Jira/AzDO outcomes. "
+        "Pass a session ID or omit for the most recent session.",
+    )
+
     return parser
 
 
@@ -727,6 +751,159 @@ def _install_skill(target_arg: str) -> None:
         print("Skipped. Run 'openclaw gateway restart' when ready.")
 
 
+def _run_learn(console: "Console") -> None:
+    """Run analyze_team_history, store the result, and print a summary."""
+    from pathlib import Path
+
+    from rich.table import Table
+
+    from scrum_agent.team_profile import TeamProfileStore
+    from scrum_agent.tools.team_learning import analyze_team_history
+
+    console.print("[bold cyan]Analysing team history...[/bold cyan]")
+    try:
+        result = analyze_team_history.invoke({})
+        import json
+
+        data = json.loads(result)
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        return
+
+    if "error" in data:
+        console.print(f"[red]{data['error']}[/red]")
+        return
+
+    # Persist the profile
+    db_dir = Path.home() / ".scrum-agent"
+    db_dir.mkdir(parents=True, exist_ok=True)
+    db_path = db_dir / "sessions.db"
+
+    from scrum_agent.team_profile import (
+        EpicPattern,
+        StoryPointCalibration,
+        StoryShapePattern,
+        TeamProfile,
+    )
+
+    calibrations = tuple(StoryPointCalibration(**c) for c in data.get("point_calibrations", []))
+    shapes = tuple(StoryShapePattern(**s) for s in data.get("story_shapes", []))
+    ep = data.get("epic_pattern", {})
+    rng = ep.get("typical_story_count_range", [0, 0])
+    epic_pattern = EpicPattern(
+        avg_stories_per_epic=ep.get("avg_stories_per_epic", 0.0),
+        avg_points_per_epic=ep.get("avg_points_per_epic", 0.0),
+        typical_story_count_range=tuple(rng) if len(rng) == 2 else (0, 0),
+        sample_count=ep.get("sample_count", 0),
+    )
+
+    profile = TeamProfile(
+        team_id=data["team_id"],
+        source=data["source"],
+        project_key=data["project_key"],
+        sample_sprints=data.get("sample_sprints", 0),
+        sample_stories=data.get("sample_stories", 0),
+        velocity_avg=data.get("velocity_avg", 0.0),
+        velocity_stddev=data.get("velocity_stddev", 0.0),
+        point_calibrations=calibrations,
+        story_shapes=shapes,
+        epic_pattern=epic_pattern,
+        estimation_accuracy_pct=data.get("estimation_accuracy_pct", 0.0),
+        sprint_completion_rate=data.get("sprint_completion_rate", 0.0),
+    )
+
+    with TeamProfileStore(db_path) as store:
+        store.save(profile)
+
+    console.print(f"[green]Team profile saved for {profile.source}/{profile.project_key}[/green]")
+    console.print(
+        f"  Analysed [bold]{profile.sample_sprints}[/bold] sprints, [bold]{profile.sample_stories}[/bold] stories"
+    )
+    console.print(f"  Avg velocity: [bold]{profile.velocity_avg:.0f} ± {profile.velocity_stddev:.0f}[/bold] pts/sprint")
+    console.print(f"  Estimation accuracy: [bold]{profile.estimation_accuracy_pct:.0f}%[/bold]")
+    console.print(f"  Sprint completion rate: [bold]{profile.sprint_completion_rate:.0f}%[/bold]")
+
+    if profile.point_calibrations:
+        table = Table(title="Story Point Calibration", show_header=True)
+        table.add_column("Points", style="bold")
+        table.add_column("Avg Cycle Time")
+        table.add_column("Samples")
+        table.add_column("Overshoot %")
+        for cal in profile.point_calibrations:
+            if cal.sample_count > 0:
+                table.add_row(
+                    str(cal.point_value),
+                    f"{cal.avg_cycle_time_days:.1f} days",
+                    str(cal.sample_count),
+                    f"{cal.overshoot_pct:.0f}%",
+                )
+        console.print(table)
+
+
+def _run_team_profile(console: "Console") -> None:
+    """Display the current stored team calibration profile."""
+    from pathlib import Path
+
+    from scrum_agent.team_profile import TeamProfileStore
+
+    db_path = Path.home() / ".scrum-agent" / "sessions.db"
+    if not db_path.exists():
+        console.print("[yellow]No team profiles found. Run --learn first.[/yellow]")
+        return
+
+    with TeamProfileStore(db_path) as store:
+        profiles = store.list_profiles()
+
+    if not profiles:
+        console.print("[yellow]No team profiles found. Run --learn first.[/yellow]")
+        return
+
+    for profile in profiles:
+        console.print(
+            f"\n[bold cyan]{profile.team_id}[/bold cyan] "
+            f"({profile.sample_sprints} sprints, {profile.sample_stories} stories)"
+        )
+        console.print(f"  Velocity: {profile.velocity_avg:.0f} ± {profile.velocity_stddev:.0f} pts/sprint")
+        console.print(f"  Estimation accuracy: {profile.estimation_accuracy_pct:.0f}%")
+        console.print(f"  Sprint completion rate: {profile.sprint_completion_rate:.0f}%")
+        if profile.point_calibrations:
+            console.print("  [dim]Point calibrations:[/dim]")
+            for cal in profile.point_calibrations:
+                if cal.sample_count > 0:
+                    console.print(
+                        f"    {cal.point_value} pt → {cal.avg_cycle_time_days:.1f} day avg "
+                        f"({cal.sample_count} samples, {cal.overshoot_pct:.0f}% overshoot)"
+                    )
+
+
+def _run_retro(console: "Console", session_id: str) -> None:
+    """Run compare_plan_to_actuals and display the result."""
+    import json
+
+    from scrum_agent.tools.team_learning import compare_plan_to_actuals
+
+    console.print(f"[bold cyan]Comparing plan to actuals for session: {session_id}[/bold cyan]")
+    try:
+        result = compare_plan_to_actuals.invoke({"session_id": session_id})
+        data = json.loads(result)
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        return
+
+    if "error" in data:
+        console.print(f"[red]{data['error']}[/red]")
+        return
+
+    console.print(f"  Session: [bold]{data.get('session_id', session_id)}[/bold]")
+    console.print(f"  Planned stories: {data.get('planned_story_count', 0)}")
+    console.print(f"  Planned sprints: {data.get('planned_sprint_count', 0)}")
+    console.print(f"  Planned points: {data.get('planned_total_points', 0)}")
+    console.print(f"  Tracker: {data.get('tracker', 'none')}")
+    console.print(f"  Matched stories: {data.get('matched_stories', 0)}")
+    if "note" in data:
+        console.print(f"  [yellow]{data['note']}[/yellow]")
+
+
 def main(argv: list[str] | None = None) -> None:
     """Entry point for the scrum-agent CLI."""
     parser = build_parser()
@@ -815,7 +992,8 @@ def main(argv: list[str] | None = None) -> None:
     # The old REPL path needs to exit alt-screen and print info to the terminal.
     use_old_repl = args.mode is not None or args.quick or args.full_intake or args.questionnaire is not None
 
-    if use_old_repl or args.resume is not None or args.list_sessions or args.clear_sessions:
+    team_learning_flag = args.learn or args.team_profile or args.retro is not None
+    if use_old_repl or args.resume is not None or args.list_sessions or args.clear_sessions or team_learning_flag:
         # Leave alt-screen before printing to the normal terminal
         if console.is_alt_screen:
             console.set_alt_screen(False)
@@ -847,6 +1025,21 @@ def main(argv: list[str] | None = None) -> None:
     # ── --clear-sessions: interactive delete and exit ─────────────────────────
     if args.clear_sessions:
         _clear_sessions(console)
+        return
+
+    # ── --learn: analyse team history and store calibration profile ───────────
+    if args.learn:
+        _run_learn(console)
+        return
+
+    # ── --team-profile: display stored calibration profile ───────────────────
+    if args.team_profile:
+        _run_team_profile(console)
+        return
+
+    # ── --retro: compare plan to actuals ─────────────────────────────────────
+    if args.retro is not None:
+        _run_retro(console, args.retro)
         return
 
     # --export-questionnaire: write a blank template and exit (no REPL)

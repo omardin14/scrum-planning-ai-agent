@@ -35,6 +35,7 @@ _FIBONACCI_POINTS = (1, 2, 3, 5, 8)
 def estimate_complexity(
     description: str,
     tech_stack: str = "",
+    team_calibration: str = "",
 ) -> str:
     """Estimate the story point complexity of a user story or requirement.
 
@@ -44,25 +45,44 @@ def estimate_complexity(
 
     description: The user story or requirement text to analyze.
     tech_stack: Optional comma-separated list of technologies (e.g. "React, FastAPI, PostgreSQL").
+    team_calibration: Optional team-specific calibration data to replace generic rules.
     """
     # See README: "Tools" — LLM-powered tool pattern
     # See README: "Prompt Construction" — ARC framework
     stack_line = f"\nTech stack: {tech_stack}" if tech_stack.strip() else ""
+
+    # When team calibration data is available, use team-specific rules instead
+    # of generic Fibonacci descriptions. The calibration section describes what
+    # each point value means for THIS team based on historical data.
+    if team_calibration.strip():
+        rules_section = (
+            "## Rules\n\n"
+            "Use the team's historical calibration data below instead of generic estimates.\n\n"
+            f"{team_calibration}\n\n"
+            f"Points must be one of: {', '.join(str(p) for p in _FIBONACCI_POINTS)}.\n"
+            "Consider: scope, uncertainty, dependencies, testing effort, and tech stack complexity.\n"
+            "If the description is too vague to estimate, say so and suggest what information is needed.\n\n"
+        )
+    else:
+        rules_section = (
+            "## Rules\n\n"
+            "1. 1 pt — trivial change, no unknowns, single file.\n"
+            "2. 2 pts — small, well-understood, minimal risk.\n"
+            "3. 3 pts — moderate scope, some design decisions, low risk.\n"
+            "4. 5 pts — significant scope, cross-cutting concerns, or moderate unknowns.\n"
+            "5. 8 pts — large, high uncertainty, multiple subsystems, or research needed.\n"
+            "6. Consider: scope, uncertainty, dependencies, testing effort, and tech stack complexity.\n"
+            "7. If the description is too vague to estimate, say so and suggest what information is needed.\n\n"
+        )
+
     prompt = (
         "You are a Senior Scrum Master estimating story point complexity.\n\n"
         "## Story / Requirement\n\n"
         f"{description}{stack_line}\n\n"
         "## Task\n\n"
         f"Estimate the complexity using Fibonacci points: {', '.join(str(p) for p in _FIBONACCI_POINTS)}.\n\n"
-        "## Rules\n\n"
-        "1. 1 pt — trivial change, no unknowns, single file.\n"
-        "2. 2 pts — small, well-understood, minimal risk.\n"
-        "3. 3 pts — moderate scope, some design decisions, low risk.\n"
-        "4. 5 pts — significant scope, cross-cutting concerns, or moderate unknowns.\n"
-        "5. 8 pts — large, high uncertainty, multiple subsystems, or research needed.\n"
-        "6. Consider: scope, uncertainty, dependencies, testing effort, and tech stack complexity.\n"
-        "7. If the description is too vague to estimate, say so and suggest what information is needed.\n\n"
-        "## Output format\n\n"
+        + rules_section
+        + "## Output format\n\n"
         "Respond with:\n"
         "Story Points: <number>\n\n"
         "Rationale:\n"
