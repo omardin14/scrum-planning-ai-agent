@@ -653,8 +653,10 @@ Section extraction — look for these patterns in the description:
 - User personas ("As a developer...", "As an admin...") → personas
 
 Classification fields:
-- discipline: infer from content — one of "backend", "frontend", "infrastructure", \
-"design", "testing", "data", "devops", "fullstack"
+- discipline: infer the primary discipline from the content. Common values include \
+"backend", "frontend", "infrastructure", "security", "observability", "platform", \
+"data", "devops", "developer-experience", "networking", "database", "ci-cd", \
+"testing", "design", "fullstack" — but use whatever best describes the work
 - work_type: classify the nature of work — one of "create/build", "fix/resolve", \
 "update/modify", "investigate/research", "automate/script", "migrate", \
 "refactor", "configure/setup", "monitor/observe", "review/audit"
@@ -806,8 +808,9 @@ def _enrich_stories_with_parsed(
                 s["uses_given_when_then"] = True
 
             # Discipline — override the tag-based default if LLM inferred one
+            # Accept any non-empty discipline from LLM (not restricted to whitelist)
             llm_disc = (p.get("discipline") or "").lower().strip()
-            if llm_disc in _valid_disciplines and s.get("discipline") == "fullstack":
+            if llm_disc and llm_disc != "fullstack" and s.get("discipline") == "fullstack":
                 s["discipline"] = llm_disc
 
             # Work type classification
@@ -3461,7 +3464,22 @@ def _fetch_jira_history(project_key: str, sprint_count: int) -> list[dict]:
             ]
             discipline = "fullstack"
             for lbl in labels:
-                if lbl in ("frontend", "backend", "infrastructure", "design", "testing"):
+                if lbl in (
+                    "frontend",
+                    "backend",
+                    "infrastructure",
+                    "design",
+                    "testing",
+                    "security",
+                    "observability",
+                    "platform",
+                    "data",
+                    "devops",
+                    "developer-experience",
+                    "networking",
+                    "database",
+                    "ci-cd",
+                ):
                     discipline = lbl
                     break
 
@@ -3828,7 +3846,22 @@ def _fetch_azdevops_history(project_key: str, sprint_count: int) -> list[dict]:
             discipline = "fullstack"
             for tag in tags.lower().split(";"):
                 tag = tag.strip()
-                if tag in ("frontend", "backend", "infrastructure", "design", "testing"):
+                if tag in (
+                    "frontend",
+                    "backend",
+                    "infrastructure",
+                    "design",
+                    "testing",
+                    "security",
+                    "observability",
+                    "platform",
+                    "data",
+                    "devops",
+                    "developer-experience",
+                    "networking",
+                    "database",
+                    "ci-cd",
+                ):
                     discipline = tag
                     break
 
