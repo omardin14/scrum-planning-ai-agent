@@ -625,11 +625,16 @@ _TICKET_PARSE_SCHEMA = """\
     "key": "ISSUE-123",
     "description": "The actual problem/feature description",
     "acceptance_criteria": ["AC item 1", "AC item 2"],
+    "ac_specificity": "precise",
     "risks": ["Risk 1"],
     "justification": "Why this matters",
     "dod_signals": ["Code reviewed", "Deployed to staging"],
     "personas": ["developer", "admin"],
-    "gwt": false
+    "gwt": false,
+    "discipline": "backend",
+    "work_type": "create/build",
+    "is_recurring": false,
+    "spillover_risk": "none"
   }
 ]"""
 
@@ -639,13 +644,29 @@ Return a JSON array with one object per work item matching this schema:
 
 {schema}
 
-For each item, look for sections like:
+Section extraction — look for these patterns in the description:
 - "What is this about?" / "Description" / problem statement → description
-- "What does done look like?" / "Acceptance criteria" / "AC" / bullet criteria → acceptance_criteria
+- "What does done look like?" / "Acceptance criteria" / "AC" → acceptance_criteria
 - "Are there any risks?" / "Blockers" / "Dependencies" → risks
 - "Why does it matter?" / "Business value" / "Impact" → justification
-- Definition of done items (testing, review, deployment, documentation steps) → dod_signals
+- Definition of done items (testing, review, deployment steps) → dod_signals
 - User personas ("As a developer...", "As an admin...") → personas
+
+Classification fields:
+- discipline: infer from content — one of "backend", "frontend", "infrastructure", \
+"design", "testing", "data", "devops", "fullstack"
+- work_type: classify the nature of work — one of "create/build", "fix/resolve", \
+"update/modify", "investigate/research", "automate/script", "migrate", \
+"refactor", "configure/setup", "monitor/observe", "review/audit"
+- is_recurring: true if this is a ceremony, KTLO, sprint admin, training, standup, \
+retro, BAU, on-call, or operational ticket — NOT delivery work
+- ac_specificity: assess the acceptance criteria quality — one of "precise" \
+(measurable, specific values/endpoints/thresholds), "moderate" (clear intent but \
+not fully measurable), "vague" (subjective language like "should work correctly"), \
+or "none" (no ACs found)
+- spillover_risk: assess completion risk — one of "low" (clear scope, small), \
+"medium" (some unknowns or dependencies), "high" (large scope, external \
+dependencies, unclear requirements), or "none" (can't determine)
 
 Rules:
 - acceptance_criteria should be individual testable items, not the full section text
@@ -701,7 +722,12 @@ def _parse_tickets_with_llm(
             # Truncate to avoid token bloat
             if len(desc) > 800:
                 desc = desc[:800] + "..."
-            items_parts.append(f"--- {key}: {title} ---\n{desc}")
+            # Include metadata for better classification
+            pts = s.get("points", 0)
+            tasks = s.get("task_count", 0)
+            carried = "yes" if s.get("carried_over") else "no"
+            meta = f"[{pts}pts, {tasks} tasks, carried_over={carried}]"
+            items_parts.append(f"--- {key}: {title} {meta} ---\n{desc}")
 
         items_block = "\n\n".join(items_parts)
         prompt = _TICKET_PARSE_PROMPT.format(schema=_TICKET_PARSE_SCHEMA, items=items_block)
@@ -750,20 +776,53 @@ def _enrich_stories_with_parsed(
     parsed: dict[str, dict],
 ) -> None:
     """Mutate story dicts in-place with LLM-parsed fields."""
+    _valid_disciplines = {
+        "backend",
+        "frontend",
+        "infrastructure",
+        "design",
+        "testing",
+        "data",
+        "devops",
+        "fullstack",
+    }
     for s in stories:
         key = s.get("issue_key", "")
         p = parsed.get(key)
         if p:
+            # Acceptance criteria
             acs = p.get("acceptance_criteria", [])
             if isinstance(acs, list) and acs:
                 s["ac_count"] = len(acs)
                 s["parsed_ac"] = acs
+            s["ac_specificity"] = p.get("ac_specificity", "none")
+
+            # DoD and context
             s["parsed_risks"] = p.get("risks", [])
             s["parsed_dod_signals"] = p.get("dod_signals", [])
             s["parsed_justification"] = p.get("justification", "")
             s["parsed_personas"] = p.get("personas", [])
             if p.get("gwt"):
                 s["uses_given_when_then"] = True
+
+            # Discipline — override the tag-based default if LLM inferred one
+            llm_disc = (p.get("discipline") or "").lower().strip()
+            if llm_disc in _valid_disciplines and s.get("discipline") == "fullstack":
+                s["discipline"] = llm_disc
+
+            # Work type classification
+            work_type = p.get("work_type", "")
+            if work_type:
+                s["work_type"] = work_type
+
+            # Recurring detection — override only if LLM says it's recurring
+            # but regex didn't catch it (don't un-flag regex positives)
+            if p.get("is_recurring") and not s.get("is_recurring"):
+                s["is_recurring"] = True
+
+            # Spillover risk
+            s["spillover_risk"] = p.get("spillover_risk", "none")
+
             s["parse_source"] = "llm"
         else:
             s["parse_source"] = "regex"
@@ -1301,6 +1360,14 @@ def _run_parallel_analysis(
     # Falls back silently to regex if LLM is unavailable.
     _parsed_tickets = _parse_tickets_with_llm(delivery_stories, progress)
     _enrich_stories_with_parsed(delivery_stories, _parsed_tickets)
+
+    # Re-filter: LLM may have flagged additional stories as recurring
+    if _parsed_tickets:
+        _newly_recurring = [s for s in delivery_stories if s.get("is_recurring")]
+        if _newly_recurring:
+            recurring_stories.extend(_newly_recurring)
+            delivery_stories = [s for s in delivery_stories if not s.get("is_recurring")]
+            logger.info("LLM flagged %d additional recurring stories", len(_newly_recurring))
 
     # Story shapes by discipline (computed in main thread — lightweight)
     by_discipline: dict[str, list[dict]] = defaultdict(list)
@@ -2043,6 +2110,15 @@ def _analyse_acceptance_criteria(delivery_stories: list[dict]) -> dict:
     vague_count = 0
     precise_count = 0
     for s in stories_with_ac:
+        # Prefer LLM specificity classification if available
+        llm_spec = s.get("ac_specificity", "")
+        if llm_spec in ("precise", "moderate", "vague"):
+            if llm_spec == "precise":
+                precise_count += 1
+            elif llm_spec == "vague":
+                vague_count += 1
+            continue
+        # Fallback to regex
         desc = re.sub(r"<[^>]+>", " ", s.get("description", "") or "")
         has_vague = bool(_vague_re.search(desc))
         has_precise = bool(_precise_re.search(desc))
