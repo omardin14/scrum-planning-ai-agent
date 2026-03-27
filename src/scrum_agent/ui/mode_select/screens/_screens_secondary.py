@@ -200,37 +200,6 @@ def _build_team_analysis_screen(
     if per_dev_vel and isinstance(per_dev_vel, (int, float)) and per_dev_vel > 0:
         _kv("Per developer", f"{per_dev_vel} pts/sprint", c_accent)
 
-    # Contributor breakdown table
-    _contrib = _ex.get("contributor_stats", [])
-    if isinstance(_contrib, list) and _contrib:
-        from rich.table import Table as _ContribTable
-
-        ct = _ContribTable(
-            show_header=True,
-            header_style=c_muted,
-            box=None,
-            padding=(0, 1),
-            pad_edge=False,
-        )
-        ct.add_column("Contributor", width=22)
-        ct.add_column("Delivery", justify="right", width=8)
-        ct.add_column("KTLO", justify="right", width=6)
-        ct.add_column("Stories", justify="right", width=7)
-        ct.add_column("Sprints", justify="right", width=7)
-        ct.add_column("Pts/sprint", justify="right", width=9)
-        for cs in _contrib[:10]:
-            ps = cs.get("per_sprint", 0)
-            ps_sty = c_good if ps >= 3 else (c_warn if ps >= 1.5 else c_dim)
-            r_pts = cs.get("recurring_pts", 0)
-            ct.add_row(
-                Text(cs.get("name", "")[:22], style=c_value),
-                Text(str(cs.get("delivery_pts", 0)), style=c_accent),
-                Text(str(r_pts) if r_pts > 0 else "\u2014", style=c_dim),
-                Text(str(cs.get("stories_completed", 0)), style=c_muted),
-                Text(str(cs.get("sprints_active", 0)), style=c_muted),
-                Text(str(ps), style=ps_sty),
-            )
-        _add(Padding(ct, (0, 0, 0, len(_PAD) + 2)), rendered_h=len(_contrib[:10]) + 1)
     if vel > 0:
         var_pct = std / vel * 100
         var_style = c_good if var_pct < 20 else (c_warn if var_pct < 40 else c_bad)
@@ -562,6 +531,94 @@ def _build_team_analysis_screen(
                     t.append(" \u2192 ".join(str(s) for s in sprints), style=c_dim)
                     _add(t)
 
+    # ── Team Members ───────────────────────────────────────────────
+    _contrib = _ex.get("contributor_stats", [])
+    if isinstance(_contrib, list) and _contrib:
+        _heading("Team Members")
+
+        from rich.table import Table as _MemberTable
+
+        mt = _MemberTable(
+            show_header=True,
+            header_style=c_muted,
+            box=None,
+            padding=(0, 1),
+            pad_edge=False,
+        )
+        mt.add_column("Name", width=20)
+        mt.add_column("Delivery", justify="right", width=8)
+        mt.add_column("KTLO", justify="right", width=5)
+        mt.add_column("Spill%", justify="right", width=6)
+        mt.add_column("Cycle", justify="right", width=6)
+        mt.add_column("Focus", width=14)
+        mt.add_column("Pts/sprint", justify="right", width=9)
+
+        for cs in _contrib[:10]:
+            ps = cs.get("per_sprint", 0)
+            ps_sty = c_good if ps >= 3 else (c_warn if ps >= 1.5 else c_dim)
+            r_pts = cs.get("recurring_pts", 0)
+            spill = cs.get("spill_rate", 0)
+            sp_sty = c_good if spill < 10 else (c_warn if spill < 25 else c_bad)
+            ct_val = cs.get("avg_cycle_time", 0)
+            ct_str = f"{ct_val:.0f}d" if ct_val > 0 else "\u2014"
+            disc = cs.get("top_discipline", "fullstack")
+            wt = cs.get("top_work_type", "")
+            focus = disc
+            if wt:
+                focus = f"{disc}/{wt.split('/')[0]}"
+            mt.add_row(
+                Text(cs.get("name", "")[:20], style=c_value),
+                Text(str(cs.get("delivery_pts", 0)), style=c_accent),
+                Text(str(r_pts) if r_pts > 0 else "\u2014", style=c_dim),
+                Text(f"{spill}%" if spill > 0 else "\u2014", style=sp_sty),
+                Text(ct_str, style=c_muted),
+                Text(focus[:14], style=c_dim),
+                Text(str(ps), style=ps_sty),
+            )
+        _add(Padding(mt, (0, 0, 0, len(_PAD) + 2)), rendered_h=len(_contrib[:10]) + 1)
+
+        # Insights
+        if len(_contrib) >= 3:
+            _add(Text(""))
+            # Who carries the most load?
+            top = _contrib[0]
+            total_del = sum(c.get("delivery_pts", 0) for c in _contrib)
+            if total_del > 0:
+                top_pct = round(top["delivery_pts"] / total_del * 100)
+                if top_pct >= 40:
+                    ins = Text(_PAD + "  ", justify="left")
+                    ins.append(f"\u26a0 {top['name']}", style=f"bold {c_warn}")
+                    ins.append(f" carries {top_pct}% of delivery work", style=c_warn)
+                    _add(ins)
+
+            # Who spills most?
+            high_spill = [c for c in _contrib if c.get("spill_rate", 0) >= 30 and c.get("stories_total", 0) >= 3]
+            if high_spill:
+                for hs in high_spill[:2]:
+                    ins = Text(_PAD + "  ", justify="left")
+                    ins.append(f"\u26a0 {hs['name']}", style=f"bold {c_bad}")
+                    ins.append(
+                        f" spills {hs['spill_rate']}% of stories ({hs['stories_spilled']}/{hs['stories_total']})",
+                        style=c_bad,
+                    )
+                    _add(ins)
+
+            # KTLO-heavy contributors
+            ktlo_heavy = [
+                c
+                for c in _contrib
+                if c.get("recurring_pts", 0) > c.get("delivery_pts", 0) and c.get("recurring_pts", 0) > 0
+            ]
+            if ktlo_heavy:
+                for kh in ktlo_heavy[:2]:
+                    ins = Text(_PAD + "  ", justify="left")
+                    ins.append(f"\u2139 {kh['name']}", style=c_muted)
+                    ins.append(
+                        f" does more KTLO ({kh['recurring_pts']}pts) than delivery ({kh['delivery_pts']}pts)",
+                        style=c_dim,
+                    )
+                    _add(ins)
+
     # ── Spillover Root Causes ─────────────────────────────────────
     spill_corr = _ex.get("spillover_correlation", {})
     if isinstance(spill_corr, dict) and spill_corr:
@@ -782,22 +839,7 @@ def _build_team_analysis_screen(
                 t.append(f"  \u00d7{cnt}", style=c_dim)
                 _add(t)
 
-        # Task assignee spread
-        assignees = td.get("task_assignees", {})
-        if assignees:
-            _add(Text(""))
-            _add(
-                Text(
-                    _PAD + "  Task assignees:",
-                    style=c_muted,
-                    justify="left",
-                )
-            )
-            for name, cnt in list(assignees.items())[:5]:
-                t = Text(_PAD + "    ", justify="left")
-                t.append(f"{name:<20s}", style=c_value)
-                t.append(f"{cnt} tasks", style=c_muted)
-                _add(t)
+        # Task assignee data is shown in the dedicated Team Members section
 
     # ── Definition of Done ────────────────────────────────────────────
     dod = profile.dod_signal

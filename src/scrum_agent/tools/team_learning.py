@@ -1600,50 +1600,94 @@ def _run_parallel_analysis(
             confidence_levels[c_cal.point_value] = "low"
     examples["confidence_levels"] = confidence_levels  # type: ignore[assignment]
 
-    # Team size and per-contributor velocity breakdown
+    # Team size and per-contributor analysis
     all_assignees: set[str] = set()
-    contributor_delivery_pts: dict[str, float] = defaultdict(float)
-    contributor_delivery_count: dict[str, int] = defaultdict(int)
-    contributor_recurring_pts: dict[str, float] = defaultdict(float)
-    contributor_sprints: dict[str, set[str]] = defaultdict(set)
+    # Per-person accumulators
+    _c_del_pts: dict[str, float] = defaultdict(float)
+    _c_del_count: dict[str, int] = defaultdict(int)
+    _c_rec_pts: dict[str, float] = defaultdict(float)
+    _c_sprints: dict[str, set[str]] = defaultdict(set)
+    _c_spilled: dict[str, int] = defaultdict(int)
+    _c_total: dict[str, int] = defaultdict(int)
+    _c_cycle_times: dict[str, list[float]] = defaultdict(list)
+    _c_disciplines: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    _c_work_types: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    _c_task_count: dict[str, int] = defaultdict(int)
+    _c_big_stories: dict[str, int] = defaultdict(int)  # stories >= 5pts
 
     for s in delivery_stories:
         a = (s.get("assignee", "") or "").strip()
-        if a:
-            all_assignees.add(a)
-            if not s.get("carried_over"):
-                contributor_delivery_pts[a] += _safe_float(s.get("points", 0))
-                contributor_delivery_count[a] += 1
-            sprint_name = s.get("sprint_name", "")
-            if sprint_name:
-                contributor_sprints[a].add(sprint_name)
+        if not a:
+            continue
+        all_assignees.add(a)
+        _c_total[a] += 1
+        pts = _safe_float(s.get("points", 0))
+        sprint_name = s.get("sprint_name", "")
+        if sprint_name:
+            _c_sprints[a].add(sprint_name)
+        if s.get("carried_over"):
+            _c_spilled[a] += 1
+        else:
+            _c_del_pts[a] += pts
+            _c_del_count[a] += 1
+        ct = s.get("cycle_time_days")
+        if ct is not None and ct > 0:
+            _c_cycle_times[a].append(ct)
+        disc = s.get("discipline", "fullstack")
+        _c_disciplines[a][disc] += 1
+        wt = s.get("work_type", "")
+        if wt:
+            _c_work_types[a][wt] += 1
+        _c_task_count[a] += s.get("task_count", 0)
+        if pts >= 5:
+            _c_big_stories[a] += 1
 
     for s in recurring_stories:
         a = (s.get("assignee", "") or "").strip()
         if a:
             all_assignees.add(a)
-            contributor_recurring_pts[a] += _safe_float(s.get("points", 0))
+            _c_rec_pts[a] += _safe_float(s.get("points", 0))
 
     team_size = len(all_assignees)
     vel_avg = vel.get("velocity_avg", 0.0)
     per_dev_velocity = round(vel_avg / team_size, 1) if team_size > 0 else 0.0
 
-    # Per-contributor breakdown for the TUI
+    # Build per-contributor stats
     contributor_stats: list[dict] = []
     for name in sorted(all_assignees):
-        d_pts = contributor_delivery_pts.get(name, 0.0)
-        r_pts = contributor_recurring_pts.get(name, 0.0)
-        d_count = contributor_delivery_count.get(name, 0)
-        sprints_active = len(contributor_sprints.get(name, set()))
+        d_pts = _c_del_pts.get(name, 0.0)
+        r_pts = _c_rec_pts.get(name, 0.0)
+        d_count = _c_del_count.get(name, 0)
+        total = _c_total.get(name, 0)
+        spilled = _c_spilled.get(name, 0)
+        sprints_active = len(_c_sprints.get(name, set()))
         per_sprint = round(d_pts / sprints_active, 1) if sprints_active else 0.0
+        cts = _c_cycle_times.get(name, [])
+        avg_ct = round(sum(cts) / len(cts), 1) if cts else 0.0
+        spill_rate = round(spilled / total * 100) if total else 0
+        # Top discipline
+        discs = _c_disciplines.get(name, {})
+        top_disc = max(discs, key=discs.get) if discs else "fullstack"  # type: ignore[arg-type]
+        # Top work type
+        wts = _c_work_types.get(name, {})
+        top_wt = max(wts, key=wts.get) if wts else ""  # type: ignore[arg-type]
+
         contributor_stats.append(
             {
                 "name": name,
                 "delivery_pts": round(d_pts, 1),
                 "recurring_pts": round(r_pts, 1),
                 "stories_completed": d_count,
+                "stories_total": total,
+                "stories_spilled": spilled,
+                "spill_rate": spill_rate,
                 "sprints_active": sprints_active,
                 "per_sprint": per_sprint,
+                "avg_cycle_time": avg_ct,
+                "top_discipline": top_disc,
+                "top_work_type": top_wt,
+                "tasks_assigned": _c_task_count.get(name, 0),
+                "big_stories": _c_big_stories.get(name, 0),
             }
         )
     contributor_stats.sort(key=lambda x: -x["delivery_pts"])
