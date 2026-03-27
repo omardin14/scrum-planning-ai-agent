@@ -933,9 +933,8 @@ def export_team_profile_html(
             )
 
     _html_ac = ex.get("ac_patterns", {})
-    if isinstance(_html_ac, dict) and _html_ac.get("recommendations"):
-        for r in _html_ac["recommendations"][:3]:
-            recs.append(("Acceptance criteria", _e(r)))
+    if isinstance(_html_ac, dict) and _html_ac.get("recommendation"):
+        recs.append(("Acceptance criteria gaps", _e(_html_ac["recommendation"])))
 
     _html_pdod = ex.get("proposed_dod", {})
     if isinstance(_html_pdod, dict) and _html_pdod.get("health") == "weak":
@@ -1507,11 +1506,10 @@ def export_team_profile_md(
             high_s = spill.get("high_ac_spill_pct", 0)
             if low_s > high_s + 5 and spill.get("low_ac_count", 0) >= 5:
                 lines.append(f"- **Spillover impact:** 0-1 ACs: {low_s}% spill vs 3+ ACs: {high_s}% spill")
-            ac_recs = ac_pat.get("recommendations", [])
-            if ac_recs:
+            ac_rec = ac_pat.get("recommendation", "")
+            if ac_rec:
                 lines.append("")
-                for r in ac_recs[:3]:
-                    lines.append(f"> {r}")
+                lines.append(f"> {ac_rec}")
             lines.append("")
 
     # ── Epic Sizing ─────────────────────────────────────────────────
@@ -1610,9 +1608,8 @@ def export_team_profile_md(
             recs.append(("Carry-over chains", f"{len(_md_ch)} stories bounced across 3+ sprints."))
 
     _md_ac = ex.get("ac_patterns", {})
-    if isinstance(_md_ac, dict) and _md_ac.get("recommendations"):
-        for r in _md_ac["recommendations"][:3]:
-            recs.append(("Acceptance criteria", r))
+    if isinstance(_md_ac, dict) and _md_ac.get("recommendation"):
+        recs.append(("Acceptance criteria gaps", _md_ac["recommendation"]))
 
     _md_pdod = ex.get("proposed_dod", {})
     if isinstance(_md_pdod, dict) and _md_pdod.get("health") == "weak":

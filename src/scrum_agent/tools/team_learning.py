@@ -1900,25 +1900,21 @@ def _analyse_acceptance_criteria(delivery_stories: list[dict]) -> dict:
     with_ac_pct = round(len(stories_with_ac) / total * 100) if total else 0
     median_ac = statistics.median([s.get("ac_count", 0) for s in stories_with_ac]) if stories_with_ac else 0
 
-    recommendations: list[str] = []
+    # Build a single consolidated recommendation (not multiple separate ones)
+    issues: list[str] = []
     if with_ac_pct < 50:
-        recommendations.append(
-            f"Only {with_ac_pct}% of stories have acceptance criteria. Add explicit ACs to every story for clarity."
-        )
-    if specificity_label == "vague":
-        recommendations.append(
-            f"{vague_pct}% of ACs use vague language. Use measurable criteria (status codes, field names, thresholds)."
-        )
+        issues.append(f"only {with_ac_pct}% of stories have ACs")
+    if specificity_label == "vague" and vague_pct > 0:
+        issues.append(f"{vague_pct}% use vague language instead of measurable criteria")
     if low_ac_spill > high_ac_spill + 10 and len(low_ac_stories) >= 5:
-        recommendations.append(
-            f"Stories with 0-1 ACs spill {low_ac_spill}% vs {high_ac_spill}% for 3+ ACs. "
-            "More ACs correlate with better completion."
-        )
+        issues.append(f"stories with fewer ACs spill {low_ac_spill}% vs {high_ac_spill}% for detailed ones")
     missing_themes = [t for t in ("Error handling", "Validation", "Edge cases") if t not in theme_pcts]
     if missing_themes:
-        recommendations.append(
-            f"ACs rarely cover {', '.join(missing_themes).lower()}. Consider adding these as standard AC topics."
-        )
+        issues.append(f"ACs rarely cover {', '.join(missing_themes).lower()}")
+
+    recommendation = ""
+    if issues:
+        recommendation = ". ".join(issues).capitalize() + "."
 
     return {
         "stories_with_ac_pct": with_ac_pct,
@@ -1936,7 +1932,7 @@ def _analyse_acceptance_criteria(delivery_stories: list[dict]) -> dict:
             "low_ac_count": len(low_ac_stories),
             "high_ac_count": len(high_ac_stories),
         },
-        "recommendations": recommendations,
+        "recommendation": recommendation,
     }
 
 

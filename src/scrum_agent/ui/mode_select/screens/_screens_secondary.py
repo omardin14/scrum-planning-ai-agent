@@ -1111,11 +1111,10 @@ def _build_team_analysis_screen(
                 )
             )
 
-    # AC pattern recommendations
+    # AC pattern recommendation (single consolidated)
     _ac_recs = _ex.get("ac_patterns", {})
-    if isinstance(_ac_recs, dict) and _ac_recs.get("recommendations"):
-        for rec_text in _ac_recs["recommendations"][:3]:
-            recs.append(("\u2139 Acceptance criteria", rec_text))
+    if isinstance(_ac_recs, dict) and _ac_recs.get("recommendation"):
+        recs.append(("\u2139 Acceptance criteria gaps", _ac_recs["recommendation"]))
 
     # Scope change recommendations
     scope = _ex.get("scope_changes", {})
