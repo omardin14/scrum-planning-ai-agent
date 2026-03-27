@@ -36,10 +36,6 @@ def _build_team_analysis_screen(
     Renders the team profile in a scrollable panel with velocity, calibration,
     story shapes, DoD signals, writing patterns, and export buttons.
     """
-    from scrum_agent.ui.shared._components import analysis_title
-
-    title = analysis_title()
-
     src = profile.source
     key = profile.project_key
     sprints = profile.sample_sprints
@@ -1528,7 +1524,7 @@ def _build_team_analysis_screen(
     # Use _rendered_lines (not len(lines)) because some items like
     # Padding(RichTable) render as multiple terminal rows.
     inner_h = height - 4
-    header_h = 5  # title(2) + blank + sub + blank
+    header_h = 3  # sub + blank + panel title is in border
     body_h = inner_h - header_h - footer_h
 
     max_scroll = max(0, _rendered_lines - body_h)
@@ -1538,8 +1534,6 @@ def _build_team_analysis_screen(
     remaining = max(0, body_h - len(visible))
 
     content = Group(
-        title,
-        Text(""),
         sub,
         Text(""),
         *visible,
@@ -1549,7 +1543,9 @@ def _build_team_analysis_screen(
 
     return Panel(
         content,
-        border_style="white",
+        title="[bold rgb(100,180,100)] TEAM ANALYSIS [/]",
+        title_align="left",
+        border_style="rgb(100,180,100)",
         box=rich.box.ROUNDED,
         expand=True,
         height=height,
