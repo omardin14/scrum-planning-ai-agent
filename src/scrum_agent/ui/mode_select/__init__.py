@@ -817,7 +817,7 @@ def select_mode(
                                     elapsed=time.monotonic() - _ta_thread_start,
                                     anim_tick=_ta_anim_tick,
                                     source=_ta_source,
-                                    mode="planning",
+                                    mode="analysis",
                                 )
                             )
                             time.sleep(_FRAME_TIME)
