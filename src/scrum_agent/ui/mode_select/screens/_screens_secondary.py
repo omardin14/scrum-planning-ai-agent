@@ -1528,7 +1528,7 @@ def _build_team_analysis_screen(
     # Use _rendered_lines (not len(lines)) because some items like
     # Padding(RichTable) render as multiple terminal rows.
     inner_h = height - 4
-    header_h = 6
+    header_h = 5  # title(2) + blank + sub + blank
     body_h = inner_h - header_h - footer_h
 
     max_scroll = max(0, _rendered_lines - body_h)
@@ -1538,7 +1538,6 @@ def _build_team_analysis_screen(
     remaining = max(0, body_h - len(visible))
 
     content = Group(
-        Text(""),
         title,
         Text(""),
         sub,
