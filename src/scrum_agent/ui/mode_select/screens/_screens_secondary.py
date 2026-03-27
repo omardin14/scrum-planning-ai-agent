@@ -184,21 +184,28 @@ def _build_team_analysis_screen(
         vel = profile.velocity_avg
         std = profile.velocity_stddev
 
-    _kv("Team velocity", f"{vel} pts/sprint", c_value)
-
-    # Committed vs delivered from scope timelines
+    # Committed vs delivered from scope timelines (preferred when available)
     _vel_scope = _ex.get("scope_changes", {})
+    _has_scope_vel = False
     if isinstance(_vel_scope, dict) and _vel_scope.get("totals"):
         _vel_cv = _vel_scope["totals"].get("avg_committed_velocity", 0.0)
         _vel_dv = _vel_scope["totals"].get("avg_delivered_velocity", 0.0)
         if _vel_cv > 0:
+            _has_scope_vel = True
+            _kv("Team velocity", f"{_vel_dv:g} pts/sprint", c_value)
             _kv("Committed avg", f"{_vel_cv:g} pts/sprint", c_muted)
             _vel_dp = round(_vel_dv / _vel_cv * 100)
             _vel_ds = c_good if _vel_dp >= 85 else (c_warn if _vel_dp >= 70 else c_bad)
-            _kv("Delivered avg", f"{_vel_dv:g} pts/sprint  ({_vel_dp}% accuracy)", _vel_ds)
+            _kv("Delivery accuracy", f"{_vel_dp}%", _vel_ds)
+            # Recalculate per-dev from delivered velocity
+            if team_sz and isinstance(team_sz, int) and team_sz > 0:
+                _pdv = round(_vel_dv / team_sz, 1)
+                _kv("Per developer", f"{_pdv} pts/sprint", c_accent)
 
-    if per_dev_vel and isinstance(per_dev_vel, (int, float)) and per_dev_vel > 0:
-        _kv("Per developer", f"{per_dev_vel} pts/sprint", c_accent)
+    if not _has_scope_vel:
+        _kv("Team velocity", f"{vel} pts/sprint", c_value)
+        if per_dev_vel and isinstance(per_dev_vel, (int, float)) and per_dev_vel > 0:
+            _kv("Per developer", f"{per_dev_vel} pts/sprint", c_accent)
 
     if vel > 0:
         var_pct = std / vel * 100
@@ -536,6 +543,17 @@ def _build_team_analysis_screen(
     if isinstance(_contrib, list) and _contrib:
         _heading("Team Members")
 
+        # Interrupted work summary (team-level, since assignment is unreliable)
+        total_rec = sum(c.get("recurring_pts", 0) for c in _contrib)
+        total_del = sum(c.get("delivery_pts", 0) for c in _contrib)
+        if total_rec > 0:
+            rec_pct = round(total_rec / (total_rec + total_del) * 100) if (total_rec + total_del) else 0
+            rec_row = Text(_PAD + "  ", justify="left")
+            rec_row.append("Interrupted work: ", style=c_muted)
+            rec_row.append(f"{total_rec:g} pts", style=c_warn if rec_pct > 30 else c_value)
+            rec_row.append(f" ({rec_pct}% of total effort)", style=c_dim)
+            _add(rec_row)
+
         from rich.table import Table as _MemberTable
 
         mt = _MemberTable(
@@ -546,8 +564,8 @@ def _build_team_analysis_screen(
             pad_edge=False,
         )
         mt.add_column("Name", width=20)
-        mt.add_column("Delivery", justify="right", width=8)
-        mt.add_column("KTLO", justify="right", width=5)
+        mt.add_column("Delivered", justify="right", width=8)
+        mt.add_column("Stories", justify="right", width=7)
         mt.add_column("Spill%", justify="right", width=6)
         mt.add_column("Cycle", justify="right", width=6)
         mt.add_column("Focus", width=14)
@@ -556,7 +574,6 @@ def _build_team_analysis_screen(
         for cs in _contrib[:10]:
             ps = cs.get("per_sprint", 0)
             ps_sty = c_good if ps >= 3 else (c_warn if ps >= 1.5 else c_dim)
-            r_pts = cs.get("recurring_pts", 0)
             spill = cs.get("spill_rate", 0)
             sp_sty = c_good if spill < 10 else (c_warn if spill < 25 else c_bad)
             ct_val = cs.get("avg_cycle_time", 0)
@@ -569,7 +586,7 @@ def _build_team_analysis_screen(
             mt.add_row(
                 Text(cs.get("name", "")[:20], style=c_value),
                 Text(str(cs.get("delivery_pts", 0)), style=c_accent),
-                Text(str(r_pts) if r_pts > 0 else "\u2014", style=c_dim),
+                Text(str(cs.get("stories_completed", 0)), style=c_muted),
                 Text(f"{spill}%" if spill > 0 else "\u2014", style=sp_sty),
                 Text(ct_str, style=c_muted),
                 Text(focus[:14], style=c_dim),
@@ -582,7 +599,6 @@ def _build_team_analysis_screen(
             _add(Text(""))
             # Who carries the most load?
             top = _contrib[0]
-            total_del = sum(c.get("delivery_pts", 0) for c in _contrib)
             if total_del > 0:
                 top_pct = round(top["delivery_pts"] / total_del * 100)
                 if top_pct >= 40:
@@ -600,22 +616,6 @@ def _build_team_analysis_screen(
                     ins.append(
                         f" spills {hs['spill_rate']}% of stories ({hs['stories_spilled']}/{hs['stories_total']})",
                         style=c_bad,
-                    )
-                    _add(ins)
-
-            # KTLO-heavy contributors
-            ktlo_heavy = [
-                c
-                for c in _contrib
-                if c.get("recurring_pts", 0) > c.get("delivery_pts", 0) and c.get("recurring_pts", 0) > 0
-            ]
-            if ktlo_heavy:
-                for kh in ktlo_heavy[:2]:
-                    ins = Text(_PAD + "  ", justify="left")
-                    ins.append(f"\u2139 {kh['name']}", style=c_muted)
-                    ins.append(
-                        f" does more KTLO ({kh['recurring_pts']}pts) than delivery ({kh['delivery_pts']}pts)",
-                        style=c_dim,
                     )
                     _add(ins)
 
