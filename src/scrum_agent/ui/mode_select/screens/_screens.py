@@ -14,7 +14,7 @@ from rich.console import Group
 from rich.panel import Panel
 from rich.text import Text
 
-from scrum_agent.ui.shared._animations import shimmer_style
+from scrum_agent.ui.shared._animations import COLOR_RGB, shimmer_style
 from scrum_agent.ui.shared._ascii_font import render_ascii_text
 from scrum_agent.ui.shared._components import PAD
 
@@ -123,8 +123,12 @@ def _build_mode_row(
         rendered.append(_PAD + lines[0] + "\n", style="rgb(90,90,100)")
         rendered.append(_PAD + lines[1], style="rgb(90,90,100)")
     else:
-        rendered.append(_PAD + lines[0] + "\n", style="dim")
-        rendered.append(_PAD + lines[1], style="dim")
+        # Unselected: use a muted version of the mode's accent color
+        r, g, b = COLOR_RGB.get(color, (100, 100, 120))
+        _dim_r, _dim_g, _dim_b = r // 3, g // 3, b // 3
+        _unsel_style = f"rgb({_dim_r},{_dim_g},{_dim_b})"
+        rendered.append(_PAD + lines[0] + "\n", style=_unsel_style)
+        rendered.append(_PAD + lines[1], style=_unsel_style)
 
     items: list = [rendered]
 
