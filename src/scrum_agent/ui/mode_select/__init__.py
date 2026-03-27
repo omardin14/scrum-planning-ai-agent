@@ -1000,11 +1000,18 @@ def select_mode(
                     if _tp_db.exists():
                         with TeamProfileStore(_tp_db) as _tp_store:
                             _tp_profiles = _tp_store.list_profiles()
-                        if _tp_profiles:
+                        # Filter to profiles matching the configured board(s)
+                        _matching_profiles = []
+                        for _tpp in _tp_profiles:
+                            if _jira_ok and _tpp.source == "jira":
+                                _matching_profiles.append(_tpp)
+                            elif _azdevops_ok and _tpp.source == "azdevops":
+                                _matching_profiles.append(_tpp)
+                        if _matching_profiles:
                             from datetime import UTC
                             from datetime import datetime as _dt
 
-                            _latest = _tp_profiles[0]
+                            _latest = _matching_profiles[0]
                             if _latest.updated_at:
                                 try:
                                     _up = _dt.fromisoformat(_latest.updated_at)
