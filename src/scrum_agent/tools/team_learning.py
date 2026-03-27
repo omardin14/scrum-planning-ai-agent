@@ -1600,20 +1600,58 @@ def _run_parallel_analysis(
             confidence_levels[c_cal.point_value] = "low"
     examples["confidence_levels"] = confidence_levels  # type: ignore[assignment]
 
-    # Team size and per-dev velocity from unique assignees
+    # Team size and per-contributor velocity breakdown
     all_assignees: set[str] = set()
+    contributor_delivery_pts: dict[str, float] = defaultdict(float)
+    contributor_delivery_count: dict[str, int] = defaultdict(int)
+    contributor_recurring_pts: dict[str, float] = defaultdict(float)
+    contributor_sprints: dict[str, set[str]] = defaultdict(set)
+
     for s in delivery_stories:
         a = (s.get("assignee", "") or "").strip()
         if a:
             all_assignees.add(a)
+            if not s.get("carried_over"):
+                contributor_delivery_pts[a] += _safe_float(s.get("points", 0))
+                contributor_delivery_count[a] += 1
+            sprint_name = s.get("sprint_name", "")
+            if sprint_name:
+                contributor_sprints[a].add(sprint_name)
+
+    for s in recurring_stories:
+        a = (s.get("assignee", "") or "").strip()
+        if a:
+            all_assignees.add(a)
+            contributor_recurring_pts[a] += _safe_float(s.get("points", 0))
 
     team_size = len(all_assignees)
     vel_avg = vel.get("velocity_avg", 0.0)
     per_dev_velocity = round(vel_avg / team_size, 1) if team_size > 0 else 0.0
 
+    # Per-contributor breakdown for the TUI
+    contributor_stats: list[dict] = []
+    for name in sorted(all_assignees):
+        d_pts = contributor_delivery_pts.get(name, 0.0)
+        r_pts = contributor_recurring_pts.get(name, 0.0)
+        d_count = contributor_delivery_count.get(name, 0)
+        sprints_active = len(contributor_sprints.get(name, set()))
+        per_sprint = round(d_pts / sprints_active, 1) if sprints_active else 0.0
+        contributor_stats.append(
+            {
+                "name": name,
+                "delivery_pts": round(d_pts, 1),
+                "recurring_pts": round(r_pts, 1),
+                "stories_completed": d_count,
+                "sprints_active": sprints_active,
+                "per_sprint": per_sprint,
+            }
+        )
+    contributor_stats.sort(key=lambda x: -x["delivery_pts"])
+
     examples["team_members"] = sorted(all_assignees)  # type: ignore[assignment]
     examples["team_size"] = team_size  # type: ignore[assignment]
     examples["per_dev_velocity"] = per_dev_velocity  # type: ignore[assignment]
+    examples["contributor_stats"] = contributor_stats  # type: ignore[assignment]
 
     team_id = f"{source}-{project_key}"
     profile = TeamProfile(
