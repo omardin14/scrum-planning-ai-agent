@@ -567,11 +567,15 @@ def _build_team_analysis_screen(
             padding=(0, 1),
             pad_edge=False,
         )
+        # Get total sprints for participation display
+        _total_sprints = len(_ex.get("sprint_details", [])) or profile.sample_sprints or 1
+
         mt.add_column("Name", width=20)
         mt.add_column("Delivered", justify="right", width=8)
         mt.add_column("Stories", justify="right", width=7)
         mt.add_column("Spill%", justify="right", width=6)
         mt.add_column("Cycle", justify="right", width=6)
+        mt.add_column("Sprints", justify="right", width=7)
         mt.add_column("Focus", width=14)
         mt.add_column("Pts/sprint", justify="right", width=9)
 
@@ -587,12 +591,15 @@ def _build_team_analysis_screen(
             focus = disc
             if wt:
                 focus = f"{disc}/{wt.split('/')[0]}"
+            sa = cs.get("sprints_active", 0)
+            sprints_str = f"{sa}/{_total_sprints}"
             mt.add_row(
                 Text(cs.get("name", "")[:20], style=c_value),
                 Text(str(cs.get("delivery_pts", 0)), style=c_accent),
                 Text(str(cs.get("stories_completed", 0)), style=c_muted),
                 Text(f"{spill}%" if spill > 0 else "\u2014", style=sp_sty),
                 Text(ct_str, style=c_muted),
+                Text(sprints_str, style=c_muted),
                 Text(focus[:14], style=c_dim),
                 Text(str(ps), style=ps_sty),
             )
