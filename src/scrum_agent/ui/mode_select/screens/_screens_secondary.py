@@ -197,15 +197,19 @@ def _build_team_analysis_screen(
             _vel_dp = round(_vel_dv / _vel_cv * 100)
             _vel_ds = c_good if _vel_dp >= 85 else (c_warn if _vel_dp >= 70 else c_bad)
             _kv("Delivery accuracy", f"{_vel_dp}%", _vel_ds)
-            # Recalculate per-dev from delivered velocity
-            if team_sz and isinstance(team_sz, int) and team_sz > 0:
-                _pdv = round(_vel_dv / team_sz, 1)
-                _kv("Per developer", f"{_pdv} pts/sprint", c_accent)
 
     if not _has_scope_vel:
         _kv("Team velocity", f"{vel} pts/sprint", c_value)
-        if per_dev_vel and isinstance(per_dev_vel, (int, float)) and per_dev_vel > 0:
-            _kv("Per developer", f"{per_dev_vel} pts/sprint", c_accent)
+
+    # Per developer — use actual contributor avg when available
+    _pdv_stats = _ex.get("contributor_stats", [])
+    if isinstance(_pdv_stats, list) and _pdv_stats:
+        _pdv_vals = [c.get("per_sprint", 0) for c in _pdv_stats if c.get("per_sprint", 0) > 0]
+        if _pdv_vals:
+            _pdv = round(sum(_pdv_vals) / len(_pdv_vals), 1)
+            _kv("Per developer", f"{_pdv} pts/sprint", c_accent)
+    elif per_dev_vel and isinstance(per_dev_vel, (int, float)) and per_dev_vel > 0:
+        _kv("Per developer", f"{per_dev_vel} pts/sprint", c_accent)
 
     if vel > 0:
         var_pct = std / vel * 100
