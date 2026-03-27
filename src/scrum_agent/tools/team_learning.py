@@ -3274,6 +3274,38 @@ def _fetch_jira_history(project_key: str, sprint_count: int) -> list[dict]:
     logger.info("Connecting to Jira: %s, project=%s", base_url, key)
     jira = JIRA(server=base_url, basic_auth=(email, token))
 
+    # Discover custom fields for AC and DoD (varies by Jira project)
+    _ac_field_id = ""
+    _dod_field_id = ""
+    try:
+        all_fields = jira.fields()
+        _ac_keywords = {"acceptance criteria", "acceptance criterion", "ac criteria"}
+        _dod_keywords = {"definition of done", "dod", "done criteria", "done definition"}
+        for f in all_fields:
+            fname = (f.get("name", "") or "").lower().strip()
+            fid = f.get("id", "")
+            if fname in _ac_keywords or "acceptance" in fname:
+                _ac_field_id = fid
+                logger.info("Found Jira AC field: %s (%s)", f.get("name"), fid)
+            if fname in _dod_keywords or "definition of done" in fname:
+                _dod_field_id = fid
+                logger.info("Found Jira DoD field: %s (%s)", f.get("name"), fid)
+    except Exception:
+        logger.debug("Could not discover Jira custom fields", exc_info=True)
+
+    # Build fields string including custom AC/DoD if discovered
+    _base_fields = (
+        "customfield_10016,story_points,assignee,created,"
+        "resolutiondate,issuetype,labels,summary,subtasks,"
+        "customfield_10014,description"
+    )
+    _extra_fields = ""
+    if _ac_field_id:
+        _extra_fields += f",{_ac_field_id}"
+    if _dod_field_id:
+        _extra_fields += f",{_dod_field_id}"
+    _fetch_fields = _base_fields + _extra_fields
+
     boards = jira.boards(projectKeyOrID=key)
     if not boards:
         raise ValueError(f"No Jira board found for project '{key}'.")
@@ -3299,9 +3331,7 @@ def _fetch_jira_history(project_key: str, sprint_count: int) -> list[dict]:
             done_issues = jira.search_issues(
                 f'project = "{key}" AND sprint = {sp.id} AND status = Done',
                 maxResults=500,
-                fields="customfield_10016,story_points,assignee,created,"
-                "resolutiondate,issuetype,labels,summary,subtasks,"
-                "customfield_10014,description",
+                fields=_fetch_fields,
             )
         except JIRAError:
             done_issues = []
@@ -3385,14 +3415,31 @@ def _fetch_jira_history(project_key: str, sprint_count: int) -> list[dict]:
             summary = getattr(issue.fields, "summary", "") or ""
             description = getattr(issue.fields, "description", "") or ""
 
-            # AC count: approximate by counting bullet/checklist items in description
-            # Strip HTML tags first (Jira descriptions can contain rich HTML)
-            _desc_text = re.sub(r"<[^>]+>", " ", description).strip()
+            # Read custom AC and DoD fields if discovered
+            _jira_ac_text = ""
+            _jira_dod_text = ""
+            if _ac_field_id:
+                _jira_ac_text = getattr(issue.fields, _ac_field_id, "") or ""
+            if _dod_field_id:
+                _jira_dod_text = getattr(issue.fields, _dod_field_id, "") or ""
+
+            # AC count: use custom AC field first, fall back to description bullets
+            # Combine all text sources for downstream analysis
+            _all_ac_sources = " ".join(filter(None, [_jira_ac_text, _jira_dod_text]))
+            _ac_source = _all_ac_sources if _all_ac_sources.strip() else description
+            _ac_clean = re.sub(r"<[^>]+>", " ", _ac_source).strip()
             ac_count = 0
-            if _desc_text:
-                ac_count = len(re.findall(r"(?m)^[\s]*[-*●•]\s", _desc_text))
+            if _ac_clean:
+                ac_count = len(re.findall(r"(?m)^[\s]*[-*●•]\s", _ac_clean))
                 if ac_count == 0:
-                    ac_count = len(re.findall(r"(?m)^\s*\d+[.)]\s", _desc_text))
+                    ac_count = len(re.findall(r"(?m)^\s*\d+[.)]\s", _ac_clean))
+                # Non-empty AC/DoD field without list structure counts as 1
+                if ac_count == 0 and len(_ac_clean) > 10:
+                    ac_count = 1
+
+            # Append AC/DoD text to description for downstream analysis
+            if _all_ac_sources.strip():
+                description = description + "\n" + _all_ac_sources
 
             # Fetch comments for DoD signal analysis (with timestamps for ordering)
             comments_text: list[str] = []
