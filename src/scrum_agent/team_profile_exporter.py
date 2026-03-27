@@ -482,7 +482,15 @@ def export_team_profile_html(
 
     # ── Point Calibration ───────────────────────────────────────────
     cals = [c for c in profile.point_calibrations if c.sample_count > 0]
-    conf_levels = ex.get("confidence_levels", {})
+    _raw_conf = ex.get("confidence_levels", {})
+    # JSON round-trip may stringify int keys — normalise to int keys
+    conf_levels: dict[int, str] = {}
+    if isinstance(_raw_conf, dict):
+        for k, v in _raw_conf.items():
+            try:
+                conf_levels[int(k)] = str(v)
+            except (ValueError, TypeError):
+                pass
     if cals:
         cal_hdr = (
             "<tr><th>Points</th><th>Avg cycle time</th><th>Samples</th>"
@@ -490,7 +498,7 @@ def export_team_profile_html(
         )
         cal_rows_html = []
         for c in cals:
-            conf = conf_levels.get(c.point_value, "") if isinstance(conf_levels, dict) else ""
+            conf = conf_levels.get(c.point_value, "")
             conf_color = {"high": "#22c55e", "medium": "var(--text-muted)", "low": "#eab308"}.get(conf, "")
             conf_html = f'<span style="color:{conf_color};font-weight:600;">{conf.upper()}</span>' if conf else ""
             cal_rows_html.append(
@@ -1409,7 +1417,14 @@ def export_team_profile_md(
 
     # ── Point Calibration ───────────────────────────────────────────
     cals = [c for c in profile.point_calibrations if c.sample_count > 0]
-    conf_levels = ex.get("confidence_levels", {})
+    _md_raw_conf = ex.get("confidence_levels", {})
+    _md_conf: dict[int, str] = {}
+    if isinstance(_md_raw_conf, dict):
+        for k, v in _md_raw_conf.items():
+            try:
+                _md_conf[int(k)] = str(v)
+            except (ValueError, TypeError):
+                pass
     if cals:
         lines.extend(
             [
@@ -1421,7 +1436,7 @@ def export_team_profile_md(
         )
         for c in cals:
             pts_label = f"{c.point_value}pt" if c.point_value == 1 else f"{c.point_value}pts"
-            conf = conf_levels.get(c.point_value, "") if isinstance(conf_levels, dict) else ""
+            conf = _md_conf.get(c.point_value, "")
             conf_str = conf.upper() if conf == "high" else (conf if conf else "")
             lines.append(
                 f"| {pts_label} | {c.avg_cycle_time_days:.0f}d | {c.sample_count} "
