@@ -387,7 +387,7 @@ def export_team_profile_html(
         tm_content += (
             '<table class="data-table"><tr>'
             "<th>Name</th><th>Delivered</th><th>Stories</th>"
-            "<th>Spill%</th><th>Cycle</th><th>Focus</th><th>Pts/sprint</th>"
+            "<th>Spill%</th><th>Cycle</th><th>Sprints</th><th>Focus</th><th>Pts/sprint</th>"
             "</tr>"
         )
         for cs in _h_contrib[:10]:
@@ -400,12 +400,14 @@ def export_team_profile_html(
             focus = f"{disc}/{wt.split('/')[0]}" if wt else disc
             ps = cs.get("per_sprint", 0)
             ps_col = "#22c55e" if ps >= 3 else ("#eab308" if ps >= 1.5 else "#888")
+            sa = cs.get("sprints_active", 0)
             tm_content += (
                 f"<tr><td>{_e(cs.get('name', ''))}</td>"
                 f'<td style="text-align:right;">{cs.get("delivery_pts", 0)}</td>'
                 f'<td style="text-align:right;">{cs.get("stories_completed", 0)}</td>'
                 f'<td style="text-align:right;color:{sp_col};">{sp_r}%</td>'
                 f'<td style="text-align:right;">{ct_s}</td>'
+                f'<td style="text-align:right;">{sa}</td>'
                 f"<td>{_e(focus[:18])}</td>"
                 f'<td style="text-align:right;color:{ps_col};">{ps}</td></tr>'
             )
@@ -1288,8 +1290,8 @@ def export_team_profile_md(
             lines.append("")
         lines.extend(
             [
-                "| Name | Delivered | Stories | Spill% | Cycle | Focus | Pts/sprint |",
-                "|------|-----------|---------|--------|-------|-------|------------|",
+                "| Name | Delivered | Stories | Spill% | Cycle | Sprints | Focus | Pts/sprint |",
+                "|------|-----------|---------|--------|-------|---------|-------|------------|",
             ]
         )
         for cs in _md_contrib[:10]:
@@ -1304,6 +1306,7 @@ def export_team_profile_md(
                 f"| {cs.get('stories_completed', 0)} "
                 f"| {cs.get('spill_rate', 0)}% "
                 f"| {ct_s} "
+                f"| {cs.get('sprints_active', 0)} "
                 f"| {focus[:18]} "
                 f"| {cs.get('per_sprint', 0)} |"
             )
