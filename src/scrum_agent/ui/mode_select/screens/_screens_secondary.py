@@ -1497,28 +1497,40 @@ def _build_team_analysis_screen(
                 t.append(", ".join(str(r) for r in pt_repos[:3]), style=c_dim)
                 _add(t)
 
-    # ── Footer buttons — pinned to the bottom, outside the scroll viewport ──
-    # Built separately so they're always visible regardless of scroll position.
-    # Button colours: HTML = blue, Markdown = purple, Continue = green.
-    # Selected button is bold + bright; unselected is dim.
-    _btn_colors = [
-        ("rgb(100,140,220)", "bold rgb(100,160,255)"),  # Export HTML — blue
-        ("rgb(160,100,220)", "bold rgb(180,120,255)"),  # Export Markdown — purple
-        ("rgb(80,180,120)", "bold rgb(80,220,120)"),  # Continue — green
-    ]
-    btn_line = Text(_PAD, justify="left")
-    for i, label in enumerate(["Export HTML", "Export Markdown", "Continue"]):
-        _dim_style, _sel_style = _btn_colors[i]
+    # ── Footer buttons — pinned to the bottom, matching planning mode style ──
+    # Bordered boxes: selected = green border + bold text, unselected = dim border
+    from rich.table import Table as _FooterTable
+
+    _footer_labels = ["Export HTML", "Export Markdown", "Continue"]
+    _footer_row = _FooterTable(box=None, padding=(0, 1), pad_edge=False, show_header=False)
+    _footer_row.add_column(width=3)  # left pad
+    for i, label in enumerate(_footer_labels):
+        _btn_w = len(label) + 4
+        _footer_row.add_column(width=_btn_w)
+    _btn_cells: list[Text] = [Text("")]
+    for i, label in enumerate(_footer_labels):
         if i == export_sel:
-            btn_line.append(f" [ {label} ] ", style=_sel_style)
+            # Selected: green border box
+            _top = "\u250c" + "\u2500" * (len(label) + 2) + "\u2510"
+            _mid = "\u2502 " + label + " \u2502"
+            _bot = "\u2514" + "\u2500" * (len(label) + 2) + "\u2518"
+            cell = Text(justify="center")
+            cell.append(_top + "\n", style="rgb(80,220,120)")
+            cell.append(_mid + "\n", style="bold rgb(80,220,120)")
+            cell.append(_bot, style="rgb(80,220,120)")
         else:
-            btn_line.append(f" [ {label} ] ", style=_dim_style)
-        if i < 2:
-            btn_line.append("  ")
-    hint_text = _PAD + "  \u2190 \u2192 select  \u00b7  Enter confirm  \u00b7  \u2191 \u2193 scroll  \u00b7  Esc skip"
-    hint_line = Text(hint_text, style="rgb(60,60,80)", justify="left")
-    footer_lines = [Text(""), btn_line, hint_line]
-    footer_h = len(footer_lines)
+            # Unselected: dim border box
+            _top = "\u250c" + "\u2500" * (len(label) + 2) + "\u2510"
+            _mid = "\u2502 " + label + " \u2502"
+            _bot = "\u2514" + "\u2500" * (len(label) + 2) + "\u2518"
+            cell = Text(justify="center")
+            cell.append(_top + "\n", style="rgb(60,60,70)")
+            cell.append(_mid + "\n", style="rgb(100,100,110)")
+            cell.append(_bot, style="rgb(60,60,70)")
+        _btn_cells.append(cell)
+    _footer_row.add_row(*_btn_cells)
+    footer_lines = [Text(""), Padding(_footer_row, (0, 0, 0, len(_PAD)))]
+    footer_h = 5  # blank + 3-line bordered buttons + 1 padding
 
     # Scrollable viewport — reserves space for the pinned footer.
     # Use _rendered_lines (not len(lines)) because some items like
