@@ -36,7 +36,9 @@ def _build_team_analysis_screen(
     Renders the team profile in a scrollable panel with velocity, calibration,
     story shapes, DoD signals, writing patterns, and export buttons.
     """
-    title = planning_title()
+    from scrum_agent.ui.shared._components import analysis_title
+
+    title = analysis_title()
 
     src = profile.source
     key = profile.project_key
