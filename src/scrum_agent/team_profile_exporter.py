@@ -838,16 +838,19 @@ def export_team_profile_html(
                     "are recurring. Consider consolidating or timeboxing.",
                 )
             )
-    per_dev = ex.get("per_dev_velocity", 0)
-    team_sz = ex.get("team_size", 0)
-    if team_sz and isinstance(team_sz, int) and per_dev and isinstance(per_dev, (int, float)) and per_dev < 3:
-        recs.append(
-            (
-                "Low per-developer output",
-                f"Each developer averages {per_dev} pts/sprint. "
-                "Check for blockers, context-switching, or oversized stories.",
-            )
-        )
+    _html_cs = ex.get("contributor_stats", [])
+    if isinstance(_html_cs, list) and _html_cs:
+        _hcv = [c.get("per_sprint", 0) for c in _html_cs if c.get("per_sprint", 0) > 0]
+        if _hcv:
+            _hca = round(sum(_hcv) / len(_hcv), 1)
+            if _hca < 3:
+                recs.append(
+                    (
+                        "Low per-developer output",
+                        f"Contributors average {_hca} pts/sprint. "
+                        "Check for blockers, context-switching, or oversized stories.",
+                    )
+                )
     _repos = ex.get("repositories", {})
     if isinstance(_repos, dict):
         for sr in _repos.get("spillover_repos", []):
@@ -1581,10 +1584,13 @@ def export_team_profile_md(
         total = md_rec_count + md_del_count
         if total > 0 and md_rec_count / total > 0.3:
             recs.append(("High recurring overhead", f"{md_rec_count}/{total} are recurring."))
-    per_dev = ex.get("per_dev_velocity", 0)
-    team_sz = ex.get("team_size", 0)
-    if team_sz and isinstance(team_sz, int) and per_dev and isinstance(per_dev, (int, float)) and per_dev < 3:
-        recs.append(("Low per-developer output", f"Avg {per_dev} pts/sprint per dev."))
+    _md_cs = ex.get("contributor_stats", [])
+    if isinstance(_md_cs, list) and _md_cs:
+        _mcv = [c.get("per_sprint", 0) for c in _md_cs if c.get("per_sprint", 0) > 0]
+        if _mcv:
+            _mca = round(sum(_mcv) / len(_mcv), 1)
+            if _mca < 3:
+                recs.append(("Low per-developer output", f"Contributors avg {_mca} pts/sprint."))
     _repos = ex.get("repositories", {})
     if isinstance(_repos, dict):
         for sr in _repos.get("spillover_repos", []):

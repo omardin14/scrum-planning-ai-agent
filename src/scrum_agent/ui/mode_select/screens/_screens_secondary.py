@@ -1137,16 +1137,30 @@ def _build_team_analysis_screen(
                 )
             )
 
-    if team_sz and isinstance(team_sz, int) and team_sz > 0:
-        if per_dev_vel and isinstance(per_dev_vel, (int, float)) and per_dev_vel < 3:
-            recs.append(
-                (
-                    "\u2139 Low per-developer output",
-                    f"Each developer averages {per_dev_vel} pts/sprint. "
-                    "Check for blockers, excessive context-switching, "
-                    "or stories sized too large.",
+    # Per-developer output — use actual contributor stats when available
+    _cs_list = _ex.get("contributor_stats", [])
+    if isinstance(_cs_list, list) and _cs_list:
+        _cs_velocities = [c.get("per_sprint", 0) for c in _cs_list if c.get("per_sprint", 0) > 0]
+        if _cs_velocities:
+            _cs_avg = round(sum(_cs_velocities) / len(_cs_velocities), 1)
+            _cs_low = [c for c in _cs_list if 0 < c.get("per_sprint", 0) < 2 and c.get("sprints_active", 0) >= 2]
+            if _cs_avg < 3:
+                recs.append(
+                    (
+                        "\u2139 Low per-developer output",
+                        f"Contributors average {_cs_avg} pts/sprint. "
+                        "Check for blockers, context-switching, or oversized stories.",
+                    )
                 )
-            )
+            elif _cs_low:
+                _low_names = ", ".join(c["name"] for c in _cs_low[:3])
+                recs.append(
+                    (
+                        "\u2139 Uneven developer output",
+                        f"{_low_names} deliver below 2 pts/sprint. "
+                        "May indicate blockers, onboarding, or heavy KTLO load.",
+                    )
+                )
 
     _repos = _ex.get("repositories", {})
     if isinstance(_repos, dict):
