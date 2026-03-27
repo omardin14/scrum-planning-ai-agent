@@ -1780,6 +1780,81 @@ def _build_import_screen(
     )
 
 
+def _build_analysis_progress_screen(
+    progress: list[str],
+    *,
+    width: int = 80,
+    height: int = 24,
+    elapsed: float = 0.0,
+    anim_tick: float = 0.0,
+    source: str = "",
+    mode: str = "planning",
+) -> Panel:
+    """Build the team analysis progress screen with spinner and step indicators.
+
+    Shows a visual progress display while the analysis thread runs in the background.
+    """
+    from scrum_agent.ui.shared._components import analysis_title
+
+    title = analysis_title() if mode == "analysis" else planning_title()
+
+    # Spinner frames
+    _spinners = ["\u25d0", "\u25d3", "\u25d1", "\u25d2"]
+    spinner = _spinners[int(anim_tick * 4) % len(_spinners)]
+
+    # Elapsed time display
+    mins = int(elapsed) // 60
+    secs = int(elapsed) % 60
+    time_str = f"{mins}:{secs:02d}" if mins > 0 else f"{secs}s"
+
+    # Header
+    source_label = f" ({source})" if source else ""
+    body: list = [
+        Text(
+            _PAD + f"{spinner}  Analysing team board{source_label}",
+            style="bold bright_green",
+            justify="left",
+        ),
+        Text(_PAD + f"   Elapsed: {time_str}", style="dim", justify="left"),
+        Text(""),
+    ]
+
+    # Progress steps with status indicators
+    _done_steps = progress[:-1] if len(progress) > 1 else []
+    _current = progress[-1] if progress else ""
+
+    for step in _done_steps:
+        body.append(Text(_PAD + f"  \u2713 {step}", style="#22c55e", justify="left"))
+
+    if _current:
+        # Animated dots for current step
+        dots = "." * (int(anim_tick * 2) % 4)
+        body.append(
+            Text(
+                _PAD + f"  \u25b8 {_current}{dots}",
+                style="bold white",
+                justify="left",
+            )
+        )
+
+    # Fill remaining space
+    body_h = 4 + len(progress)
+    inner_h = height - 4
+    remaining = max(0, inner_h - 4 - body_h)
+    body.extend([Text("") for _ in range(remaining)])
+
+    content = Group(Text(""), title, Text(""), *body)
+
+    return Panel(
+        content,
+        border_style="#22c55e",
+        box=rich.box.ROUNDED,
+        expand=True,
+        height=height,
+        padding=(1, 2),
+    )
+
+
 def _build_project_export_success_screen(
     file_path: str,
     *,

@@ -801,19 +801,23 @@ def select_mode(
                         )
                         _ta_thread.start()
 
+                        from scrum_agent.ui.mode_select.screens._screens_secondary import (
+                            _build_analysis_progress_screen,
+                        )
+
                         _ta_anim_tick = 0.0
                         while not _ta_done.is_set():
                             _ta_anim_tick += _FRAME_TIME
-                            _ta_dots = int(_ta_anim_tick * 3) % 4
-                            dots_str = "." * _ta_dots + " " * (3 - _ta_dots)
                             w, h = console.size
                             live.update(
-                                _build_project_export_success_screen(
-                                    "\n".join(_ta_progress),
+                                _build_analysis_progress_screen(
+                                    _ta_progress,
                                     width=w,
                                     height=h,
-                                    subtitle=f"Analysing team board{dots_str}",
-                                    hint="",
+                                    elapsed=time.monotonic() - _ta_thread_start,
+                                    anim_tick=_ta_anim_tick,
+                                    source=_ta_source,
+                                    mode="planning",
                                 )
                             )
                             time.sleep(_FRAME_TIME)
@@ -1822,20 +1826,23 @@ def select_mode(
                     _ta_thread.start()
 
                     # Processing animation while waiting
+                    from scrum_agent.ui.mode_select.screens._screens_secondary import (
+                        _build_analysis_progress_screen,
+                    )
+
                     _ta_anim_tick = 0.0
-                    _ta_dots = 0
                     while not _ta_done.is_set():
                         _ta_anim_tick += _FRAME_TIME
-                        _ta_dots = int(_ta_anim_tick * 3) % 4
-                        dots_str = "." * _ta_dots + " " * (3 - _ta_dots)
                         w, h = console.size
                         live.update(
-                            _build_project_export_success_screen(
-                                "\n".join(_ta_progress),
+                            _build_analysis_progress_screen(
+                                _ta_progress,
                                 width=w,
                                 height=h,
-                                subtitle=f"Analysing team board{dots_str}",
-                                hint="",
+                                elapsed=time.monotonic() - _ta_thread_start,
+                                anim_tick=_ta_anim_tick,
+                                source=_ta_source,
+                                mode="analysis",
                             )
                         )
                         time.sleep(_FRAME_TIME)
