@@ -615,6 +615,160 @@ _MONITORING_RE = re.compile(
 )
 
 
+# ---------------------------------------------------------------------------
+# LLM-powered ticket structure parser
+# ---------------------------------------------------------------------------
+
+_TICKET_PARSE_SCHEMA = """\
+[
+  {
+    "key": "ISSUE-123",
+    "description": "The actual problem/feature description",
+    "acceptance_criteria": ["AC item 1", "AC item 2"],
+    "risks": ["Risk 1"],
+    "justification": "Why this matters",
+    "dod_signals": ["Code reviewed", "Deployed to staging"],
+    "personas": ["developer", "admin"],
+    "gwt": false
+  }
+]"""
+
+_TICKET_PARSE_PROMPT = """\
+Analyse each work item below and extract structured sections.
+Return a JSON array with one object per work item matching this schema:
+
+{schema}
+
+For each item, look for sections like:
+- "What is this about?" / "Description" / problem statement → description
+- "What does done look like?" / "Acceptance criteria" / "AC" / bullet criteria → acceptance_criteria
+- "Are there any risks?" / "Blockers" / "Dependencies" → risks
+- "Why does it matter?" / "Business value" / "Impact" → justification
+- Definition of done items (testing, review, deployment, documentation steps) → dod_signals
+- User personas ("As a developer...", "As an admin...") → personas
+
+Rules:
+- acceptance_criteria should be individual testable items, not the full section text
+- If ACs use Given/When/Then format, set gwt to true
+- If a section is missing or empty, return empty string/list
+- Return ONLY the JSON array, no other text
+
+Work items:
+
+{items}"""
+
+
+def _strip_html(text: str) -> str:
+    """Strip HTML tags and collapse whitespace for LLM input."""
+    clean = re.sub(r"<[^>]+>", " ", text)
+    return re.sub(r"\s+", " ", clean).strip()
+
+
+def _parse_tickets_with_llm(
+    stories: list[dict],
+    progress: list[str],
+    batch_size: int = 6,
+) -> dict[str, dict]:
+    """Parse tickets using LLM in batches. Returns {issue_key: parsed_dict}.
+
+    Falls back to empty dict if LLM is unavailable or fails.
+    """
+    if not stories:
+        return {}
+
+    try:
+        from langchain_core.messages import HumanMessage
+
+        from scrum_agent.agent.llm import get_llm
+    except Exception:
+        logger.debug("LLM not available for ticket parsing, using regex fallback")
+        return {}
+
+    # Build batches
+    batches: list[list[dict]] = []
+    for i in range(0, len(stories), batch_size):
+        batches.append(stories[i : i + batch_size])
+
+    results: dict[str, dict] = {}
+
+    def _parse_batch(batch: list[dict]) -> dict[str, dict]:
+        """Parse a single batch of stories."""
+        items_parts: list[str] = []
+        for s in batch:
+            key = s.get("issue_key", "?")
+            title = s.get("summary", "")
+            desc = _strip_html(s.get("description", "") or "")
+            # Truncate to avoid token bloat
+            if len(desc) > 800:
+                desc = desc[:800] + "..."
+            items_parts.append(f"--- {key}: {title} ---\n{desc}")
+
+        items_block = "\n\n".join(items_parts)
+        prompt = _TICKET_PARSE_PROMPT.format(schema=_TICKET_PARSE_SCHEMA, items=items_block)
+
+        try:
+            response = get_llm(temperature=0.0).invoke([HumanMessage(content=prompt)])
+            text = response.content if hasattr(response, "content") else str(response)
+            # Extract JSON from response (handle markdown fences)
+            text = text.strip()
+            if text.startswith("```"):
+                text = re.sub(r"^```\w*\n?", "", text)
+                text = re.sub(r"\n?```$", "", text)
+            parsed = json.loads(text)
+            if not isinstance(parsed, list):
+                return {}
+            batch_results: dict[str, dict] = {}
+            for item in parsed:
+                if isinstance(item, dict) and item.get("key"):
+                    batch_results[item["key"]] = item
+            return batch_results
+        except Exception as exc:
+            logger.debug("LLM ticket parse batch failed: %s", exc)
+            return {}
+
+    # Run batches in parallel
+    progress.append("Parsing ticket structure\u2026")
+    try:
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            futures = {executor.submit(_parse_batch, b): i for i, b in enumerate(batches)}
+            for future in as_completed(futures):
+                try:
+                    batch_result = future.result(timeout=30)
+                    results.update(batch_result)
+                except Exception:
+                    pass
+    except Exception as exc:
+        logger.warning("LLM ticket parsing failed entirely: %s", exc)
+        return {}
+
+    logger.info("LLM parsed %d/%d stories", len(results), len(stories))
+    return results
+
+
+def _enrich_stories_with_parsed(
+    stories: list[dict],
+    parsed: dict[str, dict],
+) -> None:
+    """Mutate story dicts in-place with LLM-parsed fields."""
+    for s in stories:
+        key = s.get("issue_key", "")
+        p = parsed.get(key)
+        if p:
+            acs = p.get("acceptance_criteria", [])
+            if isinstance(acs, list) and acs:
+                s["ac_count"] = len(acs)
+                s["parsed_ac"] = acs
+            s["parsed_risks"] = p.get("risks", [])
+            s["parsed_dod_signals"] = p.get("dod_signals", [])
+            s["parsed_justification"] = p.get("justification", "")
+            s["parsed_personas"] = p.get("personas", [])
+            if p.get("gwt"):
+                s["uses_given_when_then"] = True
+            s["parse_source"] = "llm"
+        else:
+            s["parse_source"] = "regex"
+
+
 def _normalize_title(title: str) -> str:
     """Normalize a story title for duplicate detection across sprints.
 
@@ -1083,14 +1237,19 @@ def _worker_dod_signals(all_stories: list[dict], progress: list[str]) -> DoDSign
         if _DEPLOY_RE.search(all_text):
             with_deploy += 1
 
-        for m in _PR_RE.finditer(all_text):
+        for _m in _PR_RE.finditer(all_text):
             checklist_counter["PR linked"] += 1
-        for m in _REVIEW_RE.finditer(all_text):
+        for _m in _REVIEW_RE.finditer(all_text):
             checklist_counter["code reviewed"] += 1
-        for m in _TEST_RE.finditer(all_text):
+        for _m in _TEST_RE.finditer(all_text):
             checklist_counter["tests passing"] += 1
-        for m in _DEPLOY_RE.finditer(all_text):
+        for _m in _DEPLOY_RE.finditer(all_text):
             checklist_counter["deployed"] += 1
+
+        # Supplement with LLM-parsed DoD signals (if available)
+        for sig in s.get("parsed_dod_signals", []):
+            if isinstance(sig, str) and sig:
+                checklist_counter[sig.lower()] += 1
 
     common_items = tuple(item for item, _ in sorted(checklist_counter.items(), key=lambda x: -x[1])[:6])
     avg_comments = sum(comment_counts) / n if n else 0.0
@@ -1135,6 +1294,13 @@ def _run_parallel_analysis(
         len(recurring_stories),
         len(sprint_data),
     )
+
+    # LLM-powered ticket structure parsing — enriches story dicts with
+    # extracted acceptance criteria, DoD signals, risks, personas.
+    # Runs BEFORE workers so they all get enriched data.
+    # Falls back silently to regex if LLM is unavailable.
+    _parsed_tickets = _parse_tickets_with_llm(delivery_stories, progress)
+    _enrich_stories_with_parsed(delivery_stories, _parsed_tickets)
 
     # Story shapes by discipline (computed in main thread — lightweight)
     by_discipline: dict[str, list[dict]] = defaultdict(list)
@@ -1217,6 +1383,16 @@ def _run_parallel_analysis(
 
     # Acceptance criteria pattern analysis
     examples["ac_patterns"] = _analyse_acceptance_criteria(delivery_stories)  # type: ignore[assignment]
+
+    # LLM parse stats
+    llm_count = sum(1 for s in delivery_stories if s.get("parse_source") == "llm")
+    regex_count = sum(1 for s in delivery_stories if s.get("parse_source") == "regex")
+    if llm_count > 0 or regex_count > 0:
+        examples["parse_stats"] = {  # type: ignore[assignment]
+            "llm_parsed": llm_count,
+            "regex_fallback": regex_count,
+            "total": len(delivery_stories),
+        }
 
     # Repository analysis from PR links in story text
     examples["repositories"] = _analyse_repositories(delivery_stories)  # type: ignore[assignment]
@@ -1819,9 +1995,14 @@ def _analyse_acceptance_criteria(delivery_stories: list[dict]) -> dict:
     n_with_ac = len(stories_with_ac) or 1
 
     for s in stories_with_ac:
-        desc = re.sub(r"<[^>]+>", " ", s.get("description", "") or "")
+        # Prefer LLM-parsed AC items for theme detection (more precise)
+        parsed_ac = s.get("parsed_ac", [])
+        if parsed_ac:
+            ac_text = " ".join(parsed_ac)
+        else:
+            ac_text = re.sub(r"<[^>]+>", " ", s.get("description", "") or "")
         for theme, regex in theme_regexes.items():
-            if regex.search(desc):
+            if regex.search(ac_text):
                 theme_counts[theme] += 1
 
     theme_pcts = {t: round(c / n_with_ac * 100) for t, c in sorted(theme_counts.items(), key=lambda x: -x[1]) if c > 0}

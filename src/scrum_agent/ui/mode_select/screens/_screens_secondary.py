@@ -908,6 +908,15 @@ def _build_team_analysis_screen(
         ac_pct = ac_pat.get("stories_with_ac_pct", 0)
         _heading("Acceptance Criteria Patterns")
 
+        # Parse stats
+        _ps = _ex.get("parse_stats", {})
+        if isinstance(_ps, dict) and _ps.get("llm_parsed", 0) > 0:
+            _kv(
+                "Analysis method",
+                f"LLM parsed {_ps['llm_parsed']}/{_ps.get('total', 0)} stories",
+                c_accent,
+            )
+
         ac_cov_sty = c_good if ac_pct >= 70 else (c_warn if ac_pct >= 40 else c_bad)
         _kv("Stories with ACs", f"{ac_pct}%", ac_cov_sty)
 
