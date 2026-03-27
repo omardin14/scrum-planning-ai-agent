@@ -906,15 +906,27 @@ def _build_team_analysis_screen(
     ac_pat = _ex.get("ac_patterns", {})
     if isinstance(ac_pat, dict) and ac_pat.get("stories_with_ac_pct") is not None:
         ac_pct = ac_pat.get("stories_with_ac_pct", 0)
-        if ac_pct > 0 or ac_pat.get("themes"):
-            _heading("Acceptance Criteria Patterns")
+        _heading("Acceptance Criteria Patterns")
 
-            # Coverage + specificity summary
+        ac_cov_sty = c_good if ac_pct >= 70 else (c_warn if ac_pct >= 40 else c_bad)
+        _kv("Stories with ACs", f"{ac_pct}%", ac_cov_sty)
+
+        if ac_pct == 0:
+            # No ACs found — this is a significant finding
+            _add(
+                Text(
+                    _PAD + "  No acceptance criteria detected in any story. "
+                    "ACs help define what 'done' means and reduce ambiguity.",
+                    style=c_bad,
+                    justify="left",
+                )
+            )
+        else:
+            _kv("Median ACs/story", str(ac_pat.get("median_ac", 0)))
+
             spec = ac_pat.get("specificity", {})
             spec_label = spec.get("label", "unknown")
             spec_sty = c_good if spec_label == "precise" else (c_warn if spec_label == "moderate" else c_bad)
-            _kv("Stories with ACs", f"{ac_pct}%", c_good if ac_pct >= 70 else (c_warn if ac_pct >= 40 else c_bad))
-            _kv("Median ACs/story", str(ac_pat.get("median_ac", 0)))
             _kv(
                 "Specificity",
                 f"{spec_label} ({spec.get('precise_pct', 0)}% precise, {spec.get('vague_pct', 0)}% vague)",

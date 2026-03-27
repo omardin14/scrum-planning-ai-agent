@@ -716,13 +716,22 @@ def export_team_profile_html(
     ac_pat = ex.get("ac_patterns", {})
     if isinstance(ac_pat, dict) and ac_pat.get("stories_with_ac_pct") is not None:
         ac_pct = ac_pat.get("stories_with_ac_pct", 0)
-        if ac_pct > 0 or ac_pat.get("themes"):
+        ac_rows: list[tuple[str, str]] = [("Stories with ACs", f"{ac_pct}%")]
+        if ac_pct == 0:
+            ac_rows.append(
+                (
+                    "",
+                    "<em>No acceptance criteria detected. ACs help define done and reduce ambiguity.</em>",
+                )
+            )
+        else:
             spec = ac_pat.get("specificity", {})
-            ac_rows: list[tuple[str, str]] = [
-                ("Stories with ACs", f"{ac_pct}%"),
-                ("Median ACs/story", str(ac_pat.get("median_ac", 0))),
-                ("Specificity", f"{spec.get('label', '?')} ({spec.get('precise_pct', 0)}% precise)"),
-            ]
+            ac_rows.extend(
+                [
+                    ("Median ACs/story", str(ac_pat.get("median_ac", 0))),
+                    ("Specificity", f"{spec.get('label', '?')} ({spec.get('precise_pct', 0)}% precise)"),
+                ]
+            )
             themes = ac_pat.get("themes", {})
             if themes:
                 parts = " &middot; ".join(f"{t} {p}%" for t, p in list(themes.items())[:5])
@@ -736,8 +745,8 @@ def export_team_profile_html(
             high_s = spill.get("high_ac_spill_pct", 0)
             if low_s > high_s + 5 and spill.get("low_ac_count", 0) >= 5:
                 ac_rows.append(("Spillover impact", f"0-1 ACs: {low_s}% spill vs 3+ ACs: {high_s}% spill"))
-            _nav("ac-patterns", "ACs")
-            sections.append(_section("ac-patterns", "Acceptance Criteria Patterns", _kv_table(ac_rows)))
+        _nav("ac-patterns", "ACs")
+        sections.append(_section("ac-patterns", "Acceptance Criteria Patterns", _kv_table(ac_rows)))
 
     # ── Epic Sizing ─────────────────────────────────────────────────
     epic = profile.epic_pattern
@@ -1484,11 +1493,17 @@ def export_team_profile_md(
     ac_pat = ex.get("ac_patterns", {})
     if isinstance(ac_pat, dict) and ac_pat.get("stories_with_ac_pct") is not None:
         ac_pct = ac_pat.get("stories_with_ac_pct", 0)
-        if ac_pct > 0 or ac_pat.get("themes"):
-            spec = ac_pat.get("specificity", {})
-            lines.extend(["## Acceptance Criteria Patterns", ""])
-            lines.append(f"- **Stories with ACs:** {ac_pct}%")
+        lines.extend(["## Acceptance Criteria Patterns", ""])
+        lines.append(f"- **Stories with ACs:** {ac_pct}%")
+        if ac_pct == 0:
+            lines.append("")
+            lines.append(
+                "> No acceptance criteria detected in any story. "
+                "ACs help define what 'done' means and reduce ambiguity."
+            )
+        else:
             lines.append(f"- **Median ACs/story:** {ac_pat.get('median_ac', 0)}")
+            spec = ac_pat.get("specificity", {})
             lines.append(
                 f"- **Specificity:** {spec.get('label', '?')} "
                 f"({spec.get('precise_pct', 0)}% precise, {spec.get('vague_pct', 0)}% vague)"
