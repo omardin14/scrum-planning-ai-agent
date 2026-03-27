@@ -615,30 +615,81 @@ def select_mode(
 
                                     _ana_popup_sel = 0  # 0=Jira, 1=AzDO
                                     _ana_popup_open = True
+                                    _ana_popup_tick = 0.0
                                     while _ana_popup_open:
+                                        _ana_popup_tick += _FRAME_TIME
                                         w, h = console.size
-                                        # Render a simple inline picker
-                                        _pick_lines: list = [Text("")]
-                                        _ph = Text("      Which board to analyse?", style="bold white", justify="left")
-                                        _pick_lines.append(_ph)
-                                        _pick_lines.append(Text(""))
-                                        _pb = Text("      ", justify="left")
-                                        for bi, bl in enumerate(["Jira", "Azure DevOps"]):
-                                            if bi > 0:
-                                                _pb.append("    ")
-                                            sty = "bold white" if bi == _ana_popup_sel else "dim"
-                                            _pb.append(f"[ {bl} ]", style=sty)
-                                        _pick_lines.append(_pb)
-                                        _pick_lines.append(Text(""))
                                         import rich.box as _rbox
+                                        from rich.padding import Padding  # noqa: F811
                                         from rich.panel import Panel as _PickPanel
 
                                         from scrum_agent.ui.shared._components import analysis_title as _at
 
                                         _ana_title = _at()
+
+                                        # Styled board picker with green accent
+                                        _accent = "#22c55e"
+                                        _pick_inner_w = min(w - 10, 50)
+                                        _pick_msg = "Which board to analyse?"
+                                        _pick_pad = max(0, (_pick_inner_w - len(_pick_msg)) // 2)
+
+                                        _pick_body: list = [Text("")]
+                                        _pick_body.append(
+                                            Text(
+                                                " " * _pick_pad + _pick_msg,
+                                                style="bold white",
+                                                justify="left",
+                                            )
+                                        )
+                                        _pick_body.append(Text(""))
+
+                                        # Buttons with green highlight
+                                        _btn_line = Text(justify="center")
+                                        for bi, bl in enumerate(["Jira", "Azure DevOps"]):
+                                            if bi > 0:
+                                                _btn_line.append("     ")
+                                            if bi == _ana_popup_sel:
+                                                _btn_line.append(
+                                                    f" [ {bl} ] ",
+                                                    style=f"bold {_accent}",
+                                                )
+                                            else:
+                                                _btn_line.append(
+                                                    f"   {bl}   ",
+                                                    style="dim",
+                                                )
+                                        _pick_body.append(_btn_line)
+                                        _pick_body.append(Text(""))
+
+                                        _hint = Text(
+                                            "← → select  ·  Enter confirm  ·  Esc cancel",
+                                            style="rgb(60,60,80)",
+                                            justify="center",
+                                        )
+                                        _pick_body.append(_hint)
+
+                                        # Center the popup vertically
+                                        _popup_h = 7
+                                        _top_pad = max(0, (h - 8 - _popup_h) // 2)
+                                        _bot_pad = max(0, h - 8 - _popup_h - _top_pad)
+
                                         live.update(
                                             _PickPanel(
-                                                Group(_ana_title, Text(""), *_pick_lines),
+                                                Group(
+                                                    _ana_title,
+                                                    *[Text("") for _ in range(_top_pad)],
+                                                    Padding(
+                                                        _PickPanel(
+                                                            Group(*_pick_body),
+                                                            border_style=_accent,
+                                                            box=_rbox.ROUNDED,
+                                                            width=_pick_inner_w + 4,
+                                                            padding=(0, 2),
+                                                        ),
+                                                        (0, 0, 0, max(0, (w - _pick_inner_w - 8) // 2)),
+                                                    ),
+                                                    *[Text("") for _ in range(_bot_pad)],
+                                                ),
                                                 border_style="white",
                                                 box=_rbox.ROUNDED,
                                                 expand=True,
