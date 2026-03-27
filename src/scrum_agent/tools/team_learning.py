@@ -2058,6 +2058,7 @@ def _analyse_acceptance_criteria(delivery_stories: list[dict]) -> dict:
     }
 
     theme_counts: dict[str, int] = defaultdict(int)
+    theme_examples: dict[str, dict] = {}  # theme → first example story {issue_key, issue_url, summary}
     stories_with_ac = [s for s in delivery_stories if s.get("ac_count", 0) > 0]
     n_with_ac = len(stories_with_ac) or 1
 
@@ -2071,6 +2072,12 @@ def _analyse_acceptance_criteria(delivery_stories: list[dict]) -> dict:
         for theme, regex in theme_regexes.items():
             if regex.search(ac_text):
                 theme_counts[theme] += 1
+                if theme not in theme_examples and s.get("issue_key"):
+                    theme_examples[theme] = {
+                        "issue_key": s.get("issue_key", ""),
+                        "issue_url": s.get("issue_url", ""),
+                        "summary": (s.get("summary", "") or "")[:40],
+                    }
 
     theme_pcts = {t: round(c / n_with_ac * 100) for t, c in sorted(theme_counts.items(), key=lambda x: -x[1]) if c > 0}
 
@@ -2177,6 +2184,7 @@ def _analyse_acceptance_criteria(delivery_stories: list[dict]) -> dict:
         "stories_with_ac_pct": with_ac_pct,
         "median_ac": median_ac,
         "themes": theme_pcts,
+        "theme_examples": theme_examples,
         "by_discipline": ac_by_discipline,
         "specificity": {
             "label": specificity_label,

@@ -733,9 +733,20 @@ def export_team_profile_html(
                 ]
             )
             themes = ac_pat.get("themes", {})
+            _tex = ac_pat.get("theme_examples", {})
             if themes:
-                parts = " &middot; ".join(f"{t} {p}%" for t, p in list(themes.items())[:5])
-                ac_rows.append(("Common topics", parts))
+                _tp: list[str] = []
+                for t, p in list(themes.items())[:5]:
+                    _ex_d = _tex.get(t)
+                    _ex_h = ""
+                    if isinstance(_ex_d, dict) and _ex_d.get("issue_key"):
+                        _ek = _e(_ex_d["issue_key"])
+                        _eu = _ex_d.get("issue_url", "")
+                        _sm = _e(_ex_d.get("summary", "")[:30])
+                        _lk = f'<a href="{_e(_eu)}"><code>{_ek}</code></a>' if _eu else f"<code>{_ek}</code>"
+                        _ex_h = f' {_lk} <span style="color:var(--text-muted);">{_sm}</span>'
+                    _tp.append(f"<strong>{_e(t)}</strong> {p}%{_ex_h}")
+                ac_rows.append(("Topics", "<br>".join(_tp)))
             by_disc = ac_pat.get("by_discipline", {})
             if len(by_disc) >= 2:
                 parts = " &middot; ".join(f"{d} {v['avg_ac']:.0f} avg" for d, v in by_disc.items())
@@ -1509,9 +1520,16 @@ def export_team_profile_md(
                 f"({spec.get('precise_pct', 0)}% precise, {spec.get('vague_pct', 0)}% vague)"
             )
             themes = ac_pat.get("themes", {})
+            _md_tex = ac_pat.get("theme_examples", {})
             if themes:
-                parts = " · ".join(f"{t} {p}%" for t, p in list(themes.items())[:5])
-                lines.append(f"- **Common topics:** {parts}")
+                lines.append("")
+                lines.append("**Topics:**")
+                for t, p in list(themes.items())[:5]:
+                    _md_ex = _md_tex.get(t)
+                    ex_str = ""
+                    if isinstance(_md_ex, dict) and _md_ex.get("issue_key"):
+                        ex_str = f" — `{_md_ex['issue_key']}` {_md_ex.get('summary', '')[:30]}"
+                    lines.append(f"- **{t}** {p}%{ex_str}")
             by_disc = ac_pat.get("by_discipline", {})
             if len(by_disc) >= 2:
                 parts = " · ".join(f"{d} {v['avg_ac']:.0f} avg" for d, v in by_disc.items())

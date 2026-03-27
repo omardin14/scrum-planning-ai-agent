@@ -942,14 +942,25 @@ def _build_team_analysis_screen(
                 spec_sty,
             )
 
-            # Themes
+            # Themes with examples
             themes = ac_pat.get("themes", {})
+            t_examples = ac_pat.get("theme_examples", {})
             if themes:
-                row = Text(_PAD + "  ", justify="left")
-                row.append("Common topics: ", style=c_muted)
-                t_parts = [f"{t} {p}%" for t, p in list(themes.items())[:5]]
-                row.append(" \u00b7 ".join(t_parts), style=c_value)
-                _add(row)
+                _add(Text(""))
+                for theme, pct in list(themes.items())[:5]:
+                    row = Text(_PAD + "    ", justify="left")
+                    row.append(f"{theme}", style="bold " + c_value)
+                    row.append(f"  {pct}%", style=c_muted)
+                    ex = t_examples.get(theme)
+                    if ex and isinstance(ex, dict) and ex.get("issue_key"):
+                        ek = ex["issue_key"]
+                        eu = ex.get("issue_url", "")
+                        sm = ex.get("summary", "")
+                        row.append("  ")
+                        row.append(ek, style=_link(ek, eu))
+                        if sm:
+                            row.append(f"  {sm}", style=c_dim)
+                    _add(row)
 
             # By discipline
             by_disc = ac_pat.get("by_discipline", {})
