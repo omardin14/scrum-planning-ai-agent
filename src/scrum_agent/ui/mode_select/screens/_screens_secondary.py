@@ -977,6 +977,62 @@ def _build_team_analysis_screen(
         for wp_label, wp_val, wp_sty in wp_items:
             _kv(wp_label, wp_val, wp_sty)
 
+    # ── Ticket Naming & Organisation ─────────────────────────────────
+    _naming = _ex.get("naming_conventions", {})
+    if isinstance(_naming, dict) and (
+        _naming.get("title_prefixes")
+        or _naming.get("label_distribution")
+        or _naming.get("epic_examples")
+        or _naming.get("template_sections")
+    ):
+        _heading("Ticket Naming & Organisation")
+
+        # Title prefixes
+        prefixes = _naming.get("title_prefixes", [])
+        if prefixes:
+            row = Text(_PAD + "  ", justify="left")
+            row.append("Title prefixes: ", style=c_muted)
+            p_parts = [f"{p} {pct}%" for p, pct in prefixes[:5]]
+            row.append(" \u00b7 ".join(p_parts), style=c_value)
+            _add(row)
+        else:
+            _kv("Title prefixes", "none detected", c_dim)
+
+        # Labels
+        lbl_dist = _naming.get("label_distribution", [])
+        lbl_pct = _naming.get("stories_with_labels_pct", 0)
+        if lbl_dist:
+            _kv(
+                "Labels",
+                f"{lbl_pct}% of stories labelled, avg {_naming.get('labels_per_story', 0)}/story",
+                c_good if lbl_pct >= 70 else (c_warn if lbl_pct >= 30 else c_dim),
+            )
+            row = Text(_PAD + "    ", justify="left")
+            l_parts = [f"{lbl} {pct}%" for lbl, pct in lbl_dist[:6]]
+            row.append(" \u00b7 ".join(l_parts), style=c_value)
+            _add(row)
+        else:
+            _kv("Labels", "none detected", c_dim)
+
+        # Epic naming
+        epic_style = _naming.get("epic_naming_style", "")
+        epic_ex = _naming.get("epic_examples", [])
+        if epic_style and epic_ex:
+            _kv("Epic naming", epic_style)
+            for ex_title in epic_ex[:3]:
+                row = Text(_PAD + "    ", justify="left")
+                row.append(f"\u2022 {ex_title[:50]}", style=c_example)
+                _add(row)
+
+        # Description template
+        sections = _naming.get("template_sections", [])
+        if sections:
+            _kv("Description template", f"{len(sections)} recurring sections detected", c_good)
+            row = Text(_PAD + "    ", justify="left")
+            s_parts = [f'"{s}"' for s, _ in sections[:5]]
+            row.append(" \u2192 ".join(s_parts), style=c_value)
+            _add(row)
+
     # ── Acceptance Criteria Patterns ─────────────────────────────────
     ac_pat = _ex.get("ac_patterns", {})
     if isinstance(ac_pat, dict) and ac_pat.get("stories_with_ac_pct") is not None:

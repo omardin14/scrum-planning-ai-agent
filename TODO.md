@@ -1043,11 +1043,11 @@ _Bring Azure DevOps to full feature parity with Jira — read board/velocity, cr
 
 ### 16c: Ticket naming and organisation
 - [x] Extract common title patterns per point value (`common_patterns`)
-- [ ] Learn title conventions — do they use prefixes? (e.g. "[FE]", "SPIKE:", "TECH:")
-- [ ] Detect labelling conventions — which labels are used and how consistently
-- [ ] Learn epic naming patterns — are epics feature-scoped or quarter-scoped?
-- [ ] Detect component/area tagging — how do they categorise work? (labels, components, custom fields)
-- [ ] Learn description templates — do stories follow a consistent structure? ("As a...", problem statement, requirements)
+- [x] Learn title conventions — regex + LLM prefix detection (e.g. "[FE]", "SPIKE:", "TECH:")
+- [x] Detect labelling conventions — labels/tags stored per story, distribution computed
+- [x] Learn epic naming patterns — batch-fetch epic titles, classify as feature/quarter/team-scoped
+- [x] Detect component/area tagging — labels/tags aggregated as area distribution
+- [x] Learn description templates — LLM + regex detect recurring section headings
 
 ### 16d: Story/epic/subtask structure
 - [x] Subtask count per story (`median_task_count_per_story`)

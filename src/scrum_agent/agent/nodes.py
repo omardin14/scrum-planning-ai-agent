@@ -5439,6 +5439,32 @@ def _format_team_calibration(profile: object, *, examples: dict | None = None) -
             else:
                 lines.append("")
 
+    # Ticket naming conventions
+    naming = _ex.get("naming_conventions", {})
+    if isinstance(naming, dict):
+        naming_parts: list[str] = []
+        prefixes = naming.get("title_prefixes", [])
+        if prefixes:
+            p_str = ", ".join(f"{p} ({pct}%)" for p, pct in prefixes[:5])
+            naming_parts.append(f"- Title prefixes in use: {p_str} — use matching prefixes on generated stories")
+        labels = naming.get("label_distribution", [])
+        if labels:
+            l_str = ", ".join(f"{lbl} ({pct}%)" for lbl, pct in labels[:5])
+            naming_parts.append(f"- Label convention: {l_str}")
+        epic_style = naming.get("epic_naming_style", "")
+        epic_ex = naming.get("epic_examples", [])
+        if epic_style and epic_ex:
+            ex_str = ", ".join(f'"{e}"' for e in epic_ex[:3])
+            naming_parts.append(f"- Epic naming: {epic_style} (e.g. {ex_str})")
+        sections = naming.get("template_sections", [])
+        if sections:
+            s_str = ", ".join(f'"{s}"' for s, _ in sections[:5])
+            naming_parts.append(f"- Description template: use sections {s_str}")
+        if naming_parts:
+            lines.append("### Ticket naming conventions (match this team's style):\n")
+            lines.extend(naming_parts)
+            lines.append("\n→ Generated tickets MUST match these naming conventions.\n")
+
     lines.append(
         "### Estimation note: Use THESE team-specific patterns, not generic Fibonacci rules. "
         "Weight HIGH confidence calibrations heavily; treat low confidence data as rough guidance only.\n"

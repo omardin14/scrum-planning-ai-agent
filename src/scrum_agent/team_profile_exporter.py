@@ -779,6 +779,41 @@ def export_team_profile_html(
         _nav("repos", "Repos")
         sections.append(_section("repos", "Repository Activity", repo_content))
 
+    # ── Ticket Naming & Organisation ──────────────────────────────────
+    _h_naming = ex.get("naming_conventions", {})
+    if isinstance(_h_naming, dict) and (
+        _h_naming.get("title_prefixes")
+        or _h_naming.get("label_distribution")
+        or _h_naming.get("epic_examples")
+        or _h_naming.get("template_sections")
+    ):
+        nm_rows: list[tuple[str, str]] = []
+        _nm_prefixes = _h_naming.get("title_prefixes", [])
+        if _nm_prefixes:
+            nm_rows.append(("Title prefixes", " &middot; ".join(f"{p} {pct}%" for p, pct in _nm_prefixes[:5])))
+        else:
+            nm_rows.append(("Title prefixes", "none detected"))
+        _nm_lbls = _h_naming.get("label_distribution", [])
+        _nm_lpct = _h_naming.get("stories_with_labels_pct", 0)
+        if _nm_lbls:
+            nm_rows.append(
+                (
+                    "Labels",
+                    f"{_nm_lpct}% labelled: " + " &middot; ".join(f"{lbl} {pct}%" for lbl, pct in _nm_lbls[:6]),
+                )
+            )
+        _nm_style = _h_naming.get("epic_naming_style", "")
+        _nm_epex = _h_naming.get("epic_examples", [])
+        if _nm_style and _nm_epex:
+            _nm_exs = ", ".join(f"&ldquo;{_e(e[:40])}&rdquo;" for e in _nm_epex[:3])
+            nm_rows.append(("Epic naming", f"{_nm_style} &mdash; {_nm_exs}"))
+        _nm_secs = _h_naming.get("template_sections", [])
+        if _nm_secs:
+            _nm_ss = " &rarr; ".join(f"&ldquo;{_e(s)}&rdquo;" for s, _ in _nm_secs[:5])
+            nm_rows.append(("Description template", _nm_ss))
+        _nav("naming", "Naming")
+        sections.append(_section("naming", "Ticket Naming &amp; Organisation", _kv_table(nm_rows)))
+
     # ── Acceptance Criteria Patterns ──────────────────────────────────
     ac_pat = ex.get("ac_patterns", {})
     if isinstance(ac_pat, dict) and ac_pat.get("stories_with_ac_pct") is not None:
@@ -1622,6 +1657,37 @@ def export_team_profile_md(
                 if pt_repos:
                     lines.append(f"- {pts_key}pt: {', '.join(str(r) for r in pt_repos[:3])}")
             lines.append("")
+
+    # ── Ticket Naming & Organisation ──────────────────────────────────
+    _md_naming = ex.get("naming_conventions", {})
+    if isinstance(_md_naming, dict) and (
+        _md_naming.get("title_prefixes")
+        or _md_naming.get("label_distribution")
+        or _md_naming.get("epic_examples")
+        or _md_naming.get("template_sections")
+    ):
+        lines.extend(["## Ticket Naming & Organisation", ""])
+        _mnp = _md_naming.get("title_prefixes", [])
+        if _mnp:
+            _pp_str = " \u00b7 ".join(f"{p} {pct}%" for p, pct in _mnp[:5])
+            lines.append(f"- **Title prefixes:** {_pp_str}")
+        else:
+            lines.append("- **Title prefixes:** none detected")
+        _mnl = _md_naming.get("label_distribution", [])
+        _mnlp = _md_naming.get("stories_with_labels_pct", 0)
+        if _mnl:
+            _ll_str = " \u00b7 ".join(f"{lbl} {pct}%" for lbl, pct in _mnl[:6])
+            lines.append(f"- **Labels:** {_mnlp}% labelled: {_ll_str}")
+        _mns = _md_naming.get("epic_naming_style", "")
+        _mnex = _md_naming.get("epic_examples", [])
+        if _mns and _mnex:
+            _ee_str = ", ".join(f'"{e[:40]}"' for e in _mnex[:3])
+            lines.append(f"- **Epic naming:** {_mns} \u2014 {_ee_str}")
+        _mnt = _md_naming.get("template_sections", [])
+        if _mnt:
+            _ss_str = " \u2192 ".join(f'"{s}"' for s, _ in _mnt[:5])
+            lines.append(f"- **Description template:** {_ss_str}")
+        lines.append("")
 
     # ── Acceptance Criteria Patterns ──────────────────────────────────
     ac_pat = ex.get("ac_patterns", {})

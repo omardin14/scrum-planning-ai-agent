@@ -634,7 +634,9 @@ _TICKET_PARSE_SCHEMA = """\
     "discipline": "backend",
     "work_type": "create/build",
     "is_recurring": false,
-    "spillover_risk": "none"
+    "spillover_risk": "none",
+    "title_prefix": "",
+    "description_template_sections": ["What is this about?", "Acceptance Criteria"]
   }
 ]"""
 
@@ -669,6 +671,11 @@ or "none" (no ACs found)
 - spillover_risk: assess completion risk — one of "low" (clear scope, small), \
 "medium" (some unknowns or dependencies), "high" (large scope, external \
 dependencies, unclear requirements), or "none" (can't determine)
+- title_prefix: if the title starts with a prefix like "[FE]", "SPIKE:", "TECH:", \
+"bug:", "feat:", extract it. Empty string if no prefix.
+- description_template_sections: list the section headings found in the description \
+(e.g. "What is this about?", "Why does it matter?", "Acceptance Criteria", \
+"Risks", "Done looks like"). Empty list if no structured sections.
 
 Rules:
 - acceptance_criteria should be individual testable items, not the full section text
@@ -825,6 +832,14 @@ def _enrich_stories_with_parsed(
 
             # Spillover risk
             s["spillover_risk"] = p.get("spillover_risk", "none")
+
+            # Naming conventions
+            tp = (p.get("title_prefix") or "").strip()
+            if tp:
+                s["title_prefix"] = tp
+            dts = p.get("description_template_sections", [])
+            if isinstance(dts, list) and dts:
+                s["description_sections"] = dts
 
             s["parse_source"] = "llm"
         else:
@@ -1450,6 +1465,9 @@ def _run_parallel_analysis(
         examples.get("task_decomposition", {}),
         delivery_stories,
     )
+
+    # Ticket naming and organisation analysis
+    examples["naming_conventions"] = _analyse_naming_conventions(delivery_stories)  # type: ignore[assignment]
 
     # Acceptance criteria pattern analysis
     examples["ac_patterns"] = _analyse_acceptance_criteria(delivery_stories)  # type: ignore[assignment]
@@ -2088,6 +2106,126 @@ def _analyse_proposed_dod(
         "health": health,
         "ordering": ordering,
         "custom_steps": custom_steps,
+    }
+
+
+def _analyse_naming_conventions(delivery_stories: list[dict]) -> dict:
+    """Analyse ticket naming conventions, labels, epic patterns, and description templates.
+
+    Returns a dict for the examples store and report rendering.
+    """
+    if not delivery_stories:
+        return {}
+
+    n = len(delivery_stories)
+
+    # ── Title prefixes ─────────────────────────────────────────────
+    _prefix_re = re.compile(r"^\s*(\[[^\]]{1,15}\]|[A-Z]{2,10}:|[a-z]+:)\s*")
+    prefix_counter: dict[str, int] = defaultdict(int)
+    for s in delivery_stories:
+        title = s.get("summary", "")
+        m = _prefix_re.match(title)
+        if m:
+            prefix_counter[m.group(1).strip()] += 1
+        # Also check LLM-extracted prefix
+        llm_prefix = s.get("title_prefix", "")
+        if llm_prefix and not m:
+            prefix_counter[llm_prefix.strip()] += 1
+
+    # Only include prefixes appearing in >= 5% of stories
+    prefix_dist = [
+        (p, round(c / n * 100)) for p, c in sorted(prefix_counter.items(), key=lambda x: -x[1]) if c / n >= 0.05
+    ]
+    has_prefixes = len(prefix_dist) > 0
+
+    # ── Label/tag distribution ─────────────────────────────────────
+    label_counter: dict[str, int] = defaultdict(int)
+    stories_with_labels = 0
+    total_labels = 0
+    for s in delivery_stories:
+        lbls = s.get("labels", [])
+        if isinstance(lbls, list) and lbls:
+            stories_with_labels += 1
+            total_labels += len(lbls)
+            for lbl in lbls:
+                if isinstance(lbl, str) and lbl:
+                    label_counter[lbl.lower()] += 1
+
+    label_dist = [(lbl, round(cnt / n * 100)) for lbl, cnt in sorted(label_counter.items(), key=lambda x: -x[1])[:10]]
+    labels_per_story = round(total_labels / n, 1) if n else 0.0
+    stories_with_labels_pct = round(stories_with_labels / n * 100) if n else 0
+
+    # ── Epic naming patterns ───────────────────────────────────────
+    _quarter_re = re.compile(r"\b(Q[1-4]|202[4-9]|H[12]|quarter)\b", re.IGNORECASE)
+    epic_titles: dict[str, str] = {}  # epic_key → title
+    for s in delivery_stories:
+        ek = s.get("epic_key", "")
+        et = s.get("epic_title", "")
+        if ek and et and ek not in epic_titles:
+            epic_titles[ek] = et
+
+    epic_naming_style = "unknown"
+    epic_examples: list[str] = []
+    if epic_titles:
+        quarter_count = sum(1 for t in epic_titles.values() if _quarter_re.search(t))
+        quarter_pct = quarter_count / len(epic_titles) * 100
+        if quarter_pct >= 50:
+            epic_naming_style = "quarter-scoped"
+        elif quarter_pct <= 10:
+            epic_naming_style = "feature-scoped"
+        else:
+            epic_naming_style = "mixed"
+        epic_examples = list(epic_titles.values())[:5]
+
+    # ── Description template detection ─────────────────────────────
+    # Look for recurring section headings (from LLM + regex)
+    section_counter: dict[str, int] = defaultdict(int)
+    for s in delivery_stories:
+        # LLM-extracted sections
+        secs = s.get("description_sections", [])
+        if isinstance(secs, list):
+            for sec in secs:
+                if isinstance(sec, str) and sec:
+                    section_counter[sec] += 1
+        # Regex fallback on description
+        desc = _strip_html(s.get("description", "") or "")
+        for m in re.finditer(r"(?m)^\s*\*?\*?([A-Z][^:\n]{3,35})\*?\*?\s*[:?]\s*$", desc):
+            heading = m.group(1).strip()
+            if len(heading) > 3:
+                section_counter[heading] += 1
+
+    # Only include sections appearing in >= 20% of stories
+    template_sections = [
+        (sec, round(cnt / n * 100))
+        for sec, cnt in sorted(section_counter.items(), key=lambda x: -x[1])
+        if cnt / n >= 0.20
+    ][:8]
+    has_template = len(template_sections) >= 2
+
+    # ── Recommendations ────────────────────────────────────────────
+    recommendations: list[str] = []
+    if not has_prefixes:
+        recommendations.append("No title prefixes detected. Consider prefixes like [FE], [BE], SPIKE: for triage.")
+    if stories_with_labels_pct < 30:
+        recommendations.append(
+            f"Only {stories_with_labels_pct}% of stories have labels. Consistent labelling improves filtering."
+        )
+    if epic_naming_style == "mixed":
+        recommendations.append("Epic naming is inconsistent — mix of feature-scoped and quarter-scoped.")
+    if not has_template:
+        recommendations.append("No consistent description template. A shared template improves story quality.")
+
+    return {
+        "title_prefixes": prefix_dist,
+        "has_prefixes": has_prefixes,
+        "label_distribution": label_dist,
+        "labels_per_story": labels_per_story,
+        "stories_with_labels_pct": stories_with_labels_pct,
+        "epic_naming_style": epic_naming_style,
+        "epic_examples": epic_examples,
+        "template_sections": template_sections,
+        "has_template": has_template,
+        "recommendations": recommendations,
     }
 
 
@@ -3491,6 +3629,7 @@ def _fetch_jira_history(project_key: str, sprint_count: int) -> list[dict]:
                 "task_count": task_count,
                 "ac_count": ac_count,
                 "epic_key": epic_key,
+                "labels": labels,
                 "point_changed": False,
                 "summary": summary,
                 "description": description,
@@ -3597,6 +3736,25 @@ def _fetch_jira_history(project_key: str, sprint_count: int) -> list[dict]:
         if scope_timeline:
             sd_entry["scope_timeline"] = scope_timeline
         sprint_data.append(sd_entry)
+
+    # Batch-fetch epic titles for naming analysis
+    _all_epic_keys = {s.get("epic_key", "") for sd in sprint_data for s in sd.get("stories", []) if s.get("epic_key")}
+    if _all_epic_keys:
+        try:
+            _epic_titles: dict[str, str] = {}
+            _batch = list(_all_epic_keys)[:50]
+            _keys_str = ", ".join(_batch)
+            _epics = jira.search_issues(f"key in ({_keys_str})", maxResults=len(_batch), fields="summary")
+            for _ep in _epics or []:
+                _epic_titles[_ep.key] = getattr(_ep.fields, "summary", "") or ""
+            for sd in sprint_data:
+                for s in sd.get("stories", []):
+                    ek = s.get("epic_key", "")
+                    if ek and ek in _epic_titles:
+                        s["epic_title"] = _epic_titles[ek]
+            logger.info("Fetched %d epic titles", len(_epic_titles))
+        except Exception:
+            logger.debug("Epic title fetch failed (non-fatal)", exc_info=True)
 
     logger.info(
         "Jira fetch complete: %d sprints, %d total stories",
@@ -3879,6 +4037,7 @@ def _fetch_azdevops_history(project_key: str, sprint_count: int) -> list[dict]:
                 "task_count": len(child_tasks),
                 "ac_count": ac_count,
                 "epic_key": epic_key,
+                "labels": [t.strip().lower() for t in tags.split(";") if t.strip()],
                 "point_changed": False,
                 "summary": title,
                 "description": full_desc,
@@ -3955,6 +4114,30 @@ def _fetch_azdevops_history(project_key: str, sprint_count: int) -> list[dict]:
         _azdo_enrich_repos_from_git_pull_requests(connection, project, sprint_data)
     except Exception as e:
         logger.warning("AzDO PR repo enrichment failed: %s", e)
+
+    # Batch-fetch epic/parent titles for naming analysis
+    _all_parent_ids = {
+        int(s.get("epic_key", "0"))
+        for sd in sprint_data
+        for s in sd.get("stories", [])
+        if s.get("epic_key") and s["epic_key"].isdigit()
+    }
+    if _all_parent_ids:
+        try:
+            _parent_titles: dict[str, str] = {}
+            _batch_ids = list(_all_parent_ids)[:50]
+            _parents = wit_client.get_work_items(_batch_ids, project=project, fields=["System.Title"])
+            for _pw in _parents or []:
+                if _pw and hasattr(_pw, "fields"):
+                    _parent_titles[str(_pw.id)] = (_pw.fields or {}).get("System.Title", "")
+            for sd in sprint_data:
+                for s in sd.get("stories", []):
+                    ek = s.get("epic_key", "")
+                    if ek and ek in _parent_titles:
+                        s["epic_title"] = _parent_titles[ek]
+            logger.info("Fetched %d epic/parent titles", len(_parent_titles))
+        except Exception:
+            logger.debug("AzDO epic title fetch failed (non-fatal)", exc_info=True)
 
     return sprint_data
 
