@@ -137,7 +137,13 @@ def export_team_profile_html(
                     f'{_hdv:g} pts/sprint <span style="color:{_hdc};">({_hdp}% accuracy)</span>',
                 )
             )
-    if per_dev and isinstance(per_dev, (int, float)) and per_dev > 0:
+    _hv_cs = ex.get("contributor_stats", [])
+    if isinstance(_hv_cs, list) and _hv_cs:
+        _hv_vals = [c.get("per_sprint", 0) for c in _hv_cs if c.get("per_sprint", 0) > 0]
+        if _hv_vals:
+            _hv_avg = round(sum(_hv_vals) / len(_hv_vals), 1)
+            vel_rows.append(("Per developer", f"{_hv_avg} pts/sprint"))
+    elif per_dev and isinstance(per_dev, (int, float)) and per_dev > 0:
         vel_rows.append(("Per developer", f"{per_dev} pts/sprint"))
     if vel > 0:
         var_pct = std / vel * 100
@@ -363,6 +369,57 @@ def export_team_profile_html(
 
             _nav("sprints", "Sprints")
             sections.append(_section("sprints", "Sprint Breakdown", sprint_content))
+
+    # ── Team Members ───────────────────────────────────────────────
+    _h_contrib = ex.get("contributor_stats", [])
+    if isinstance(_h_contrib, list) and _h_contrib:
+        # Interrupted work summary
+        _h_total_rec = sum(c.get("recurring_pts", 0) for c in _h_contrib)
+        _h_total_del = sum(c.get("delivery_pts", 0) for c in _h_contrib)
+        tm_content = ""
+        if _h_total_rec > 0:
+            _h_tot = _h_total_rec + _h_total_del
+            _h_rec_pct = round(_h_total_rec / _h_tot * 100) if _h_tot else 0
+            tm_content += (
+                f"<p>Interrupted work: <strong>{_h_total_rec:g} pts</strong> ({_h_rec_pct}% of total effort)</p>"
+            )
+        # Contributor table
+        tm_content += (
+            '<table class="data-table"><tr>'
+            "<th>Name</th><th>Delivered</th><th>Stories</th>"
+            "<th>Spill%</th><th>Cycle</th><th>Focus</th><th>Pts/sprint</th>"
+            "</tr>"
+        )
+        for cs in _h_contrib[:10]:
+            sp_r = cs.get("spill_rate", 0)
+            sp_col = "#22c55e" if sp_r < 10 else ("#eab308" if sp_r < 25 else "#ef4444")
+            ct_v = cs.get("avg_cycle_time", 0)
+            ct_s = f"{ct_v:.0f}d" if ct_v > 0 else "&mdash;"
+            disc = cs.get("top_discipline", "fullstack")
+            wt = cs.get("top_work_type", "")
+            focus = f"{disc}/{wt.split('/')[0]}" if wt else disc
+            ps = cs.get("per_sprint", 0)
+            ps_col = "#22c55e" if ps >= 3 else ("#eab308" if ps >= 1.5 else "#888")
+            tm_content += (
+                f"<tr><td>{_e(cs.get('name', ''))}</td>"
+                f'<td style="text-align:right;">{cs.get("delivery_pts", 0)}</td>'
+                f'<td style="text-align:right;">{cs.get("stories_completed", 0)}</td>'
+                f'<td style="text-align:right;color:{sp_col};">{sp_r}%</td>'
+                f'<td style="text-align:right;">{ct_s}</td>'
+                f"<td>{_e(focus[:18])}</td>"
+                f'<td style="text-align:right;color:{ps_col};">{ps}</td></tr>'
+            )
+        tm_content += "</table>"
+        # Insights
+        if len(_h_contrib) >= 3 and _h_total_del > 0:
+            top = _h_contrib[0]
+            top_pct = round(top["delivery_pts"] / _h_total_del * 100)
+            if top_pct >= 40:
+                tm_content += (
+                    f'<p style="color:#eab308;">&#x26a0; {_e(top["name"])} carries {top_pct}% of delivery work</p>'
+                )
+        _nav("team-members", "Team")
+        sections.append(_section("team-members", "Team Members", tm_content))
 
     # ── Shadow Spillover ────────────────────────────────────────────
     shadow = ex.get("shadow_spillover", [])
@@ -1111,7 +1168,13 @@ def export_team_profile_md(
             _mdp = round(_mdv / _mcv * 100)
             lines.append(f"- **Committed avg:** {_mcv:g} pts/sprint")
             lines.append(f"- **Delivered avg:** {_mdv:g} pts/sprint ({_mdp}% accuracy)")
-    if per_dev and isinstance(per_dev, (int, float)):
+    _mv_cs = ex.get("contributor_stats", [])
+    if isinstance(_mv_cs, list) and _mv_cs:
+        _mv_vals = [c.get("per_sprint", 0) for c in _mv_cs if c.get("per_sprint", 0) > 0]
+        if _mv_vals:
+            _mv_avg = round(sum(_mv_vals) / len(_mv_vals), 1)
+            lines.append(f"- **Per developer:** {_mv_avg} pts/sprint")
+    elif per_dev and isinstance(per_dev, (int, float)):
         lines.append(f"- **Per developer:** {per_dev} pts/sprint")
     if vel > 0:
         lines.append(f"- **Variance:** ±{std} ({std / vel * 100:.0f}%)")
@@ -1204,6 +1267,45 @@ def export_team_profile_md(
                     detail = " (re-created)" if shadow else (f" ({pts_v}pts)" if pts_v else "")
                     lines.append(f"  - `{ek}` {sm}{detail}")
                 lines.append("")
+
+    # ── Team Members ───────────────────────────────────────────────
+    _md_contrib = ex.get("contributor_stats", [])
+    if isinstance(_md_contrib, list) and _md_contrib:
+        lines.extend(["## Team Members", ""])
+        _md_trec = sum(c.get("recurring_pts", 0) for c in _md_contrib)
+        _md_tdel = sum(c.get("delivery_pts", 0) for c in _md_contrib)
+        if _md_trec > 0:
+            _md_rpct = round(_md_trec / (_md_trec + _md_tdel) * 100) if (_md_trec + _md_tdel) else 0
+            lines.append(f"Interrupted work: **{_md_trec:g} pts** ({_md_rpct}% of total effort)")
+            lines.append("")
+        lines.extend(
+            [
+                "| Name | Delivered | Stories | Spill% | Cycle | Focus | Pts/sprint |",
+                "|------|-----------|---------|--------|-------|-------|------------|",
+            ]
+        )
+        for cs in _md_contrib[:10]:
+            ct_v = cs.get("avg_cycle_time", 0)
+            ct_s = f"{ct_v:.0f}d" if ct_v > 0 else "\u2014"
+            disc = cs.get("top_discipline", "fullstack")
+            wt = cs.get("top_work_type", "")
+            focus = f"{disc}/{wt.split('/')[0]}" if wt else disc
+            lines.append(
+                f"| {cs.get('name', '')} "
+                f"| {cs.get('delivery_pts', 0)} "
+                f"| {cs.get('stories_completed', 0)} "
+                f"| {cs.get('spill_rate', 0)}% "
+                f"| {ct_s} "
+                f"| {focus[:18]} "
+                f"| {cs.get('per_sprint', 0)} |"
+            )
+        if len(_md_contrib) >= 3 and _md_tdel > 0:
+            top = _md_contrib[0]
+            top_pct = round(top["delivery_pts"] / _md_tdel * 100)
+            if top_pct >= 40:
+                lines.append("")
+                lines.append(f"> {top['name']} carries {top_pct}% of delivery work")
+        lines.append("")
 
     # ── Shadow Spillover ────────────────────────────────────────────
     shadow = ex.get("shadow_spillover", [])
