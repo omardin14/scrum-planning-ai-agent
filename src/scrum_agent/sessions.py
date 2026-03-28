@@ -128,7 +128,7 @@ CREATE TABLE IF NOT EXISTS sessions_meta (
 #   stored < current → run migrations, UPDATE to current
 #   stored == current → schema_mismatch=False
 # See README: "Memory & State" — session persistence
-CURRENT_SCHEMA_VERSION = 3  # v1=Phase 8A, v2=Phase 8B (session_state column), v3=team_profiles table
+CURRENT_SCHEMA_VERSION = 4  # v1=Phase 8A, v2=Phase 8B, v3=team_profiles, v4=session_mode
 
 _SCHEMA_INFO = """\
 CREATE TABLE IF NOT EXISTS schema_info (
@@ -470,6 +470,12 @@ class SessionStore:
 
             self._conn.execute(_TEAM_PROFILES_SCHEMA)
             logger.info("Migration v3: created team_profiles table")
+        if from_version < 4:
+            try:
+                self._conn.execute("ALTER TABLE sessions_meta ADD COLUMN session_mode TEXT NOT NULL DEFAULT 'planning'")
+                logger.info("Migration v4: added session_mode column")
+            except sqlite3.OperationalError:
+                pass  # column already exists
 
     # ── Lifecycle ─────────────────────────────────────────────────────────
 
@@ -497,15 +503,22 @@ class SessionStore:
 
     # ── Write operations ──────────────────────────────────────────────────
 
-    def create_session(self, session_id: str, project_name: str = "") -> None:
+    def create_session(
+        self,
+        session_id: str,
+        project_name: str = "",
+        *,
+        mode: str = "planning",
+    ) -> None:
         """Insert a new session row. Silently ignores duplicate session IDs."""
-        logger.info("Creating session: %s", session_id)
+        logger.info("Creating session: %s (mode=%s)", session_id, mode)
         now = self._now()
         self._conn.execute(
             """INSERT OR IGNORE INTO sessions_meta
-               (session_id, project_name, created_at, last_modified, last_node_completed, session_state)
-               VALUES (?, ?, ?, ?, '', '')""",
-            (session_id, project_name, now, now),
+               (session_id, project_name, created_at, last_modified,
+                last_node_completed, session_state, session_mode)
+               VALUES (?, ?, ?, ?, '', '', ?)""",
+            (session_id, project_name, now, now, mode),
         )
 
     def update_project_name(self, session_id: str, project_name: str) -> None:
@@ -592,6 +605,24 @@ class SessionStore:
         result = [dict(zip(keys, row)) for row in rows]
         logger.debug("Found %d session(s)", len(result))
         return result
+
+    def list_analysis_sessions(self) -> list[dict]:
+        """Return analysis-mode sessions ordered by last_modified descending."""
+        rows = self._conn.execute(
+            "SELECT session_id, project_name, created_at, last_modified, "
+            "last_node_completed, session_state "
+            "FROM sessions_meta WHERE session_mode = 'analysis' "
+            "ORDER BY last_modified DESC"
+        ).fetchall()
+        keys = (
+            "session_id",
+            "project_name",
+            "created_at",
+            "last_modified",
+            "last_node_completed",
+            "session_state_raw",
+        )
+        return [dict(zip(keys, row)) for row in rows]
 
     def load_state(self, session_id: str) -> dict | None:
         """Load and reconstruct graph state from JSON.

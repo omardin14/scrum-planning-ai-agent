@@ -2076,7 +2076,7 @@ def _build_sample_epic_screen(
 
     # Footer buttons (rounded corners matching planning mode)
     _btn_labels = ["Accept", "Edit", "Regenerate", "Export"]
-    _btn_row = _EpicMetaTable.__class__(box=None, padding=(0, 1), pad_edge=False, show_header=False)
+    _btn_row = _EpicMetaTable(box=None, padding=(0, 1), pad_edge=False, show_header=False)
     _btn_row.add_column(width=3)
     for label in _btn_labels:
         _btn_row.add_column(width=len(label) + 4)

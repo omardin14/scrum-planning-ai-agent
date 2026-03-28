@@ -305,7 +305,7 @@ class TestSessionsMigration:
         conn.close()
         assert rows, "team_profiles table should have been created by v3 migration"
 
-    def test_schema_version_is_3(self, tmp_path):
+    def test_schema_version_is_current(self, tmp_path):
         db_path = tmp_path / "sessions.db"
         from scrum_agent.sessions import CURRENT_SCHEMA_VERSION, SessionStore
 
@@ -315,7 +315,7 @@ class TestSessionsMigration:
         conn = sqlite3.connect(str(db_path))
         row = conn.execute("SELECT schema_version FROM schema_info").fetchone()
         conn.close()
-        assert row[0] == CURRENT_SCHEMA_VERSION == 3
+        assert row[0] == CURRENT_SCHEMA_VERSION == 4
 
 
 # ---------------------------------------------------------------------------
