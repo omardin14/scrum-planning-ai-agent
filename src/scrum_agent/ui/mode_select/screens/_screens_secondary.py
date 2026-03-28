@@ -67,7 +67,7 @@ def _build_analysis_review_screen(
 
     sub = Text(_PAD + subtitle, style="dim", justify="left")
 
-    # ── Scrollbar
+    # ── Viewport + Scrollbar
     inner_h = height - 4  # panel border + padding
     header_h = 6  # blank + title(2) + blank + progress + sub
     action_h = 4  # blank + 3 button lines
@@ -77,13 +77,24 @@ def _build_analysis_review_screen(
     actual_scroll = min(scroll_offset, max_scroll)
     visible = body_lines[actual_scroll : actual_scroll + viewport_h]
 
+    # Build scrollbar column text
+    _show_sb = total_lines > viewport_h
+    _sb_text = Text(justify="left")
+    if _show_sb:
+        thumb_size = max(1, round(viewport_h * viewport_h / max(total_lines, 1)))
+        thumb_pos = round(actual_scroll / max(max_scroll, 1) * (viewport_h - thumb_size)) if max_scroll > 0 else 0
+        for i in range(viewport_h):
+            is_thumb = thumb_pos <= i < thumb_pos + thumb_size
+            if is_thumb:
+                _sb_text.append("\u2503\n", style="rgb(100,100,120)")
+            else:
+                _sb_text.append("\u2502\n", style="rgb(40,40,50)")
+
     # Build visible content
-    padded_lines: list = []
-    for line in visible:
-        padded_lines.append(line)
+    padded_lines: list = list(visible)
 
     # Fill remaining viewport
-    for i in range(len(visible), viewport_h):
+    for _i in range(len(visible), viewport_h):
         padded_lines.append(Text(""))
 
     # ── Action buttons (matching planning mode exactly)
@@ -128,6 +139,25 @@ def _build_analysis_review_screen(
         btn_mid.append("\u2502" + centered + "\u2502", style=l_style)
         btn_bot.append("\u2570" + "\u2500" * inner_w + "\u256f", style=b_style)
 
+    # Build viewport with optional scrollbar using a two-column layout
+    if _show_sb:
+        from rich.table import Table as _SbTable
+
+        _vp_table = _SbTable(
+            show_header=False,
+            show_edge=False,
+            box=None,
+            padding=0,
+            pad_edge=False,
+            expand=True,
+        )
+        _vp_table.add_column(ratio=1)  # content
+        _vp_table.add_column(width=1)  # scrollbar
+        _vp_table.add_row(Group(*padded_lines), _sb_text)
+        viewport_renderable = _vp_table
+    else:
+        viewport_renderable = Group(*padded_lines)
+
     content = Group(
         Text(""),
         title,
@@ -135,7 +165,7 @@ def _build_analysis_review_screen(
         progress,
         sub,
         Text(""),
-        *padded_lines,
+        viewport_renderable,
         Text(""),
         btn_top,
         btn_mid,
