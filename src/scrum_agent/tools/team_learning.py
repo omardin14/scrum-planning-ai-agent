@@ -2536,6 +2536,96 @@ Rules:
         }
 
 
+def generate_sample_stories(
+    calibration_text: str,
+    sample_epic: dict,
+    examples: dict | None = None,
+) -> list[dict]:
+    """Generate 2-3 sample user stories matching the team's style.
+
+    Uses calibration text and the accepted sample epic as context to produce
+    stories with realistic ACs, points, and discipline assignments.
+    """
+    _ex = examples or {}
+    wp = _ex.get("ac_patterns", {})
+
+    # Build context
+    epic_title = sample_epic.get("title", "Sample Epic")
+    epic_desc = sample_epic.get("description", "")
+    stories_est = sample_epic.get("stories_estimate", 3)
+    n_stories = min(3, max(2, stories_est))
+
+    ac_info = ""
+    median_ac = wp.get("median_ac", 0) if isinstance(wp, dict) else 0
+    if median_ac:
+        ac_info = f"Team averages {median_ac} acceptance criteria per story."
+
+    prompt = f"""\
+Generate {n_stories} sample user stories for this epic, matching the team's conventions.
+
+{calibration_text}
+
+Epic: {epic_title}
+Description: {epic_desc}
+{ac_info}
+
+Return a JSON array where each story has:
+{{
+  "id": "S1",
+  "title": "Short story title",
+  "persona": "developer",
+  "goal": "what the user wants to do",
+  "benefit": "why it matters",
+  "story_points": 3,
+  "priority": "high",
+  "discipline": "infrastructure",
+  "acceptance_criteria": [
+    {{"given": "context", "when": "action", "then": "outcome"}}
+  ],
+  "rationale": "Why this story structure matches the team's patterns"
+}}
+
+Rules:
+- Story points MUST be one of: 1, 2, 3, 5, 8
+- Discipline should match the team's common disciplines
+- ACs should use Given/When/Then if the team uses that format
+- Titles should match the team's naming conventions
+- Return ONLY the JSON array"""
+
+    try:
+        from langchain_core.messages import HumanMessage
+
+        from scrum_agent.agent.llm import get_llm
+
+        response = get_llm(temperature=0.3).invoke([HumanMessage(content=prompt)])
+        text = response.content if hasattr(response, "content") else str(response)
+        text = text.strip()
+        if text.startswith("```"):
+            text = re.sub(r"^```\w*\n?", "", text)
+            text = re.sub(r"\n?```$", "", text)
+        result = json.loads(text)
+        if isinstance(result, list):
+            return result
+    except Exception as exc:
+        logger.warning("Sample stories generation failed: %s", exc)
+
+    # Fallback
+    return [
+        {
+            "id": "S1",
+            "title": "Implement core functionality",
+            "persona": "developer",
+            "goal": "build the main feature",
+            "benefit": "delivers value",
+            "story_points": 3,
+            "priority": "high",
+            "discipline": "infrastructure",
+            "acceptance_criteria": [{"given": "system is running", "when": "action taken", "then": "expected result"}],
+            "rationale": "Fallback — LLM unavailable.",
+        }
+    ]
+
+
 def _analyse_workflow_columns(delivery_stories: list[dict]) -> dict:
     """Analyse board column workflow patterns from status/column transitions.
 

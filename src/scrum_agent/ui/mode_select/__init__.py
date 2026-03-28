@@ -1043,7 +1043,13 @@ def select_mode(
                                 pass
 
                             # Show results
+                            from scrum_agent.tools.team_learning import (
+                                generate_sample_epic,
+                                generate_sample_stories,
+                            )
                             from scrum_agent.ui.mode_select.screens._screens_secondary import (
+                                _build_sample_epic_screen,
+                                _build_sample_stories_screen,
                                 _build_team_analysis_screen,
                             )
 
@@ -1130,8 +1136,70 @@ def select_mode(
                                                                 _epic_sel = min(3, _epic_sel + 1)
                                                             elif ek3 == "enter" or ek3 == " ":
                                                                 if _epic_sel == 0:
-                                                                    # Accept
-                                                                    # TODO Phase C: proceed to sample stories
+                                                                    # Accept → generate sample stories
+                                                                    w, h = console.size
+                                                                    live.update(
+                                                                        _build_analysis_progress_screen(
+                                                                            ["Generating sample stories\u2026"],
+                                                                            width=w,
+                                                                            height=h,
+                                                                            elapsed=0,
+                                                                            anim_tick=0,
+                                                                            source="",
+                                                                            mode="analysis",
+                                                                        )
+                                                                    )
+                                                                    _sample_stories = generate_sample_stories(
+                                                                        _instr_text,
+                                                                        _sample_epic,
+                                                                        _ta_examples,
+                                                                    )
+                                                                    _ss_scroll = 0
+                                                                    _ss_sel = 0
+                                                                    _ss_loop = True
+                                                                    while _ss_loop:
+                                                                        _ssk = (
+                                                                            read_key(timeout=_FRAME_TIME)
+                                                                            if _supports_timeout
+                                                                            else read_key()
+                                                                        )
+                                                                        if _ssk in ("up", "scroll_up"):
+                                                                            _ss_scroll = max(0, _ss_scroll - 1)
+                                                                        elif _ssk in ("down", "scroll_down"):
+                                                                            _ss_scroll += 1
+                                                                        elif _ssk == "left":
+                                                                            _ss_sel = max(0, _ss_sel - 1)
+                                                                        elif _ssk == "right":
+                                                                            _ss_sel = min(3, _ss_sel + 1)
+                                                                        elif _ssk == "enter" or _ssk == " ":
+                                                                            if _ss_sel == 0:
+                                                                                _ss_loop = False  # Accept
+                                                                            elif _ss_sel == 2:
+                                                                                _sample_stories = (
+                                                                                    generate_sample_stories(
+                                                                                        _instr_text,
+                                                                                        _sample_epic,
+                                                                                        _ta_examples,
+                                                                                    )
+                                                                                )
+                                                                            else:
+                                                                                _ss_loop = False
+                                                                        elif _ssk in ("esc", "q"):
+                                                                            _ss_loop = False
+                                                                        w, h = console.size
+                                                                        live.update(
+                                                                            _build_sample_stories_screen(
+                                                                                _sample_stories,
+                                                                                scroll_offset=_ss_scroll,
+                                                                                width=w,
+                                                                                height=h,
+                                                                                action_sel=_ss_sel,
+                                                                                epic_title=_sample_epic.get(
+                                                                                    "title",
+                                                                                    "",
+                                                                                ),
+                                                                            )
+                                                                        )
                                                                     _epic_loop = False
                                                                 elif _epic_sel == 1:
                                                                     # Edit — TODO
