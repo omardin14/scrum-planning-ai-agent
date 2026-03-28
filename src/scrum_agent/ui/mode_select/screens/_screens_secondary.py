@@ -17,6 +17,141 @@ from rich.text import Text
 from scrum_agent.ui.mode_select.screens._screens import _INTAKE_CARDS, _OFFLINE_CARDS, _build_mode_row
 from scrum_agent.ui.shared._components import PAD, planning_title
 
+# ---------------------------------------------------------------------------
+# Shared analysis review screen builder (mirrors planning mode layout)
+# ---------------------------------------------------------------------------
+
+_ANALYSIS_STAGES = ["Instructions", "Epic", "Stories", "Tasks", "Sprint"]
+
+
+def _build_analysis_review_screen(
+    body_lines: list,
+    *,
+    stage_index: int = 0,
+    scroll_offset: int = 0,
+    width: int = 80,
+    height: int = 24,
+    action_sel: int = 0,
+    actions: list[str] | None = None,
+    subtitle: str = "",
+) -> Panel:
+    """Shared screen builder for all analysis preview pages.
+
+    Mirrors planning mode's exact layout:
+    - ASCII title (ANALYSIS) at top
+    - Progress dots showing current stage (1-5)
+    - Subtitle for current page
+    - Scrollable content with right-side scrollbar
+    - Fixed action buttons at bottom (Accept/Edit/Regenerate/Export)
+    """
+    from scrum_agent.ui.shared._components import analysis_title
+
+    _actions = actions or ["Accept", "Edit", "Regenerate", "Export"]
+    c_accent = "rgb(100,180,100)"
+    c_accent_bright = "rgb(80,220,120)"
+
+    title = analysis_title()
+
+    # ── Progress bar: ● ● ○ ○ ○ (filled = completed, current = green, future = dim)
+    progress = Text(_PAD, justify="left")
+    for i, stage_name in enumerate(_ANALYSIS_STAGES):
+        if i > 0:
+            progress.append("  ", style="dim")
+        if i < stage_index:
+            progress.append("\u25cf", style=c_accent)  # filled circle = done
+        elif i == stage_index:
+            progress.append("\u25cf", style=c_accent_bright)  # bright = current
+        else:
+            progress.append("\u25cb", style="rgb(60,60,70)")  # hollow = future
+        progress.append(f" {stage_name}", style="dim" if i != stage_index else "bold white")
+
+    sub = Text(_PAD + subtitle, style="dim", justify="left")
+
+    # ── Scrollbar
+    inner_h = height - 4  # panel border + padding
+    header_h = 6  # blank + title(2) + blank + progress + sub
+    action_h = 4  # blank + 3 button lines
+    viewport_h = max(3, inner_h - header_h - action_h)
+    total_lines = len(body_lines)
+    max_scroll = max(0, total_lines - viewport_h)
+    actual_scroll = min(scroll_offset, max_scroll)
+    visible = body_lines[actual_scroll : actual_scroll + viewport_h]
+
+    # Build visible content
+    padded_lines: list = []
+    for line in visible:
+        padded_lines.append(line)
+
+    # Fill remaining viewport
+    for i in range(len(visible), viewport_h):
+        padded_lines.append(Text(""))
+
+    # ── Action buttons (matching planning mode exactly)
+    btn_top = Text(_PAD, justify="left")
+    btn_mid = Text(_PAD, justify="left")
+    btn_bot = Text(_PAD, justify="left")
+
+    _btn_colors = {
+        "Accept": ("rgb(60,160,80)", "rgb(80,200,100)", "rgb(40,50,40)", "rgb(50,60,50)"),
+        "Done": ("rgb(60,160,80)", "rgb(80,200,100)", "rgb(40,50,40)", "rgb(50,60,50)"),
+        "Edit": ("rgb(100,100,120)", "rgb(140,140,160)", "rgb(40,40,50)", "rgb(50,50,60)"),
+        "Regenerate": ("rgb(100,100,120)", "rgb(140,140,160)", "rgb(40,40,50)", "rgb(50,50,60)"),
+        "Export": ("rgb(70,100,180)", "rgb(100,140,220)", "rgb(40,40,50)", "rgb(50,50,60)"),
+    }
+    _btn_min_w = 12
+    _btn_gap = 2
+
+    for i, label in enumerate(_actions):
+        if i > 0:
+            btn_top.append(" " * _btn_gap)
+            btn_mid.append(" " * _btn_gap)
+            btn_bot.append(" " * _btn_gap)
+
+        inner_w = max(_btn_min_w - 2, len(label) + 2)
+        pad_l = (inner_w - len(label)) // 2
+        pad_r = inner_w - len(label) - pad_l
+        centered = " " * pad_l + label + " " * pad_r
+
+        accent_b, accent_l, grey_b, grey_l = _btn_colors.get(
+            label,
+            ("rgb(100,100,120)", "rgb(140,140,160)", "rgb(40,40,50)", "rgb(50,50,60)"),
+        )
+
+        if i == action_sel:
+            b_style = accent_b
+            l_style = f"bold {accent_l}"
+        else:
+            b_style = grey_b
+            l_style = grey_l
+
+        btn_top.append("\u256d" + "\u2500" * inner_w + "\u256e", style=b_style)
+        btn_mid.append("\u2502" + centered + "\u2502", style=l_style)
+        btn_bot.append("\u2570" + "\u2500" * inner_w + "\u256f", style=b_style)
+
+    content = Group(
+        Text(""),
+        title,
+        Text(""),
+        progress,
+        sub,
+        Text(""),
+        *padded_lines,
+        Text(""),
+        btn_top,
+        btn_mid,
+        btn_bot,
+    )
+
+    return Panel(
+        content,
+        border_style="white",
+        box=rich.box.ROUNDED,
+        expand=True,
+        height=height,
+        padding=(1, 2),
+    )
+
+
 _PAD = PAD  # alias for backward compatibility within this module
 
 
@@ -1756,22 +1891,13 @@ def _build_instructions_review_screen(
     action_sel: int = 0,
     editing: bool = False,
 ) -> Panel:
-    """Build the planning instructions review screen matching planning mode's style.
-
-    Uses the same structured layout as the intake review screen: numbered items,
-    section headers with accent color, and bordered action buttons.
-    """
-    from rich.table import Table as _InstrTable
-
-    c_accent = "#22c55e"
-    c_section = f"bold {c_accent}"
+    """Build the planning instructions review screen using shared layout."""
+    c_section = "bold #22c55e"
     c_label = "bold white"
     c_muted = "rgb(120,120,140)"
-    c_standalone = "rgb(220,180,60)"  # yellow/amber for standalone headers
-    c_arrow = "rgb(100,180,220)"  # cyan/blue for arrow notes
-    c_hint = "dim"
+    c_standalone = "rgb(220,180,60)"
+    c_arrow = "rgb(100,180,220)"
 
-    # Parse instructions into structured sections with numbered items
     body_lines: list = []
     item_num = 0
 
@@ -1779,141 +1905,53 @@ def _build_instructions_review_screen(
         stripped = line.strip()
         if not stripped:
             continue
-
         if stripped.startswith("##"):
-            # Section header
             body_lines.append(Text(""))
-            header_text = stripped.lstrip("#").strip().rstrip(":")
             body_lines.append(
                 Text(
-                    _PAD + "  " + header_text,
+                    _PAD + "  " + stripped.lstrip("#").strip().rstrip(":"),
                     style=c_section,
                     justify="left",
                 )
             )
         elif stripped.startswith("- "):
-            # List item — numbered, no status column, wider content
             item_num += 1
             item_text = stripped[2:].strip()
-
-            # Split label from value
             if "\u2014" in item_text:
                 parts = item_text.split("\u2014", 1)
-                label_part = parts[0].strip()
-                value_part = parts[1].strip() if len(parts) > 1 else ""
+                lbl, val = parts[0].strip(), (parts[1].strip() if len(parts) > 1 else "")
             elif " — " in item_text:
                 parts = item_text.split(" — ", 1)
-                label_part = parts[0].strip()
-                value_part = parts[1].strip() if len(parts) > 1 else ""
+                lbl, val = parts[0].strip(), (parts[1].strip() if len(parts) > 1 else "")
             else:
-                label_part = item_text
-                value_part = ""
-
+                lbl, val = item_text, ""
             row = Text(_PAD + f"  {item_num:>3}  ", justify="left")
-            row.append(label_part, style=c_label)
-            if value_part:
-                row.append("  " + value_part, style=c_muted)
+            row.append(lbl, style=c_label)
+            if val:
+                row.append("  " + val, style=c_muted)
             body_lines.append(row)
-
         elif stripped.startswith("\u2192") or stripped.startswith("→"):
-            # Arrow note — distinct cyan/blue color
-            body_lines.append(
-                Text(
-                    _PAD + "       " + stripped,
-                    style=f"bold {c_arrow}",
-                    justify="left",
-                )
-            )
+            body_lines.append(Text(_PAD + "       " + stripped, style=f"bold {c_arrow}", justify="left"))
         elif ":" in stripped and not stripped.startswith("Weight"):
-            # Standalone header with value (Velocity, Sprint completion, etc.)
-            # These have no sub-items — show in amber/yellow
             k, _, v = stripped.partition(":")
+            body_lines.append(Text(""))
+            row = Text(_PAD + "  ", justify="left")
+            row.append(k.strip(), style=f"bold {c_standalone}")
             if v.strip():
-                body_lines.append(Text(""))
-                row = Text(_PAD + "  ", justify="left")
-                row.append(k.strip(), style=f"bold {c_standalone}")
                 row.append(": " + v.strip(), style=c_muted)
-                body_lines.append(row)
-            else:
-                body_lines.append(Text(""))
-                body_lines.append(
-                    Text(
-                        _PAD + "  " + k.strip(),
-                        style=f"bold {c_standalone}",
-                        justify="left",
-                    )
-                )
-            continue
+            body_lines.append(row)
         else:
-            # Plain text
-            body_lines.append(
-                Text(
-                    _PAD + "       " + stripped,
-                    style=c_muted,
-                    justify="left",
-                )
-            )
-            continue
+            body_lines.append(Text(_PAD + "       " + stripped, style=c_muted, justify="left"))
 
-    # Footer buttons
-    _btn_labels = ["Accept", "Edit", "Export"]
-    _btn_row = _InstrTable(box=None, padding=(0, 1), pad_edge=False, show_header=False)
-    _btn_row.add_column(width=3)
-    for label in _btn_labels:
-        _btn_row.add_column(width=len(label) + 4)
-    _btn_cells: list[Text] = [Text("")]
-    for i, label in enumerate(_btn_labels):
-        top = "\u256d" + "\u2500" * (len(label) + 2) + "\u256e"
-        mid = "\u2502 " + label + " \u2502"
-        bot = "\u2570" + "\u2500" * (len(label) + 2) + "\u256f"
-        cell = Text(justify="center")
-        if i == action_sel:
-            _sel_color = c_accent if i == 0 else "rgb(100,140,220)"
-            cell.append(top + "\n", style=_sel_color)
-            cell.append(mid + "\n", style=f"bold {_sel_color}")
-            cell.append(bot, style=_sel_color)
-        else:
-            cell.append(top + "\n", style="rgb(60,60,70)")
-            cell.append(mid + "\n", style="rgb(90,90,100)")
-            cell.append(bot, style="rgb(60,60,70)")
-        _btn_cells.append(cell)
-    _btn_row.add_row(*_btn_cells)
-    footer = [Text(""), Padding(_btn_row, (0, 0, 0, len(_PAD)))]
-    footer_h = 5
-
-    # Viewport
-    inner_h = height - 4
-    header_h = 2
-    body_h = inner_h - header_h - footer_h
-    n_lines = len(body_lines)
-    max_scroll = max(0, n_lines - body_h)
-    actual_scroll = min(scroll_offset, max_scroll)
-    visible = body_lines[actual_scroll : actual_scroll + body_h]
-    remaining = max(0, body_h - len(visible))
-
-    sub = Text(
-        _PAD + "Review planning instructions",
-        style=c_hint,
-        justify="left",
-    )
-
-    content = Group(
-        sub,
-        Text(""),
-        *visible,
-        *[Text("") for _ in range(remaining)],
-        *footer,
-    )
-
-    return Panel(
-        content,
-        title="[bold rgb(100,180,100)] PLANNING INSTRUCTIONS [/]",
-        title_align="left",
-        border_style=c_accent,
-        box=rich.box.ROUNDED,
-        expand=True,
+    return _build_analysis_review_screen(
+        body_lines,
+        stage_index=0,
+        scroll_offset=scroll_offset,
+        width=width,
         height=height,
-        padding=(1, 2),
+        action_sel=action_sel,
+        actions=["Accept", "Edit", "Export"],
+        subtitle="Review planning instructions",
     )
 
 
@@ -2074,65 +2112,14 @@ def _build_sample_epic_screen(
         if line_buf:
             body_lines.append(Text(_PAD + "    " + line_buf, style=c_desc, justify="left"))
 
-    # Footer buttons (rounded corners matching planning mode)
-    _btn_labels = ["Accept", "Edit", "Regenerate", "Export"]
-    _btn_row = _EpicMetaTable(box=None, padding=(0, 1), pad_edge=False, show_header=False)
-    _btn_row.add_column(width=3)
-    for label in _btn_labels:
-        _btn_row.add_column(width=len(label) + 4)
-    _btn_cells: list[Text] = [Text("")]
-    for i, label in enumerate(_btn_labels):
-        top = "\u256d" + "\u2500" * (len(label) + 2) + "\u256e"
-        mid = "\u2502 " + label + " \u2502"
-        bot = "\u2570" + "\u2500" * (len(label) + 2) + "\u256f"
-        cell = Text(justify="center")
-        if i == action_sel:
-            _sc = c_accent if i == 0 else ("rgb(100,140,220)" if i != 2 else "rgb(220,180,60)")
-            cell.append(top + "\n", style=_sc)
-            cell.append(mid + "\n", style=f"bold {_sc}")
-            cell.append(bot, style=_sc)
-        else:
-            cell.append(top + "\n", style="rgb(60,60,70)")
-            cell.append(mid + "\n", style="rgb(90,90,100)")
-            cell.append(bot, style="rgb(60,60,70)")
-        _btn_cells.append(cell)
-    _btn_row.add_row(*_btn_cells)
-    footer = [Text(""), Padding(_btn_row, (0, 0, 0, len(_PAD)))]
-    footer_h = 5
-
-    # Viewport
-    inner_h = height - 4
-    header_h = 2
-    body_h = inner_h - header_h - footer_h
-    n_lines = len(body_lines)
-    max_scroll = max(0, n_lines - body_h)
-    actual_scroll = min(scroll_offset, max_scroll)
-    visible = body_lines[actual_scroll : actual_scroll + body_h]
-    remaining = max(0, body_h - len(visible))
-
-    sub = Text(
-        _PAD + "Does this epic match your team's style?",
-        style="dim",
-        justify="left",
-    )
-
-    content = Group(
-        sub,
-        Text(""),
-        *visible,
-        *[Text("") for _ in range(remaining)],
-        *footer,
-    )
-
-    return Panel(
-        content,
-        title="[bold rgb(100,180,100)] SAMPLE EPIC [/]",
-        title_align="left",
-        border_style=c_accent,
-        box=rich.box.ROUNDED,
-        expand=True,
+    return _build_analysis_review_screen(
+        body_lines,
+        stage_index=1,
+        scroll_offset=scroll_offset,
+        width=width,
         height=height,
-        padding=(1, 2),
+        action_sel=action_sel,
+        subtitle="Does this epic match your team's style?",
     )
 
 
@@ -2237,61 +2224,14 @@ def _build_sample_stories_screen(
             body_lines.append(Text(_PAD + "  " + "\u2500" * 36, style=c_sep, justify="left"))
             body_lines.append(Text(""))
 
-    # Footer buttons
-    from rich.table import Table as _SBtnT
-
-    _btn_labels = ["Accept", "Edit", "Regenerate", "Export"]
-    _btn_row = _SBtnT(box=None, padding=(0, 1), pad_edge=False, show_header=False)
-    _btn_row.add_column(width=3)
-    for label in _btn_labels:
-        _btn_row.add_column(width=len(label) + 4)
-    _btn_cells: list[Text] = [Text("")]
-    for i, label in enumerate(_btn_labels):
-        top = "\u256d" + "\u2500" * (len(label) + 2) + "\u256e"
-        mid = "\u2502 " + label + " \u2502"
-        bot = "\u2570" + "\u2500" * (len(label) + 2) + "\u256f"
-        cell = Text(justify="center")
-        if i == action_sel:
-            _sc = c_accent if i == 0 else ("rgb(100,140,220)" if i != 2 else "rgb(220,180,60)")
-            cell.append(top + "\n", style=_sc)
-            cell.append(mid + "\n", style=f"bold {_sc}")
-            cell.append(bot, style=_sc)
-        else:
-            cell.append(top + "\n", style="rgb(60,60,70)")
-            cell.append(mid + "\n", style="rgb(90,90,100)")
-            cell.append(bot, style="rgb(60,60,70)")
-        _btn_cells.append(cell)
-    _btn_row.add_row(*_btn_cells)
-    footer = [Text(""), Padding(_btn_row, (0, 0, 0, len(_PAD)))]
-    footer_h = 5
-
-    inner_h = height - 4
-    header_h = 2
-    body_h = inner_h - header_h - footer_h
-    max_scroll = max(0, len(body_lines) - body_h)
-    actual_scroll = min(scroll_offset, max_scroll)
-    visible = body_lines[actual_scroll : actual_scroll + body_h]
-    remaining = max(0, body_h - len(visible))
-
-    sub = Text(_PAD + "Do these stories match your team's style?", style="dim", justify="left")
-
-    content = Group(
-        sub,
-        Text(""),
-        *visible,
-        *[Text("") for _ in range(remaining)],
-        *footer,
-    )
-
-    return Panel(
-        content,
-        title="[bold rgb(100,180,100)] SAMPLE STORIES [/]",
-        title_align="left",
-        border_style=c_accent,
-        box=rich.box.ROUNDED,
-        expand=True,
+    return _build_analysis_review_screen(
+        body_lines,
+        stage_index=2,
+        scroll_offset=scroll_offset,
+        width=width,
         height=height,
-        padding=(1, 2),
+        action_sel=action_sel,
+        subtitle="Do these stories match your team's style?",
     )
 
 
@@ -2415,65 +2355,14 @@ def _build_sample_tasks_screen(
             )
             body_lines.append(Text(""))
 
-    # Footer buttons
-    from rich.table import Table as _TBtnT
-
-    _btn_labels = ["Accept", "Edit", "Regenerate", "Export"]
-    _btn_row = _TBtnT(box=None, padding=(0, 1), pad_edge=False, show_header=False)
-    _btn_row.add_column(width=3)
-    for label in _btn_labels:
-        _btn_row.add_column(width=len(label) + 4)
-    _btn_cells: list[Text] = [Text("")]
-    for i, label in enumerate(_btn_labels):
-        top = "\u256d" + "\u2500" * (len(label) + 2) + "\u256e"
-        mid = "\u2502 " + label + " \u2502"
-        bot = "\u2570" + "\u2500" * (len(label) + 2) + "\u256f"
-        cell = Text(justify="center")
-        if i == action_sel:
-            _sc = c_accent if i == 0 else ("rgb(100,140,220)" if i != 2 else "rgb(220,180,60)")
-            cell.append(top + "\n", style=_sc)
-            cell.append(mid + "\n", style=f"bold {_sc}")
-            cell.append(bot, style=_sc)
-        else:
-            cell.append(top + "\n", style="rgb(60,60,70)")
-            cell.append(mid + "\n", style="rgb(90,90,100)")
-            cell.append(bot, style="rgb(60,60,70)")
-        _btn_cells.append(cell)
-    _btn_row.add_row(*_btn_cells)
-    footer = [Text(""), Padding(_btn_row, (0, 0, 0, len(_PAD)))]
-    footer_h = 5
-
-    inner_h = height - 4
-    header_h = 2
-    body_h = inner_h - header_h - footer_h
-    max_scroll = max(0, len(body_lines) - body_h)
-    actual_scroll = min(scroll_offset, max_scroll)
-    visible = body_lines[actual_scroll : actual_scroll + body_h]
-    remaining = max(0, body_h - len(visible))
-
-    sub = Text(
-        _PAD + "Do these tasks match your team's decomposition style?",
-        style="dim",
-        justify="left",
-    )
-
-    content = Group(
-        sub,
-        Text(""),
-        *visible,
-        *[Text("") for _ in range(remaining)],
-        *footer,
-    )
-
-    return Panel(
-        content,
-        title="[bold rgb(100,180,100)] SAMPLE TASKS [/]",
-        title_align="left",
-        border_style=c_accent,
-        box=rich.box.ROUNDED,
-        expand=True,
+    return _build_analysis_review_screen(
+        body_lines,
+        stage_index=3,
+        scroll_offset=scroll_offset,
+        width=width,
         height=height,
-        padding=(1, 2),
+        action_sel=action_sel,
+        subtitle="Do these tasks match your team's decomposition style?",
     )
 
 
@@ -2598,65 +2487,15 @@ def _build_sample_sprint_screen(
         if buf:
             body_lines.append(Text(_PAD + "    " + buf, style=c_desc, justify="left"))
 
-    # Footer buttons — final page, so "Done" instead of "Accept"
-    from rich.table import Table as _SpBtnT
-
-    _btn_labels = ["Done", "Regenerate", "Export"]
-    _btn_row = _SpBtnT(box=None, padding=(0, 1), pad_edge=False, show_header=False)
-    _btn_row.add_column(width=3)
-    for label in _btn_labels:
-        _btn_row.add_column(width=len(label) + 4)
-    _btn_cells: list[Text] = [Text("")]
-    for i, label in enumerate(_btn_labels):
-        top = "\u256d" + "\u2500" * (len(label) + 2) + "\u256e"
-        mid = "\u2502 " + label + " \u2502"
-        bot = "\u2570" + "\u2500" * (len(label) + 2) + "\u256f"
-        cell = Text(justify="center")
-        if i == action_sel:
-            _sc = c_accent if i == 0 else ("rgb(220,180,60)" if i == 1 else "rgb(100,140,220)")
-            cell.append(top + "\n", style=_sc)
-            cell.append(mid + "\n", style=f"bold {_sc}")
-            cell.append(bot, style=_sc)
-        else:
-            cell.append(top + "\n", style="rgb(60,60,70)")
-            cell.append(mid + "\n", style="rgb(90,90,100)")
-            cell.append(bot, style="rgb(60,60,70)")
-        _btn_cells.append(cell)
-    _btn_row.add_row(*_btn_cells)
-    footer = [Text(""), Padding(_btn_row, (0, 0, 0, len(_PAD)))]
-    footer_h = 5
-
-    inner_h = height - 4
-    header_h = 2
-    body_h = inner_h - header_h - footer_h
-    max_scroll = max(0, len(body_lines) - body_h)
-    actual_scroll = min(scroll_offset, max_scroll)
-    visible = body_lines[actual_scroll : actual_scroll + body_h]
-    remaining = max(0, body_h - len(visible))
-
-    sub = Text(
-        _PAD + "Does this sprint plan match your team's capacity?",
-        style="dim",
-        justify="left",
-    )
-
-    content = Group(
-        sub,
-        Text(""),
-        *visible,
-        *[Text("") for _ in range(remaining)],
-        *footer,
-    )
-
-    return Panel(
-        content,
-        title="[bold rgb(100,180,100)] SAMPLE SPRINT [/]",
-        title_align="left",
-        border_style=c_accent,
-        box=rich.box.ROUNDED,
-        expand=True,
+    return _build_analysis_review_screen(
+        body_lines,
+        stage_index=4,
+        scroll_offset=scroll_offset,
+        width=width,
         height=height,
-        padding=(1, 2),
+        action_sel=action_sel,
+        actions=["Done", "Regenerate", "Export"],
+        subtitle="Does this sprint plan match your team's capacity?",
     )
 
 
