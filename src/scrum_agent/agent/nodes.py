@@ -5465,6 +5465,23 @@ def _format_team_calibration(profile: object, *, examples: dict | None = None) -
             lines.extend(naming_parts)
             lines.append("\n→ Generated tickets MUST match these naming conventions.\n")
 
+    # Board workflow style
+    wf = _ex.get("workflow_style", {})
+    if isinstance(wf, dict) and wf.get("style") == "columns-as-dod":
+        workflow = wf.get("workflow", [])
+        dod_cols = wf.get("dod_columns", {})
+        if workflow and dod_cols:
+            col_str = " → ".join(workflow)
+            dod_str = ", ".join(f"{c} ({r}%)" for c, r in dod_cols.items())
+            lines.append("### Team workflow style: columns-as-DoD\n")
+            lines.append(f"- Board columns: {col_str}")
+            lines.append(f"- DoD columns: {dod_str}")
+            lines.append(
+                "\n→ This team uses board columns as workflow stages. "
+                "DO NOT create separate subtasks for steps that are tracked as column transitions "
+                "(e.g. Documentation, PR review). Instead, generate implementation tasks only.\n"
+            )
+
     # Estimation bias and seasonal patterns
     addl = _ex.get("additional_patterns", {})
     if isinstance(addl, dict):

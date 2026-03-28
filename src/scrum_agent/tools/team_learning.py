@@ -1472,6 +1472,9 @@ def _run_parallel_analysis(
     # Story/epic/subtask structure analysis
     examples["story_structure"] = _analyse_story_structure(delivery_stories, all_stories)  # type: ignore[assignment]
 
+    # Board column workflow analysis
+    examples["workflow_style"] = _analyse_workflow_columns(delivery_stories)  # type: ignore[assignment]
+
     # Additional patterns: estimation bias, seasonal velocity, bug rate
     examples["additional_patterns"] = _analyse_additional_patterns(  # type: ignore[assignment]
         delivery_stories,
@@ -1903,6 +1906,37 @@ def _analyse_proposed_dod(
         "Monitoring & observability": round(monitoring_count / n * 100, 1),
     }
 
+    # ── Board column evidence ──────────────────────────────────────
+    # Count stories that passed through DoD-related board columns
+    _col_dod_map = {
+        "pr": "PR/merge request linked",
+        "pull request": "PR/merge request linked",
+        "code review": "Code review",
+        "review": "Code review",
+        "in review": "Code review",
+        "testing": "Testing & QA",
+        "qa": "Testing & QA",
+        "test": "Testing & QA",
+        "documentation": "Documentation updated",
+        "doc": "Documentation updated",
+        "staging": "Deployment verified",
+        "deploy": "Deployment verified",
+    }
+    _col_evidence: dict[str, int] = defaultdict(int)
+    _stories_with_cols = 0
+    for s in delivery_stories:
+        transitions = s.get("column_transitions", [])
+        if transitions:
+            _stories_with_cols += 1
+            visited = {t.get("to", "").lower().strip() for t in transitions}
+            for col in visited:
+                for keyword, practice in _col_dod_map.items():
+                    if keyword in col:
+                        _col_evidence[practice] += 1
+                        break
+    _col_n = _stories_with_cols or 1
+    column_pcts: dict[str, float] = {p: round(c / _col_n * 100, 1) for p, c in _col_evidence.items()}
+
     # ── Subtask analysis data ──────────────────────────────────────
     type_dist = task_decomp.get("type_distribution", {}) if task_decomp else {}
     overall_completion = task_decomp.get("task_completion_rate", 100) if task_decomp else 100
@@ -1932,9 +1966,11 @@ def _analyse_proposed_dod(
     for name, mention_pct, sub_cat in practices:
         task_pct = type_dist.get(sub_cat, 0) if sub_cat else 0
         task_comp = type_completion.get(sub_cat, overall_completion) if sub_cat else 0
-        evidence = max(mention_pct, task_pct)
+        col_pct = column_pcts.get(name, 0)
+        # Combined evidence from 3 sources: text mentions, subtasks, board columns
+        evidence = max(mention_pct, task_pct, col_pct)
 
-        if evidence >= 40 or (mention_pct >= 20 and task_pct >= 10):
+        if evidence >= 40 or (mention_pct >= 20 and task_pct >= 10) or col_pct >= 40:
             status = "established"
         elif evidence >= 5:
             status = "emerging"
@@ -1947,6 +1983,8 @@ def _analyse_proposed_dod(
         if task_pct > 0:
             comp_note = f", {task_comp:.0f}% completed" if task_comp < 70 else ""
             signals.append(f"{task_pct}% have subtasks{comp_note}")
+        if col_pct > 0:
+            signals.append(f"{col_pct:.0f}% pass through board column")
 
         if status == "established":
             rec = "Consistently done. Include as required DoD step."
@@ -2411,6 +2449,133 @@ def _analyse_story_structure(delivery_stories: list[dict], all_stories: list[dic
         "lingering_epics": lingering_epics[:5],
         "splitting_signals": _splitting_signals[:5],
         "epic_sprint_spread": _epic_sprint_spread[:5],
+    }
+
+
+def _analyse_workflow_columns(delivery_stories: list[dict]) -> dict:
+    """Analyse board column workflow patterns from status/column transitions.
+
+    Detects whether the team uses board columns as DoD steps (e.g. Documentation,
+    PR, Testing columns) and computes pass-through rates per column.
+    """
+    if not delivery_stories:
+        return {}
+
+    # Collect all column names and per-story column visits
+    _all_columns: dict[str, int] = defaultdict(int)  # column → stories that visited
+    _stories_with_transitions = 0
+    _column_sequences: list[list[str]] = []  # per-story ordered list of columns visited
+
+    for s in delivery_stories:
+        transitions = s.get("column_transitions", [])
+        if not transitions:
+            continue
+        _stories_with_transitions += 1
+        visited: list[str] = []
+        for t in transitions:
+            col = t.get("to", "")
+            if col and (not visited or visited[-1] != col):
+                visited.append(col)
+                _all_columns[col] += 1
+        if visited:
+            _column_sequences.append(visited)
+
+    if not _stories_with_transitions:
+        return {}
+
+    n = _stories_with_transitions
+
+    # Determine which columns are DoD-related
+    _dod_keywords = {
+        "documentation": "Documentation",
+        "doc": "Documentation",
+        "pr": "PR/Code review",
+        "pull request": "PR/Code review",
+        "code review": "PR/Code review",
+        "review": "PR/Code review",
+        "in review": "PR/Code review",
+        "testing": "Testing",
+        "qa": "Testing",
+        "test": "Testing",
+        "staging": "Deployment",
+        "deploy": "Deployment",
+        "release": "Deployment",
+        "uat": "Testing",
+        "blocked": "Blocked",
+    }
+
+    # Map actual column names to DoD categories
+    _col_to_dod: dict[str, str] = {}
+    for col_name in _all_columns:
+        col_lower = col_name.lower().strip()
+        for keyword, category in _dod_keywords.items():
+            if keyword in col_lower:
+                _col_to_dod[col_name] = category
+                break
+
+    # Build ordered workflow from most common first column → last
+    workflow: list[str] = []
+    if _column_sequences:
+        # Use the most common sequence pattern
+        _pos_scores: dict[str, list[int]] = defaultdict(list)
+        for seq in _column_sequences:
+            for i, col in enumerate(seq):
+                _pos_scores[col].append(i)
+        # Sort by average position
+        workflow = sorted(
+            _pos_scores,
+            key=lambda c: sum(_pos_scores[c]) / len(_pos_scores[c]),
+        )
+
+    # Per-column pass-through rates
+    column_rates: dict[str, int] = {}
+    for col, count in sorted(_all_columns.items(), key=lambda x: -x[1]):
+        column_rates[col] = round(count / n * 100)
+
+    # DoD column pass-through rates
+    dod_columns: dict[str, int] = {}
+    for col, category in _col_to_dod.items():
+        if category != "Blocked":  # Blocked isn't a DoD step
+            dod_columns[col] = column_rates.get(col, 0)
+
+    # Detect workflow style
+    has_dod_columns = len(dod_columns) >= 1
+    if has_dod_columns:
+        style = "columns-as-dod"
+    else:
+        style = "minimal"
+
+    # Skip patterns: stories that didn't visit DoD columns
+    skip_patterns: list[dict] = []
+    for col, category in _col_to_dod.items():
+        if category == "Blocked":
+            continue
+        rate = column_rates.get(col, 0)
+        skip_pct = 100 - rate
+        if skip_pct >= 20:
+            skip_patterns.append({"column": col, "category": category, "skip_pct": skip_pct})
+    skip_patterns.sort(key=lambda x: -x["skip_pct"])
+
+    # Full workflow compliance: stories that passed through ALL DoD columns
+    full_compliance = 0
+    if dod_columns:
+        dod_col_names = set(dod_columns.keys())
+        for s in delivery_stories:
+            transitions = s.get("column_transitions", [])
+            visited = {t.get("to", "") for t in transitions}
+            if dod_col_names.issubset(visited):
+                full_compliance += 1
+    full_workflow_pct = round(full_compliance / n * 100) if n else 0
+
+    return {
+        "style": style,
+        "workflow": workflow,
+        "all_columns": column_rates,
+        "dod_columns": dod_columns,
+        "full_workflow_pct": full_workflow_pct,
+        "skip_patterns": skip_patterns[:5],
+        "stories_analysed": n,
+        "total_stories": len(delivery_stories),
     }
 
 
@@ -3424,6 +3589,9 @@ def _enrich_jira_scope_changes(
             if created_dt and created_dt > s_dt:
                 was_added_mid_sprint = True
 
+            _jira_col_transitions: list[dict] = []
+            _jira_prev_status = ""
+
             for history in getattr(changelog, "histories", []):
                 change_date = _parse_date(getattr(history, "created", ""))
                 if not change_date:
@@ -3434,8 +3602,7 @@ def _enrich_jira_scope_changes(
                     from_val = getattr(item, "fromString", "") or ""
                     to_val = getattr(item, "toString", "") or ""
 
-                    # Detect point changes during sprint — both re-estimation
-                    # (from > 0 → different) and initial pointing (from 0 → value)
+                    # Detect point changes during sprint
                     if field in ("Story Points", "story_points"):
                         if s_dt <= change_date <= (e_dt or change_date):
                             from_pts = _safe_float(from_val)
@@ -3457,12 +3624,26 @@ def _enrich_jira_scope_changes(
                             if s_dt and change_date > s_dt:
                                 was_added_mid_sprint = True
 
+                    # Track status/column transitions
+                    if field in ("status", "Status"):
+                        if to_val and to_val != _jira_prev_status:
+                            _jira_col_transitions.append(
+                                {
+                                    "date": change_date.isoformat(),
+                                    "from": from_val,
+                                    "to": to_val,
+                                }
+                            )
+                            _jira_prev_status = to_val
+
             if point_changes:
                 story["point_changed"] = True
                 story["original_points"] = original_pts
                 story["point_changes"] = point_changes
             if was_added_mid_sprint:
                 story["added_mid_sprint"] = True
+            if _jira_col_transitions:
+                story["column_transitions"] = _jira_col_transitions
 
         except Exception:
             # Non-fatal — skip changelog for this issue
@@ -3512,7 +3693,9 @@ def _enrich_azdo_scope_changes(
             original_pts = story.get("points", 0)
             prev_pts = 0.0
             prev_iter = ""
+            prev_column = ""
             created_date = None
+            _col_transitions: list[dict] = []
 
             for rev in revisions:
                 fields = rev.fields if hasattr(rev, "fields") else {}
@@ -3522,6 +3705,24 @@ def _enrich_azdo_scope_changes(
 
                 cur_pts = _safe_float(fields.get("Microsoft.VSTS.Scheduling.StoryPoints"))
                 cur_iter = fields.get("System.IterationPath", "") or ""
+
+                # Track board column transitions
+                cur_col = fields.get("System.BoardColumn", "") or ""
+                if not cur_col:
+                    # Try Kanban column field (varies by team config)
+                    for fk, fv in fields.items():
+                        if "Kanban.Column" in fk and isinstance(fv, str) and fv:
+                            cur_col = fv
+                            break
+                if cur_col and cur_col != prev_column:
+                    _col_transitions.append(
+                        {
+                            "date": rev_date.isoformat(),
+                            "from": prev_column,
+                            "to": cur_col,
+                        }
+                    )
+                    prev_column = cur_col
 
                 # Track created date from first revision
                 if created_date is None:
@@ -3565,6 +3766,8 @@ def _enrich_azdo_scope_changes(
                 story["point_changes"] = point_changes
             if was_added_mid_sprint:
                 story["added_mid_sprint"] = True
+            if _col_transitions:
+                story["column_transitions"] = _col_transitions
 
         except Exception:
             continue

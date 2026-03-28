@@ -905,6 +905,49 @@ def _build_team_analysis_screen(
             items_joined = ", ".join(dod.common_checklist_items[:4])
             _kv("Common signals", items_joined, c_muted)
 
+    # ── Board Workflow ─────────────────────────────────────────────────
+    _wf = _ex.get("workflow_style", {})
+    if isinstance(_wf, dict) and _wf.get("workflow"):
+        _heading("Board Workflow")
+
+        # Workflow sequence
+        wf_seq = _wf.get("workflow", [])
+        if wf_seq:
+            row = Text(_PAD + "  ", justify="left")
+            row.append(" \u2192 ".join(wf_seq), style=c_value)
+            _add(row)
+
+        # Style
+        wf_style = _wf.get("style", "minimal")
+        style_label = {
+            "columns-as-dod": "Columns as DoD steps",
+            "minimal": "Minimal workflow",
+        }.get(wf_style, wf_style)
+        _kv("Workflow style", style_label)
+
+        # DoD column pass-through rates
+        dod_cols = _wf.get("dod_columns", {})
+        if dod_cols:
+            for col, rate in dod_cols.items():
+                r_sty = c_good if rate >= 70 else (c_warn if rate >= 30 else c_bad)
+                _kv(f"  {col}", f"{rate}% pass-through", r_sty)
+
+        # Full workflow compliance
+        fw_pct = _wf.get("full_workflow_pct", 0)
+        if dod_cols:
+            fw_sty = c_good if fw_pct >= 60 else (c_warn if fw_pct >= 30 else c_bad)
+            _kv("Full workflow compliance", f"{fw_pct}%", fw_sty)
+
+        # Skip patterns
+        skips = _wf.get("skip_patterns", [])
+        if skips:
+            _add(Text(""))
+            for sp in skips[:3]:
+                row = Text(_PAD + "  ", justify="left")
+                row.append(f"\u26a0 {sp['skip_pct']}% skip ", style=c_warn)
+                row.append(sp.get("column", "?"), style=c_value)
+                _add(row)
+
     # ── Proposed Definition of Done ────────────────────────────────────
     proposed_dod = _ex.get("proposed_dod", {})
     if isinstance(proposed_dod, dict) and proposed_dod.get("items"):
