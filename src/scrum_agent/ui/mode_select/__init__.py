@@ -542,9 +542,9 @@ def select_mode(
                                         elif kk == "left":
                                             _esel = max(0, _esel - 1)
                                         elif kk == "right":
-                                            _esel = min(2, _esel + 1)
+                                            _esel = min(1, _esel + 1)
                                         elif kk == "enter" or kk == " ":
-                                            if _esel == 2:
+                                            if _esel == 1:
                                                 # Continue → show planning instructions
                                                 from scrum_agent.agent.nodes import _format_team_calibration
                                                 from scrum_agent.tools.team_learning import generate_sample_epic
@@ -701,19 +701,14 @@ def select_mode(
                                                         )
                                                 break
                                             if _esel == 0:
-                                                from scrum_agent.team_profile_exporter import export_team_profile_html
-
-                                                _ep = export_team_profile_html(
-                                                    _full,
-                                                    examples=_stored_ex,
+                                                # Export both HTML and MD
+                                                from scrum_agent.team_profile_exporter import (
+                                                    export_team_profile_html,
+                                                    export_team_profile_md,
                                                 )
-                                            else:
-                                                from scrum_agent.team_profile_exporter import export_team_profile_md
 
-                                                _ep = export_team_profile_md(
-                                                    _full,
-                                                    examples=_stored_ex,
-                                                )
+                                                export_team_profile_html(_full, examples=_stored_ex)
+                                                _ep = export_team_profile_md(_full, examples=_stored_ex)
                                             w, h = console.size
                                             live.update(
                                                 _build_project_export_success_screen(
@@ -1065,9 +1060,9 @@ def select_mode(
                                 elif kk == "left":
                                     _ta_export_sel = max(0, _ta_export_sel - 1)
                                 elif kk == "right":
-                                    _ta_export_sel = min(2, _ta_export_sel + 1)
+                                    _ta_export_sel = min(1, _ta_export_sel + 1)
                                 elif kk == "enter" or kk == " ":
-                                    if _ta_export_sel == 2:
+                                    if _ta_export_sel == 1:
                                         # Continue → show planning instructions
                                         from scrum_agent.agent.nodes import _format_team_calibration
                                         from scrum_agent.tools.team_learning import generate_sample_epic
@@ -1255,16 +1250,17 @@ def select_mode(
                                                 )
                                         break
                                     if _ta_export_sel == 0:
-                                        from scrum_agent.team_profile_exporter import export_team_profile_html
+                                        # Export both HTML and MD
+                                        from scrum_agent.team_profile_exporter import (
+                                            export_team_profile_html,
+                                            export_team_profile_md,
+                                        )
 
-                                        _ep = export_team_profile_html(
+                                        export_team_profile_html(
                                             _ta_profile,
                                             examples=_ta_examples,
                                             sprint_names=_ta_sprint_names,
                                         )
-                                    else:
-                                        from scrum_agent.team_profile_exporter import export_team_profile_md
-
                                         _ep = export_team_profile_md(
                                             _ta_profile,
                                             examples=_ta_examples,
@@ -2308,33 +2304,20 @@ def select_mode(
                             elif key == "left":
                                 _ta_export_sel = max(0, _ta_export_sel - 1)
                             elif key == "right":
-                                _ta_export_sel = min(2, _ta_export_sel + 1)
+                                _ta_export_sel = min(1, _ta_export_sel + 1)
                             elif key == "enter" or key == " ":
                                 if _ta_export_sel == 0:
-                                    from scrum_agent.team_profile_exporter import export_team_profile_html
+                                    # Export both HTML and MD
+                                    from scrum_agent.team_profile_exporter import (
+                                        export_team_profile_html,
+                                        export_team_profile_md,
+                                    )
 
-                                    _exp_path = export_team_profile_html(
+                                    export_team_profile_html(
                                         _ta_profile,
                                         examples=_ta_examples,
                                         sprint_names=_ta_sprint_names,
                                     )
-                                    w, h = console.size
-                                    live.update(
-                                        _build_project_export_success_screen(
-                                            str(_exp_path),
-                                            width=w,
-                                            height=h,
-                                            subtitle="Team profile exported",
-                                        )
-                                    )
-                                    _exp_t0 = time.monotonic()
-                                    while True:
-                                        k = read_key(timeout=_FRAME_TIME) if _supports_timeout else read_key()
-                                        if time.monotonic() - _exp_t0 > 1.5 and k:
-                                            break
-                                elif _ta_export_sel == 1:
-                                    from scrum_agent.team_profile_exporter import export_team_profile_md
-
                                     _exp_path = export_team_profile_md(
                                         _ta_profile,
                                         examples=_ta_examples,
@@ -2346,7 +2329,7 @@ def select_mode(
                                             str(_exp_path),
                                             width=w,
                                             height=h,
-                                            subtitle="Team profile exported",
+                                            subtitle="Team profile exported (HTML + MD)",
                                         )
                                     )
                                     _exp_t0 = time.monotonic()

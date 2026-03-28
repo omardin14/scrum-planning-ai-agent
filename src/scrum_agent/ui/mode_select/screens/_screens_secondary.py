@@ -1673,7 +1673,7 @@ def _build_team_analysis_screen(
     # Bordered boxes: selected = green border + bold text, unselected = dim border
     from rich.table import Table as _FooterTable
 
-    _footer_labels = ["Export HTML", "Export Markdown", "Continue"]
+    _footer_labels = ["Export", "Continue"]
     _footer_row = _FooterTable(box=None, padding=(0, 1), pad_edge=False, show_header=False)
     _footer_row.add_column(width=3)  # left pad
     for i, label in enumerate(_footer_labels):
