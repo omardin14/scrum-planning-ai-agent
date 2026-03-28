@@ -62,10 +62,13 @@ def _build_team_analysis_screen(
     c_dim = "dim"
     c_example = "rgb(90,90,110)"
 
+    _item_heights: list[int] = []  # per-item rendered height for scroll calc
+
     def _add(item, rendered_h: int = 1) -> None:
         """Append an item to lines and track its rendered height."""
         nonlocal _rendered_lines
         lines.append(item)
+        _item_heights.append(rendered_h)
         _rendered_lines += rendered_h
 
     def _heading(text: str) -> None:
@@ -1541,14 +1544,24 @@ def _build_team_analysis_screen(
 
     max_scroll = max(0, _rendered_lines - body_h)
     actual_scroll = min(scroll_offset, max_scroll)
-    visible = lines[actual_scroll : actual_scroll + body_h]
 
-    remaining = max(0, body_h - len(visible))
+    # Build visible slice using per-item rendered heights
+    # so tables and multi-line items are counted correctly
+    _vis_items: list = []
+    _vis_h = 0
+    for i in range(actual_scroll, len(lines)):
+        ih = _item_heights[i] if i < len(_item_heights) else 1
+        if _vis_h + ih > body_h:
+            break
+        _vis_items.append(lines[i])
+        _vis_h += ih
+
+    remaining = max(0, body_h - _vis_h)
 
     content = Group(
         sub,
         Text(""),
-        *visible,
+        *_vis_items,
         *[Text("") for _ in range(remaining)],
         *footer_lines,
     )

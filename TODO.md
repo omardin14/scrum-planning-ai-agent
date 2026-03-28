@@ -1080,7 +1080,6 @@ _Bring Azure DevOps to full feature parity with Jira — read board/velocity, cr
 - [x] Recurring/ceremony ticket detection and exclusion
 - [x] Shadow spillover detection (closed then re-created)
 - [x] Repository activity correlation (which repos touch which stories)
-- [ ] Detect blocked stories — time spent in "Blocked" status, common blocking reasons
 - [ ] Learn WIP patterns — how many stories are "In Progress" simultaneously per developer?
 - [ ] Detect estimation bias — do certain developers consistently over/under-estimate?
 - [ ] Learn review cycle time — how long between "In Review" and "Done"?
