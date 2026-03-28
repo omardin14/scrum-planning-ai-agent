@@ -1767,13 +1767,13 @@ def _build_instructions_review_screen(
     c_section = f"bold {c_accent}"
     c_label = "bold white"
     c_muted = "rgb(120,120,140)"
-    c_action = c_accent
+    c_standalone = "rgb(220,180,60)"  # yellow/amber for standalone headers
+    c_arrow = "rgb(100,180,220)"  # cyan/blue for arrow notes
     c_hint = "dim"
 
     # Parse instructions into structured sections with numbered items
     body_lines: list = []
     item_num = 0
-    table_w = max(60, width - 12)
 
     for line in instructions_text.splitlines():
         stripped = line.strip()
@@ -1781,7 +1781,7 @@ def _build_instructions_review_screen(
             continue
 
         if stripped.startswith("##"):
-            # Section header — styled like planning mode's "Project Context"
+            # Section header
             body_lines.append(Text(""))
             header_text = stripped.lstrip("#").strip().rstrip(":")
             body_lines.append(
@@ -1792,24 +1792,11 @@ def _build_instructions_review_screen(
                 )
             )
         elif stripped.startswith("- "):
-            # List item — numbered like planning mode's questions
+            # List item — numbered, no status column, wider content
             item_num += 1
             item_text = stripped[2:].strip()
 
-            tbl = _InstrTable(
-                show_lines=False,
-                show_edge=False,
-                show_header=False,
-                box=None,
-                padding=(0, 1),
-                width=table_w,
-            )
-            tbl.add_column(width=4, justify="right")  # number
-            tbl.add_column(ratio=3)  # content
-            tbl.add_column(width=12, justify="right", no_wrap=True)  # status
-
-            # Split on first " — " or ": " to get label vs value
-            status = "configured"
+            # Split label from value
             if "\u2014" in item_text:
                 parts = item_text.split("\u2014", 1)
                 label_part = parts[0].strip()
@@ -1822,47 +1809,51 @@ def _build_instructions_review_screen(
                 label_part = item_text
                 value_part = ""
 
-            num_text = Text(str(item_num), style="dim")
-            content_text = Text(justify="left")
-            content_text.append(label_part, style=c_label)
+            row = Text(_PAD + f"  {item_num:>3}  ", justify="left")
+            row.append(label_part, style=c_label)
             if value_part:
-                content_text.append("  " + value_part[:60], style=c_muted)
-            status_text = Text(status, style="green")
-
-            tbl.add_row(num_text, content_text, status_text)
-            body_lines.append(Padding(tbl, (0, 0, 0, len(_PAD))))
+                row.append("  " + value_part, style=c_muted)
+            body_lines.append(row)
 
         elif stripped.startswith("\u2192") or stripped.startswith("→"):
-            # Action item — highlighted
+            # Arrow note — distinct cyan/blue color
             body_lines.append(
                 Text(
-                    _PAD + "    " + stripped,
-                    style=f"bold {c_action}",
+                    _PAD + "       " + stripped,
+                    style=f"bold {c_arrow}",
                     justify="left",
                 )
             )
         elif ":" in stripped and not stripped.startswith("Weight"):
-            # Key-value pair
-            item_num += 1
+            # Standalone header with value (Velocity, Sprint completion, etc.)
+            # These have no sub-items — show in amber/yellow
             k, _, v = stripped.partition(":")
-            tbl = _InstrTable(
-                show_lines=False,
-                show_edge=False,
-                show_header=False,
-                box=None,
-                padding=(0, 1),
-                width=table_w,
-            )
-            tbl.add_column(width=4, justify="right")
-            tbl.add_column(ratio=3)
-            tbl.add_column(width=12, justify="right", no_wrap=True)
-
-            content_text = Text(justify="left")
-            content_text.append(k.strip(), style=c_label)
             if v.strip():
-                content_text.append("  " + v.strip()[:60], style=c_muted)
-            tbl.add_row(Text(str(item_num), style="dim"), content_text, Text("configured", style="green"))
-            body_lines.append(Padding(tbl, (0, 0, 0, len(_PAD))))
+                body_lines.append(Text(""))
+                row = Text(_PAD + "  ", justify="left")
+                row.append(k.strip(), style=f"bold {c_standalone}")
+                row.append(": " + v.strip(), style=c_muted)
+                body_lines.append(row)
+            else:
+                body_lines.append(Text(""))
+                body_lines.append(
+                    Text(
+                        _PAD + "  " + k.strip(),
+                        style=f"bold {c_standalone}",
+                        justify="left",
+                    )
+                )
+            continue
+        else:
+            # Plain text
+            body_lines.append(
+                Text(
+                    _PAD + "       " + stripped,
+                    style=c_muted,
+                    justify="left",
+                )
+            )
+            continue
 
     # Footer buttons
     _btn_labels = ["Accept", "Edit", "Export"]
