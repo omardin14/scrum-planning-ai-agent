@@ -24,18 +24,18 @@ from scrum_agent.ui.shared._components import PAD
 
 _MODE_CARDS: list[dict[str, Any]] = [
     {
-        "key": "project-planning",
-        "title": "Planning",
-        "description": "Decompose your project into epics, user stories, tasks, and a sprint plan.",
-        "available": True,
-        "color": "rgb(70,100,180)",
-    },
-    {
         "key": "team-analysis",
         "title": "Analysis",
         "description": "Analyse your team's board to learn velocity, estimation patterns, and delivery signals.",
         "available": True,
         "color": "rgb(100,180,100)",
+    },
+    {
+        "key": "project-planning",
+        "title": "Planning",
+        "description": "Decompose your project into epics, user stories, tasks, and a sprint plan.",
+        "available": True,
+        "color": "rgb(70,100,180)",
     },
 ]
 
