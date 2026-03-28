@@ -623,7 +623,36 @@ def select_mode(
                                                                     )
                                                                 _si_loop = False
                                                             elif _si_sel == 1:
-                                                                _si_loop = False  # Edit (TODO)
+                                                                # Edit — feedback and regenerate
+                                                                live.stop()
+                                                                console.print(
+                                                                    "\n[bold green]Edit instructions[/] "
+                                                                    "[dim](type changes, Enter to submit):[/dim]\n"
+                                                                )
+                                                                try:
+                                                                    _si_fb = console.input("[green]> [/green]")
+                                                                except (EOFError, KeyboardInterrupt):
+                                                                    _si_fb = ""
+                                                                live.start()
+                                                                if _si_fb.strip():
+                                                                    try:
+                                                                        from langchain_core.messages import HumanMessage  # noqa: I001
+                                                                        from scrum_agent.agent.llm import get_llm
+
+                                                                        _si_prompt = (
+                                                                            "Current instructions:\n\n"
+                                                                            + _si_text
+                                                                            + f"\n\nUser changes:\n{_si_fb}\n\n"
+                                                                            + "Return FULL updated instructions."
+                                                                        )
+                                                                        _si_r = get_llm(temperature=0.0).invoke(
+                                                                            [HumanMessage(content=_si_prompt)]
+                                                                        )
+                                                                        _si_new = getattr(_si_r, "content", str(_si_r))
+                                                                        if _si_new.strip():
+                                                                            _si_text = _si_new.strip()
+                                                                    except Exception:
+                                                                        pass
                                                             elif _si_sel == 2:
                                                                 # Export
                                                                 from scrum_agent.team_profile_exporter import (
@@ -1134,8 +1163,47 @@ def select_mode(
                                                             )
                                                         _instr_loop = False
                                                     elif _instr_sel == 1:
-                                                        # Edit — TODO: edit flow
-                                                        _instr_loop = False
+                                                        # Edit — get feedback and regenerate
+                                                        live.stop()
+                                                        console.print(
+                                                            "\n[bold green]Edit instructions[/] "
+                                                            "[dim](type your changes, Enter to submit, "
+                                                            "empty to cancel):[/dim]\n"
+                                                        )
+                                                        try:
+                                                            _edit_fb = console.input("[green]> [/green]")
+                                                        except (EOFError, KeyboardInterrupt):
+                                                            _edit_fb = ""
+                                                        live.start()
+                                                        if _edit_fb.strip():
+                                                            # Regenerate with feedback
+                                                            try:
+                                                                from langchain_core.messages import HumanMessage  # noqa: I001
+                                                                from scrum_agent.agent.llm import get_llm
+
+                                                                _edit_prompt = (
+                                                                    "Here are the current planning instructions "
+                                                                    "for a team:\n\n"
+                                                                    f"{_instr_text}\n\n"
+                                                                    "The user wants to make these changes:\n"
+                                                                    f"{_edit_fb}\n\n"
+                                                                    "Return the FULL updated instructions text "
+                                                                    "with the changes applied. Keep the same "
+                                                                    "markdown format with ### headings and "
+                                                                    "- bullet points."
+                                                                )
+                                                                _resp = get_llm(temperature=0.0).invoke(
+                                                                    [HumanMessage(content=_edit_prompt)]
+                                                                )
+                                                                _new_text = (
+                                                                    _resp.content
+                                                                    if hasattr(_resp, "content")
+                                                                    else str(_resp)
+                                                                )
+                                                                if _new_text.strip():
+                                                                    _instr_text = _new_text.strip()
+                                                            except Exception:
+                                                                pass  # keep original on failure
                                                     elif _instr_sel == 2:
                                                         # Export
                                                         from scrum_agent.team_profile_exporter import (

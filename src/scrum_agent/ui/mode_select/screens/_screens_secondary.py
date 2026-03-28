@@ -1754,59 +1754,136 @@ def _build_instructions_review_screen(
     width: int = 80,
     height: int = 24,
     action_sel: int = 0,
+    editing: bool = False,
 ) -> Panel:
-    """Build the planning instructions review screen.
+    """Build the planning instructions review screen matching planning mode's style.
 
-    Shows the calibration instructions that will be injected into planning prompts.
-    User can Accept, Edit, or Export.
+    Uses the same structured layout as the intake review screen: numbered items,
+    section headers with accent color, and bordered action buttons.
     """
-    c_accent = "#22c55e"
-    c_muted = "rgb(120,120,140)"
+    from rich.table import Table as _InstrTable
 
-    # Build body from instructions text
+    c_accent = "#22c55e"
+    c_section = f"bold {c_accent}"
+    c_label = "bold white"
+    c_muted = "rgb(120,120,140)"
+    c_action = c_accent
+    c_hint = "dim"
+
+    # Parse instructions into structured sections with numbered items
     body_lines: list = []
+    item_num = 0
+    table_w = max(60, width - 12)
+
     for line in instructions_text.splitlines():
-        if line.startswith("###"):
+        stripped = line.strip()
+        if not stripped:
+            continue
+
+        if stripped.startswith("##"):
+            # Section header — styled like planning mode's "Project Context"
             body_lines.append(Text(""))
+            header_text = stripped.lstrip("#").strip().rstrip(":")
             body_lines.append(
                 Text(
-                    _PAD + line.lstrip("#").strip(),
-                    style=f"bold {c_accent} underline",
+                    _PAD + "  " + header_text,
+                    style=c_section,
                     justify="left",
                 )
             )
-        elif line.startswith("- "):
-            body_lines.append(Text(_PAD + "  " + line, style="white", justify="left"))
-        elif line.startswith("\u2192") or line.startswith("→"):
-            body_lines.append(Text(_PAD + "  " + line, style=c_accent, justify="left"))
-        elif line.strip():
-            body_lines.append(Text(_PAD + "  " + line, style=c_muted, justify="left"))
+        elif stripped.startswith("- "):
+            # List item — numbered like planning mode's questions
+            item_num += 1
+            item_text = stripped[2:].strip()
 
-    # Footer buttons: Accept | Edit | Export
-    from rich.table import Table as _BtnTable
+            tbl = _InstrTable(
+                show_lines=False,
+                show_edge=False,
+                show_header=False,
+                box=None,
+                padding=(0, 1),
+                width=table_w,
+            )
+            tbl.add_column(width=4, justify="right")  # number
+            tbl.add_column(ratio=3)  # content
+            tbl.add_column(width=12, justify="right", no_wrap=True)  # status
 
+            # Split on first " — " or ": " to get label vs value
+            status = "configured"
+            if "\u2014" in item_text:
+                parts = item_text.split("\u2014", 1)
+                label_part = parts[0].strip()
+                value_part = parts[1].strip() if len(parts) > 1 else ""
+            elif " — " in item_text:
+                parts = item_text.split(" — ", 1)
+                label_part = parts[0].strip()
+                value_part = parts[1].strip() if len(parts) > 1 else ""
+            else:
+                label_part = item_text
+                value_part = ""
+
+            num_text = Text(str(item_num), style="dim")
+            content_text = Text(justify="left")
+            content_text.append(label_part, style=c_label)
+            if value_part:
+                content_text.append("  " + value_part[:60], style=c_muted)
+            status_text = Text(status, style="green")
+
+            tbl.add_row(num_text, content_text, status_text)
+            body_lines.append(Padding(tbl, (0, 0, 0, len(_PAD))))
+
+        elif stripped.startswith("\u2192") or stripped.startswith("→"):
+            # Action item — highlighted
+            body_lines.append(
+                Text(
+                    _PAD + "    " + stripped,
+                    style=f"bold {c_action}",
+                    justify="left",
+                )
+            )
+        elif ":" in stripped and not stripped.startswith("Weight"):
+            # Key-value pair
+            item_num += 1
+            k, _, v = stripped.partition(":")
+            tbl = _InstrTable(
+                show_lines=False,
+                show_edge=False,
+                show_header=False,
+                box=None,
+                padding=(0, 1),
+                width=table_w,
+            )
+            tbl.add_column(width=4, justify="right")
+            tbl.add_column(ratio=3)
+            tbl.add_column(width=12, justify="right", no_wrap=True)
+
+            content_text = Text(justify="left")
+            content_text.append(k.strip(), style=c_label)
+            if v.strip():
+                content_text.append("  " + v.strip()[:60], style=c_muted)
+            tbl.add_row(Text(str(item_num), style="dim"), content_text, Text("configured", style="green"))
+            body_lines.append(Padding(tbl, (0, 0, 0, len(_PAD))))
+
+    # Footer buttons
     _btn_labels = ["Accept", "Edit", "Export"]
-    _btn_row = _BtnTable(box=None, padding=(0, 1), pad_edge=False, show_header=False)
+    _btn_row = _InstrTable(box=None, padding=(0, 1), pad_edge=False, show_header=False)
     _btn_row.add_column(width=3)
     for label in _btn_labels:
         _btn_row.add_column(width=len(label) + 4)
     _btn_cells: list[Text] = [Text("")]
     for i, label in enumerate(_btn_labels):
+        top = "\u256d" + "\u2500" * (len(label) + 2) + "\u256e"
+        mid = "\u2502 " + label + " \u2502"
+        bot = "\u2570" + "\u2500" * (len(label) + 2) + "\u256f"
+        cell = Text(justify="center")
         if i == action_sel:
-            top = "\u250c" + "\u2500" * (len(label) + 2) + "\u2510"
-            mid = "\u2502 " + label + " \u2502"
-            bot = "\u2514" + "\u2500" * (len(label) + 2) + "\u2518"
-            cell = Text(justify="center")
-            cell.append(top + "\n", style=c_accent)
-            cell.append(mid + "\n", style=f"bold {c_accent}")
-            cell.append(bot, style=c_accent)
+            _sel_color = c_accent if i == 0 else "rgb(100,140,220)"
+            cell.append(top + "\n", style=_sel_color)
+            cell.append(mid + "\n", style=f"bold {_sel_color}")
+            cell.append(bot, style=_sel_color)
         else:
-            top = "\u250c" + "\u2500" * (len(label) + 2) + "\u2510"
-            mid = "\u2502 " + label + " \u2502"
-            bot = "\u2514" + "\u2500" * (len(label) + 2) + "\u2518"
-            cell = Text(justify="center")
             cell.append(top + "\n", style="rgb(60,60,70)")
-            cell.append(mid + "\n", style="rgb(100,100,110)")
+            cell.append(mid + "\n", style="rgb(90,90,100)")
             cell.append(bot, style="rgb(60,60,70)")
         _btn_cells.append(cell)
     _btn_row.add_row(*_btn_cells)
@@ -1815,7 +1892,7 @@ def _build_instructions_review_screen(
 
     # Viewport
     inner_h = height - 4
-    header_h = 2  # sub + blank
+    header_h = 2
     body_h = inner_h - header_h - footer_h
     n_lines = len(body_lines)
     max_scroll = max(0, n_lines - body_h)
@@ -1824,8 +1901,8 @@ def _build_instructions_review_screen(
     remaining = max(0, body_h - len(visible))
 
     sub = Text(
-        _PAD + "Planning Instructions \u2014 review and edit before planning",
-        style="bold white",
+        _PAD + "Review planning instructions",
+        style=c_hint,
         justify="left",
     )
 
