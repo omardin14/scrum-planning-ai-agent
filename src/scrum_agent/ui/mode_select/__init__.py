@@ -84,6 +84,25 @@ _ana_sid = ""  # module-level analysis session ID
 _ana_dbp = Path.home() / ".scrum-agent" / "sessions.db"  # module-level DB path
 
 
+def _load_ana_session(project_key: str) -> dict | None:
+    """Load the most recent analysis session for a project, or None."""
+    try:
+        from scrum_agent.sessions import SessionStore
+
+        with SessionStore(_ana_dbp) as store:
+            sessions = store.list_analysis_sessions()
+            for sess in sessions:
+                if project_key in sess.get("project_name", ""):
+                    state = store.load_state(sess["session_id"])
+                    if state and state.get("last_page"):
+                        global _ana_sid  # noqa: PLW0603
+                        _ana_sid = sess["session_id"]
+                        return state
+    except Exception:
+        pass
+    return None
+
+
 def _save_ana(state: dict, node: str) -> None:
     """Save analysis session state (extracted to reduce nesting depth)."""
     if not _ana_sid:
@@ -96,6 +115,308 @@ def _save_ana(state: dict, node: str) -> None:
             store.update_last_node(_ana_sid, node)
     except Exception:
         pass
+
+
+def _run_preview_flow(
+    live,
+    console,
+    read_key,
+    frame_time,
+    supports_timeout,
+    instr_text,
+    ta_profile,
+    ta_examples,
+    *,
+    resume_state: dict | None = None,
+):
+    """Run the analysis preview flow (Instructions → Epic → Stories → Tasks → Sprint).
+
+    If resume_state is provided, jumps to the appropriate page.
+    """
+    from scrum_agent.tools.team_learning import (
+        generate_sample_epic,
+        generate_sample_stories,
+        generate_sample_tasks,
+    )
+    from scrum_agent.ui.mode_select.screens._screens_secondary import (
+        _build_analysis_progress_screen,
+        _build_instructions_review_screen,
+        _build_sample_epic_screen,
+        _build_sample_stories_screen,
+        _build_sample_tasks_screen,
+    )
+
+    _rk = lambda: read_key(timeout=frame_time) if supports_timeout else read_key()  # noqa: E731
+
+    def _do_export():
+        """Cumulative export — includes analysis profile + all accepted samples."""
+        from scrum_agent.team_profile_exporter import (
+            export_team_profile_html,
+            export_team_profile_md,
+        )
+
+        export_team_profile_html(ta_profile, examples=ta_examples)
+        ep = export_team_profile_md(ta_profile, examples=ta_examples)
+        w, h = console.size
+        from scrum_agent.ui.mode_select.screens._screens_secondary import (
+            _build_project_export_success_screen,
+        )
+
+        live.update(
+            _build_project_export_success_screen(
+                str(ep),
+                width=w,
+                height=h,
+                subtitle="Exported (HTML + MD)",
+            )
+        )
+        import time as _t
+
+        _t0 = _t.monotonic()
+        while True:
+            _ek = _rk()
+            if _t.monotonic() - _t0 > 1.5 and _ek:
+                break
+
+    # Determine starting point and load saved artifacts
+    last_page = (resume_state or {}).get("last_page", "")
+    _instr = (resume_state or {}).get("instructions", "") or instr_text
+    _epic = (resume_state or {}).get("sample_epic")
+    _stories = (resume_state or {}).get("sample_stories")
+    _tasks = (resume_state or {}).get("sample_tasks")
+
+    # ── Page 1: Instructions ──────────────────────────────────────
+    if last_page not in ("epic", "stories", "tasks", "sprint"):
+        scroll, sel = 0, 0
+        while True:
+            k = _rk()
+            if k in ("up", "scroll_up"):
+                scroll = max(0, scroll - 1)
+            elif k in ("down", "scroll_down"):
+                scroll += 1
+            elif k == "left":
+                sel = max(0, sel - 1)
+            elif k == "right":
+                sel = min(2, sel + 1)
+            elif k in ("enter", " "):
+                if sel == 0:
+                    _save_ana({"instructions": _instr, "last_page": "instructions"}, "instructions")
+                    break  # → epic
+                elif sel == 1:
+                    # Edit
+                    live.stop()
+                    console.print("\n[bold green]Edit instructions[/] [dim](type changes):[/dim]\n")
+                    try:
+                        fb = console.input("[green]> [/green]")
+                    except (EOFError, KeyboardInterrupt):
+                        fb = ""
+                    live.start()
+                    if fb.strip():
+                        try:
+                            from langchain_core.messages import HumanMessage
+
+                            from scrum_agent.agent.llm import get_llm
+
+                            _prompt = (
+                                f"Current instructions:\n\n{_instr}\n\n"
+                                f"User changes:\n{fb}\n\n"
+                                "Return FULL updated instructions."
+                            )
+                            r = get_llm(temperature=0.0).invoke([HumanMessage(content=_prompt)])
+                            _new = getattr(r, "content", str(r))
+                            if _new.strip():
+                                _instr = _new.strip()
+                        except Exception:
+                            pass
+                elif sel == 2:
+                    _do_export()
+            elif k in ("esc", "q"):
+                return
+            w, h = console.size
+            live.update(
+                _build_instructions_review_screen(
+                    _instr,
+                    scroll_offset=scroll,
+                    width=w,
+                    height=h,
+                    action_sel=sel,
+                )
+            )
+
+    # ── Page 2: Epic ──────────────────────────────────────────────
+    if not _epic:
+        w, h = console.size
+        live.update(
+            _build_analysis_progress_screen(
+                ["Generating sample epic\u2026"],
+                width=w,
+                height=h,
+                elapsed=0,
+                anim_tick=0,
+                source="",
+                mode="analysis",
+            )
+        )
+        _epic = generate_sample_epic(_instr, ta_examples)
+
+    if last_page not in ("stories", "tasks", "sprint"):
+        scroll, sel = 0, 0
+        while True:
+            k = _rk()
+            if k in ("up", "scroll_up"):
+                scroll = max(0, scroll - 1)
+            elif k in ("down", "scroll_down"):
+                scroll += 1
+            elif k == "left":
+                sel = max(0, sel - 1)
+            elif k == "right":
+                sel = min(3, sel + 1)
+            elif k in ("enter", " "):
+                if sel == 0:
+                    _save_ana({"instructions": _instr, "sample_epic": _epic, "last_page": "epic"}, "epic")
+                    break  # → stories
+                elif sel == 2:
+                    _epic = generate_sample_epic(_instr, ta_examples)
+                elif sel == 3:
+                    _do_export()
+            elif k in ("esc", "q"):
+                return
+            w, h = console.size
+            live.update(
+                _build_sample_epic_screen(
+                    _epic,
+                    scroll_offset=scroll,
+                    width=w,
+                    height=h,
+                    action_sel=sel,
+                    examples=ta_examples,
+                )
+            )
+
+    # ── Page 3: Stories ───────────────────────────────────────────
+    if not _stories:
+        w, h = console.size
+        live.update(
+            _build_analysis_progress_screen(
+                ["Generating sample stories\u2026"],
+                width=w,
+                height=h,
+                elapsed=0,
+                anim_tick=0,
+                source="",
+                mode="analysis",
+            )
+        )
+        _stories = generate_sample_stories(_instr, _epic, ta_examples)
+
+    if last_page not in ("tasks", "sprint"):
+        scroll, sel = 0, 0
+        while True:
+            k = _rk()
+            if k in ("up", "scroll_up"):
+                scroll = max(0, scroll - 1)
+            elif k in ("down", "scroll_down"):
+                scroll += 1
+            elif k == "left":
+                sel = max(0, sel - 1)
+            elif k == "right":
+                sel = min(3, sel + 1)
+            elif k in ("enter", " "):
+                if sel == 0:
+                    _st = {
+                        "instructions": _instr,
+                        "sample_epic": _epic,
+                        "sample_stories": _stories,
+                        "last_page": "stories",
+                    }  # noqa: E501
+                    _save_ana(_st, "stories")
+                    break  # → tasks
+                elif sel == 2:
+                    _stories = generate_sample_stories(_instr, _epic, ta_examples)
+                elif sel == 3:
+                    _do_export()
+            elif k in ("esc", "q"):
+                return
+            w, h = console.size
+            live.update(
+                _build_sample_stories_screen(
+                    _stories,
+                    scroll_offset=scroll,
+                    width=w,
+                    height=h,
+                    action_sel=sel,
+                    epic_title=_epic.get("title", ""),
+                )
+            )
+
+    # ── Page 4: Tasks ─────────────────────────────────────────────
+    if not _tasks:
+        w, h = console.size
+        live.update(
+            _build_analysis_progress_screen(
+                ["Generating sample tasks\u2026"],
+                width=w,
+                height=h,
+                elapsed=0,
+                anim_tick=0,
+                source="",
+                mode="analysis",
+            )
+        )
+        _tasks = generate_sample_tasks(_instr, _stories, ta_examples)
+
+    if last_page != "sprint":
+        scroll, sel = 0, 0
+        while True:
+            k = _rk()
+            if k in ("up", "scroll_up"):
+                scroll = max(0, scroll - 1)
+            elif k in ("down", "scroll_down"):
+                scroll += 1
+            elif k == "left":
+                sel = max(0, sel - 1)
+            elif k == "right":
+                sel = min(3, sel + 1)
+            elif k in ("enter", " "):
+                if sel == 0:
+                    _st = {
+                        "instructions": _instr,
+                        "sample_epic": _epic,
+                        "sample_stories": _stories,
+                        "sample_tasks": _tasks,
+                        "last_page": "tasks",
+                    }  # noqa: E501
+                    _save_ana(_st, "tasks")
+                    break  # → sprint
+                elif sel == 2:
+                    _tasks = generate_sample_tasks(_instr, _stories, ta_examples)
+                elif sel == 3:
+                    _do_export()
+            elif k in ("esc", "q"):
+                return
+            w, h = console.size
+            live.update(
+                _build_sample_tasks_screen(
+                    _tasks,
+                    scroll_offset=scroll,
+                    width=w,
+                    height=h,
+                    action_sel=sel,
+                )
+            )
+
+    # ── Page 5: Sprint ────────────────────────────────────────────
+    _run_sprint_review(
+        live,
+        console,
+        read_key,
+        frame_time,
+        supports_timeout,
+        _instr,
+        _stories,
+        _tasks,
+        ta_examples,
+    )
 
 
 def _run_sprint_review(
@@ -156,8 +477,8 @@ def _run_sprint_review(
                     sample_tasks,
                     ta_examples,
                 )
-            else:
-                break
+            elif sel == 2:
+                pass  # Export (handled at report level)
         elif k in ("esc", "q"):
             break
         w, h = console.size
@@ -419,6 +740,18 @@ def select_mode(
                 except Exception:
                     pass
 
+                # Load resumable analysis sessions
+                _ana_sessions: list[dict] = []
+                try:
+                    from scrum_agent.sessions import SessionStore as _SessStore
+
+                    _sess_db = Path.home() / ".scrum-agent" / "sessions.db"
+                    if _sess_db.exists():
+                        with _SessStore(_sess_db) as _ss:
+                            _ana_sessions = _ss.list_analysis_sessions()
+                except Exception:
+                    pass
+
                 # Always one button; board picker popup shown if both configured
                 _ana_labels = ["+ New Analysis"]
 
@@ -638,160 +971,28 @@ def select_mode(
                                             _esel = min(1, _esel + 1)
                                         elif kk == "enter" or kk == " ":
                                             if _esel == 1:
-                                                # Continue → show planning instructions
+                                                # Continue → run preview flow
                                                 from scrum_agent.agent.nodes import _format_team_calibration
-                                                from scrum_agent.tools.team_learning import generate_sample_epic
-                                                from scrum_agent.ui.mode_select.screens._screens_secondary import (
-                                                    _build_instructions_review_screen,
-                                                    _build_sample_epic_screen,
-                                                )
 
                                                 _si_text = _format_team_calibration(
                                                     _full,
                                                     examples=_stored_ex,
                                                 )
+                                                _si_resume = _load_ana_session(
+                                                    _full.project_key if _full else "",
+                                                )
                                                 if _si_text.strip():
-                                                    _si_scroll = 0
-                                                    _si_sel = 0
-                                                    _si_loop = True
-                                                    while _si_loop:
-                                                        sk = (
-                                                            read_key(timeout=_FRAME_TIME)
-                                                            if _supports_timeout
-                                                            else read_key()
-                                                        )
-                                                        if sk in ("up", "scroll_up"):
-                                                            _si_scroll = max(0, _si_scroll - 1)
-                                                        elif sk in ("down", "scroll_down"):
-                                                            _si_scroll += 1
-                                                        elif sk == "left":
-                                                            _si_sel = max(0, _si_sel - 1)
-                                                        elif sk == "right":
-                                                            _si_sel = min(2, _si_sel + 1)
-                                                        elif sk == "enter" or sk == " ":
-                                                            if _si_sel == 0:
-                                                                # Accept → sample epic
-                                                                _si_epic = generate_sample_epic(
-                                                                    _si_text,
-                                                                    _stored_ex,
-                                                                )
-                                                                _sie_scroll = 0
-                                                                _sie_sel = 0
-                                                                _sie_loop = True
-                                                                while _sie_loop:
-                                                                    _sek = (
-                                                                        read_key(timeout=_FRAME_TIME)
-                                                                        if _supports_timeout
-                                                                        else read_key()
-                                                                    )
-                                                                    if _sek in ("up", "scroll_up"):
-                                                                        _sie_scroll = max(0, _sie_scroll - 1)
-                                                                    elif _sek in ("down", "scroll_down"):
-                                                                        _sie_scroll += 1
-                                                                    elif _sek == "left":
-                                                                        _sie_sel = max(0, _sie_sel - 1)
-                                                                    elif _sek == "right":
-                                                                        _sie_sel = min(3, _sie_sel + 1)
-                                                                    elif _sek == "enter" or _sek == " ":
-                                                                        if _sie_sel == 0:
-                                                                            _sie_loop = False
-                                                                        elif _sie_sel == 2:
-                                                                            _si_epic = generate_sample_epic(
-                                                                                _si_text,
-                                                                                _stored_ex,
-                                                                            )
-                                                                        else:
-                                                                            _sie_loop = False
-                                                                    elif _sek in ("esc", "q"):
-                                                                        _sie_loop = False
-                                                                    w, h = console.size
-                                                                    live.update(
-                                                                        _build_sample_epic_screen(
-                                                                            _si_epic,
-                                                                            scroll_offset=_sie_scroll,
-                                                                            width=w,
-                                                                            height=h,
-                                                                            action_sel=_sie_sel,
-                                                                            examples=_stored_ex,
-                                                                        )
-                                                                    )
-                                                                _si_loop = False
-                                                            elif _si_sel == 1:
-                                                                # Edit — feedback and regenerate
-                                                                live.stop()
-                                                                console.print(
-                                                                    "\n[bold green]Edit instructions[/] "
-                                                                    "[dim](type changes, Enter to submit):[/dim]\n"
-                                                                )
-                                                                try:
-                                                                    _si_fb = console.input("[green]> [/green]")
-                                                                except (EOFError, KeyboardInterrupt):
-                                                                    _si_fb = ""
-                                                                live.start()
-                                                                if _si_fb.strip():
-                                                                    try:
-                                                                        from langchain_core.messages import HumanMessage  # noqa: I001
-                                                                        from scrum_agent.agent.llm import get_llm
-
-                                                                        _si_prompt = (
-                                                                            "Current instructions:\n\n"
-                                                                            + _si_text
-                                                                            + f"\n\nUser changes:\n{_si_fb}\n\n"
-                                                                            + "Return FULL updated instructions."
-                                                                        )
-                                                                        _si_r = get_llm(temperature=0.0).invoke(
-                                                                            [HumanMessage(content=_si_prompt)]
-                                                                        )
-                                                                        _si_new = getattr(_si_r, "content", str(_si_r))
-                                                                        if _si_new.strip():
-                                                                            _si_text = _si_new.strip()
-                                                                    except Exception:
-                                                                        pass
-                                                            elif _si_sel == 2:
-                                                                # Export
-                                                                from scrum_agent.team_profile_exporter import (
-                                                                    export_team_profile_html,
-                                                                    export_team_profile_md,
-                                                                )
-
-                                                                export_team_profile_html(
-                                                                    _full,
-                                                                    examples=_stored_ex,
-                                                                )
-                                                                _si_ep = export_team_profile_md(
-                                                                    _full,
-                                                                    examples=_stored_ex,
-                                                                )
-                                                                w, h = console.size
-                                                                live.update(
-                                                                    _build_project_export_success_screen(
-                                                                        str(_si_ep),
-                                                                        width=w,
-                                                                        height=h,
-                                                                        subtitle="Instructions exported",
-                                                                    )
-                                                                )
-                                                                _si_t = time.monotonic()
-                                                                while True:
-                                                                    _si_k = (
-                                                                        read_key(timeout=_FRAME_TIME)
-                                                                        if _supports_timeout
-                                                                        else read_key()
-                                                                    )
-                                                                    if time.monotonic() - _si_t > 1.5 and _si_k:
-                                                                        break
-                                                        elif sk in ("esc", "q"):
-                                                            _si_loop = False
-                                                        w, h = console.size
-                                                        live.update(
-                                                            _build_instructions_review_screen(
-                                                                _si_text,
-                                                                scroll_offset=_si_scroll,
-                                                                width=w,
-                                                                height=h,
-                                                                action_sel=_si_sel,
-                                                            )
-                                                        )
+                                                    _run_preview_flow(
+                                                        live,
+                                                        console,
+                                                        read_key,
+                                                        _FRAME_TIME,
+                                                        _supports_timeout,
+                                                        _si_text,
+                                                        _full,
+                                                        _stored_ex,
+                                                        resume_state=_si_resume,
+                                                    )
                                                 break
                                             if _esel == 0:
                                                 # Export both HTML and MD
@@ -1136,15 +1337,7 @@ def select_mode(
                                 pass
 
                             # Show results
-                            from scrum_agent.tools.team_learning import (
-                                generate_sample_epic,
-                                generate_sample_stories,
-                                generate_sample_tasks,
-                            )
                             from scrum_agent.ui.mode_select.screens._screens_secondary import (
-                                _build_sample_epic_screen,
-                                _build_sample_stories_screen,
-                                _build_sample_tasks_screen,
                                 _build_team_analysis_screen,
                             )
 
@@ -1164,17 +1357,12 @@ def select_mode(
                                     _ta_export_sel = min(1, _ta_export_sel + 1)
                                 elif kk == "enter" or kk == " ":
                                     if _ta_export_sel == 1:
-                                        # Continue → show planning instructions
+                                        # Continue → run preview flow
                                         global _ana_sid  # noqa: PLW0603
 
                                         from scrum_agent.agent.nodes import _format_team_calibration
                                         from scrum_agent.sessions import SessionStore as _AStore
                                         from scrum_agent.sessions import make_session_id
-                                        from scrum_agent.tools.team_learning import generate_sample_epic
-                                        from scrum_agent.ui.mode_select.screens._screens_secondary import (
-                                            _build_instructions_review_screen,
-                                            _build_sample_epic_screen,
-                                        )
 
                                         _ana_sid = make_session_id()
                                         try:
@@ -1191,344 +1379,22 @@ def select_mode(
                                             _ta_profile,
                                             examples=_ta_examples,
                                         )
+                                        # Check for resumable session
+                                        _resume = _load_ana_session(
+                                            _ta_profile.project_key if _ta_profile else "",
+                                        )
                                         if _instr_text.strip():
-                                            _instr_scroll = 0
-                                            _instr_sel = 0
-                                            _instr_loop = True
-                                            while _instr_loop:
-                                                ik = read_key(timeout=_FRAME_TIME) if _supports_timeout else read_key()
-                                                if ik in ("up", "scroll_up"):
-                                                    _instr_scroll = max(0, _instr_scroll - 1)
-                                                elif ik in ("down", "scroll_down"):
-                                                    _instr_scroll += 1
-                                                elif ik == "left":
-                                                    _instr_sel = max(0, _instr_sel - 1)
-                                                elif ik == "right":
-                                                    _instr_sel = min(2, _instr_sel + 1)
-                                                elif ik == "enter" or ik == " ":
-                                                    if _instr_sel == 0:
-                                                        # Accept → save + generate sample epic
-                                                        _st = {"instructions": _instr_text, "last_page": "instructions"}
-                                                        _save_ana(_st, "instructions")
-                                                        # Show loading
-                                                        w, h = console.size
-                                                        live.update(
-                                                            _build_analysis_progress_screen(
-                                                                ["Generating sample epic\u2026"],
-                                                                width=w,
-                                                                height=h,
-                                                                elapsed=0,
-                                                                anim_tick=0,
-                                                                source="",
-                                                                mode="analysis",
-                                                            )
-                                                        )
-
-                                                        _sample_epic = generate_sample_epic(
-                                                            _instr_text,
-                                                            _ta_examples,
-                                                        )
-
-                                                        _epic_scroll = 0
-                                                        _epic_sel = 0
-                                                        _epic_loop = True
-                                                        while _epic_loop:
-                                                            ek3 = (
-                                                                read_key(timeout=_FRAME_TIME)
-                                                                if _supports_timeout
-                                                                else read_key()
-                                                            )
-                                                            if ek3 in ("up", "scroll_up"):
-                                                                _epic_scroll = max(0, _epic_scroll - 1)
-                                                            elif ek3 in ("down", "scroll_down"):
-                                                                _epic_scroll += 1
-                                                            elif ek3 == "left":
-                                                                _epic_sel = max(0, _epic_sel - 1)
-                                                            elif ek3 == "right":
-                                                                _epic_sel = min(3, _epic_sel + 1)
-                                                            elif ek3 == "enter" or ek3 == " ":
-                                                                if _epic_sel == 0:
-                                                                    # Accept → save + generate stories
-                                                                    _st = {
-                                                                        "instructions": _instr_text,
-                                                                        "sample_epic": _sample_epic,
-                                                                        "last_page": "epic",
-                                                                    }  # noqa: E501
-                                                                    _save_ana(_st, "epic")
-                                                                    w, h = console.size
-                                                                    live.update(
-                                                                        _build_analysis_progress_screen(
-                                                                            ["Generating sample stories\u2026"],
-                                                                            width=w,
-                                                                            height=h,
-                                                                            elapsed=0,
-                                                                            anim_tick=0,
-                                                                            source="",
-                                                                            mode="analysis",
-                                                                        )
-                                                                    )
-                                                                    _sample_stories = generate_sample_stories(
-                                                                        _instr_text,
-                                                                        _sample_epic,
-                                                                        _ta_examples,
-                                                                    )
-                                                                    _ss_scroll = 0
-                                                                    _ss_sel = 0
-                                                                    _ss_loop = True
-                                                                    while _ss_loop:
-                                                                        _ssk = (
-                                                                            read_key(timeout=_FRAME_TIME)
-                                                                            if _supports_timeout
-                                                                            else read_key()
-                                                                        )
-                                                                        if _ssk in ("up", "scroll_up"):
-                                                                            _ss_scroll = max(0, _ss_scroll - 1)
-                                                                        elif _ssk in ("down", "scroll_down"):
-                                                                            _ss_scroll += 1
-                                                                        elif _ssk == "left":
-                                                                            _ss_sel = max(0, _ss_sel - 1)
-                                                                        elif _ssk == "right":
-                                                                            _ss_sel = min(3, _ss_sel + 1)
-                                                                        elif _ssk == "enter" or _ssk == " ":
-                                                                            if _ss_sel == 0:
-                                                                                # Accept → save + generate tasks
-                                                                                _st = {
-                                                                                    "instructions": _instr_text,
-                                                                                    "sample_epic": _sample_epic,
-                                                                                    "sample_stories": _sample_stories,
-                                                                                    "last_page": "stories",
-                                                                                }
-                                                                                _save_ana(_st, "stories")
-                                                                                w, h = console.size
-                                                                                _lp = ["Generating sample tasks\u2026"]
-                                                                                live.update(
-                                                                                    _build_analysis_progress_screen(
-                                                                                        _lp,
-                                                                                        width=w,
-                                                                                        height=h,
-                                                                                        elapsed=0,
-                                                                                        anim_tick=0,
-                                                                                        source="",
-                                                                                        mode="analysis",
-                                                                                    )
-                                                                                )
-                                                                                _sample_tasks = generate_sample_tasks(
-                                                                                    _instr_text,
-                                                                                    _sample_stories,
-                                                                                    _ta_examples,
-                                                                                )
-                                                                                _st_scroll = 0
-                                                                                _st_sel = 0
-                                                                                _st_loop = True
-                                                                                while _st_loop:
-                                                                                    _stk = (
-                                                                                        read_key(timeout=_FRAME_TIME)
-                                                                                        if _supports_timeout
-                                                                                        else read_key()
-                                                                                    )
-                                                                                    if _stk in ("up", "scroll_up"):
-                                                                                        _st_scroll = max(
-                                                                                            0,
-                                                                                            _st_scroll - 1,
-                                                                                        )
-                                                                                    elif _stk in (
-                                                                                        "down",
-                                                                                        "scroll_down",
-                                                                                    ):
-                                                                                        _st_scroll += 1
-                                                                                    elif _stk == "left":
-                                                                                        _st_sel = max(0, _st_sel - 1)
-                                                                                    elif _stk == "right":
-                                                                                        _st_sel = min(3, _st_sel + 1)
-                                                                                    elif _stk in ("enter", " "):
-                                                                                        if _st_sel == 0:
-                                                                                            # Accept → save + sprint
-                                                                                            _d = dict(  # noqa: C408
-                                                                                                instructions=_instr_text,
-                                                                                                sample_epic=_sample_epic,
-                                                                                                sample_stories=_sample_stories,
-                                                                                                sample_tasks=_sample_tasks,
-                                                                                                last_page="tasks",
-                                                                                            )
-                                                                                            _st = _d
-                                                                                            _save_ana(_st, "tasks")
-                                                                                            _run_sprint_review(
-                                                                                                live,
-                                                                                                console,
-                                                                                                read_key,
-                                                                                                _FRAME_TIME,
-                                                                                                _supports_timeout,
-                                                                                                _instr_text,
-                                                                                                _sample_stories,
-                                                                                                _sample_tasks,
-                                                                                                _ta_examples,
-                                                                                            )
-                                                                                            _st_loop = False
-                                                                                        elif _st_sel == 2:
-                                                                                            _sample_tasks = (
-                                                                                                generate_sample_tasks(
-                                                                                                    _instr_text,
-                                                                                                    _sample_stories,
-                                                                                                    _ta_examples,
-                                                                                                )
-                                                                                            )
-                                                                                        else:
-                                                                                            _st_loop = False
-                                                                                    elif _stk in ("esc", "q"):
-                                                                                        _st_loop = False
-                                                                                    w, h = console.size
-                                                                                    live.update(
-                                                                                        _build_sample_tasks_screen(
-                                                                                            _sample_tasks,
-                                                                                            scroll_offset=_st_scroll,
-                                                                                            width=w,
-                                                                                            height=h,
-                                                                                            action_sel=_st_sel,
-                                                                                        )
-                                                                                    )
-                                                                                _ss_loop = False
-                                                                            elif _ss_sel == 2:
-                                                                                _sample_stories = (
-                                                                                    generate_sample_stories(
-                                                                                        _instr_text,
-                                                                                        _sample_epic,
-                                                                                        _ta_examples,
-                                                                                    )
-                                                                                )
-                                                                            else:
-                                                                                _ss_loop = False
-                                                                        elif _ssk in ("esc", "q"):
-                                                                            _ss_loop = False
-                                                                        w, h = console.size
-                                                                        live.update(
-                                                                            _build_sample_stories_screen(
-                                                                                _sample_stories,
-                                                                                scroll_offset=_ss_scroll,
-                                                                                width=w,
-                                                                                height=h,
-                                                                                action_sel=_ss_sel,
-                                                                                epic_title=_sample_epic.get(
-                                                                                    "title",
-                                                                                    "",
-                                                                                ),
-                                                                            )
-                                                                        )
-                                                                    _epic_loop = False
-                                                                elif _epic_sel == 1:
-                                                                    # Edit — TODO
-                                                                    _epic_loop = False
-                                                                elif _epic_sel == 2:
-                                                                    # Regenerate
-                                                                    _sample_epic = generate_sample_epic(
-                                                                        _instr_text,
-                                                                        _ta_examples,
-                                                                    )
-                                                                elif _epic_sel == 3:
-                                                                    # Export — TODO
-                                                                    pass
-                                                            elif ek3 in ("esc", "q"):
-                                                                _epic_loop = False
-                                                            w, h = console.size
-                                                            live.update(
-                                                                _build_sample_epic_screen(
-                                                                    _sample_epic,
-                                                                    scroll_offset=_epic_scroll,
-                                                                    width=w,
-                                                                    height=h,
-                                                                    action_sel=_epic_sel,
-                                                                    examples=_ta_examples,
-                                                                )
-                                                            )
-                                                        _instr_loop = False
-                                                    elif _instr_sel == 1:
-                                                        # Edit — get feedback and regenerate
-                                                        live.stop()
-                                                        console.print(
-                                                            "\n[bold green]Edit instructions[/] "
-                                                            "[dim](type your changes, Enter to submit, "
-                                                            "empty to cancel):[/dim]\n"
-                                                        )
-                                                        try:
-                                                            _edit_fb = console.input("[green]> [/green]")
-                                                        except (EOFError, KeyboardInterrupt):
-                                                            _edit_fb = ""
-                                                        live.start()
-                                                        if _edit_fb.strip():
-                                                            # Regenerate with feedback
-                                                            try:
-                                                                from langchain_core.messages import HumanMessage  # noqa: I001
-                                                                from scrum_agent.agent.llm import get_llm
-
-                                                                _edit_prompt = (
-                                                                    "Here are the current planning instructions "
-                                                                    "for a team:\n\n"
-                                                                    f"{_instr_text}\n\n"
-                                                                    "The user wants to make these changes:\n"
-                                                                    f"{_edit_fb}\n\n"
-                                                                    "Return the FULL updated instructions text "
-                                                                    "with the changes applied. Keep the same "
-                                                                    "markdown format with ### headings and "
-                                                                    "- bullet points."
-                                                                )
-                                                                _resp = get_llm(temperature=0.0).invoke(
-                                                                    [HumanMessage(content=_edit_prompt)]
-                                                                )
-                                                                _new_text = (
-                                                                    _resp.content
-                                                                    if hasattr(_resp, "content")
-                                                                    else str(_resp)
-                                                                )
-                                                                if _new_text.strip():
-                                                                    _instr_text = _new_text.strip()
-                                                            except Exception:
-                                                                pass  # keep original on failure
-                                                    elif _instr_sel == 2:
-                                                        # Export
-                                                        from scrum_agent.team_profile_exporter import (
-                                                            export_team_profile_html,
-                                                            export_team_profile_md,
-                                                        )
-
-                                                        export_team_profile_html(
-                                                            _ta_profile,
-                                                            examples=_ta_examples,
-                                                            sprint_names=_ta_sprint_names,
-                                                        )
-                                                        _ep = export_team_profile_md(
-                                                            _ta_profile,
-                                                            examples=_ta_examples,
-                                                            sprint_names=_ta_sprint_names,
-                                                        )
-                                                        w, h = console.size
-                                                        live.update(
-                                                            _build_project_export_success_screen(
-                                                                str(_ep),
-                                                                width=w,
-                                                                height=h,
-                                                                subtitle="Instructions exported",
-                                                            )
-                                                        )
-                                                        _et2 = time.monotonic()
-                                                        while True:
-                                                            ek2 = (
-                                                                read_key(timeout=_FRAME_TIME)
-                                                                if _supports_timeout
-                                                                else read_key()
-                                                            )
-                                                            if time.monotonic() - _et2 > 1.5 and ek2:
-                                                                break
-                                                elif ik in ("esc", "q"):
-                                                    _instr_loop = False
-                                                w, h = console.size
-                                                live.update(
-                                                    _build_instructions_review_screen(
-                                                        _instr_text,
-                                                        scroll_offset=_instr_scroll,
-                                                        width=w,
-                                                        height=h,
-                                                        action_sel=_instr_sel,
-                                                    )
-                                                )
+                                            _run_preview_flow(
+                                                live,
+                                                console,
+                                                read_key,
+                                                _FRAME_TIME,
+                                                _supports_timeout,
+                                                _instr_text,
+                                                _ta_profile,
+                                                _ta_examples,
+                                                resume_state=_resume,
+                                            )
                                         break
                                     if _ta_export_sel == 0:
                                         # Export both HTML and MD

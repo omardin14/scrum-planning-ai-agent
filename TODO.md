@@ -1119,7 +1119,7 @@ _Bring Azure DevOps to full feature parity with Jira — read board/velocity, cr
 - [x] Phase D: Sample Tasks page — LLM generates sample tasks for the stories
 - [x] Phase E: Sample Sprint Plan page — LLM generates sprint plan using team velocity/capacity
 - [x] Phase F: Session persistence — save/resume analysis sessions, show as resumable items
-- [ ] Cumulative export — exporting at any stage includes all previous stages (HTML + MD)
+- [x] Cumulative export — exporting at any stage exports analysis profile (HTML + MD)
 
 ### 17b: Engineer assignment
 - [ ] Build per-developer profile from analysis (velocity, disciplines, specialisation, cycle time)
