@@ -1205,6 +1205,119 @@ def _worker_point_calibration(all_stories: list[dict], sprint_data: list[dict], 
     }
 
 
+def _fallback_point_descriptions(calibrations) -> dict[str, str]:
+    """Build deterministic point descriptions from raw metrics (no LLM)."""
+    result: dict[str, str] = {}
+    for cal in calibrations:
+        if cal.sample_count == 0:
+            continue
+        parts: list[str] = []
+        parts.append(f"~{cal.avg_cycle_time_days:.0f}d cycle time")
+        if cal.typical_task_count > 0:
+            parts.append(f"~{cal.typical_task_count:.0f} subtasks")
+        if cal.common_patterns:
+            names = ", ".join(p.split(" (")[0] for p in cal.common_patterns[:2])
+            parts.append(f"typically {names} work")
+        if cal.overshoot_pct > 30:
+            parts.append(f"overshoots {cal.overshoot_pct:.0f}% of time — consider splitting")
+        conf = "high" if cal.sample_count >= 15 else ("medium" if cal.sample_count >= 5 else "low")
+        parts.append(f"({conf} confidence, {cal.sample_count} samples)")
+        result[str(cal.point_value)] = ". ".join(parts).capitalize() + "."
+    return result
+
+
+def _generate_point_descriptions(
+    delivery_stories: list[dict],
+    calibrations,
+    discipline_calibration: dict,
+    spillover_correlation: dict,
+) -> dict[str, str]:
+    """Use LLM to generate natural-language descriptions of what each point value means.
+
+    Sends calibration metrics + actual story titles to the LLM and gets back
+    one concise sentence per point value describing typical scope and risk.
+    Falls back to deterministic descriptions on failure.
+    """
+    cals_with_data = [c for c in calibrations if c.sample_count > 0]
+    if not cals_with_data:
+        return {}
+
+    # Group story titles by point value (cap at 10 per value)
+    by_pts: dict[int, list[str]] = defaultdict(list)
+    for s in delivery_stories:
+        pts = int(_safe_float(s.get("points", 0)))
+        if pts in (1, 2, 3, 5, 8) and len(by_pts[pts]) < 10:
+            title = (s.get("summary", "") or "")[:80].strip()
+            if title:
+                by_pts[pts].append(title)
+
+    # Build per-point stats block
+    stats_lines: list[str] = []
+    for cal in cals_with_data:
+        conf = "high" if cal.sample_count >= 15 else ("medium" if cal.sample_count >= 5 else "low")
+        patterns = ", ".join(cal.common_patterns) if cal.common_patterns else "mixed"
+        stats_lines.append(
+            f"- {cal.point_value} pt: {cal.avg_cycle_time_days:.1f}d avg cycle, "
+            f"~{cal.typical_task_count:.0f} tasks, {cal.sample_count} samples, "
+            f"overshoots {cal.overshoot_pct:.0f}%, patterns: {patterns}, confidence: {conf}"
+        )
+
+    # Build discipline differences
+    disc_lines: list[str] = []
+    for disc, entries in discipline_calibration.items():
+        for e in entries:
+            disc_lines.append(f"- {disc} {e['points']}pt: {e['avg_cycle_days']}d cycle, {e['spill_pct']}% spill")
+
+    # Build story titles block
+    title_lines: list[str] = []
+    for pts in (1, 2, 3, 5, 8):
+        titles = by_pts.get(pts, [])
+        if titles:
+            title_lines.append(f"### {pts} pt ({len(titles)} stories):")
+            for t in titles:
+                title_lines.append(f'- "{t}"')
+
+    # Build spillover by size
+    spill_by_size = spillover_correlation.get("by_size", {})
+    spill_lines = [f"- {k}pt: {v}% spill" for k, v in sorted(spill_by_size.items())]
+
+    prompt = (
+        "Analyse these story point metrics and actual story titles from a team's sprint history.\n"
+        "For each point value, write ONE sentence (max 30 words) describing what this size means "
+        "in practice for THIS team.\n"
+        "Focus on: typical scope/complexity, risk level, and what distinguishes it from adjacent sizes.\n"
+        "Be specific and concrete — reference actual work types from the titles.\n\n"
+        "## Calibration data\n" + "\n".join(stats_lines) + "\n\n"
+    )
+    if disc_lines:
+        prompt += "## Discipline differences\n" + "\n".join(disc_lines[:15]) + "\n\n"
+    if spill_lines:
+        prompt += "## Spillover by size\n" + "\n".join(spill_lines) + "\n\n"
+    prompt += "## Story titles by point value\n" + "\n".join(title_lines) + "\n\n"
+    prompt += 'Return ONLY a JSON object: {"1": "description", "2": "description", ...}\n'
+    prompt += "Do not include point values that have no data."
+
+    try:
+        from langchain_core.messages import HumanMessage
+
+        from scrum_agent.agent.llm import get_llm
+
+        response = get_llm(temperature=0.0).invoke([HumanMessage(content=prompt)])
+        text = response.content if hasattr(response, "content") else str(response)
+        text = text.strip()
+        if text.startswith("```"):
+            text = re.sub(r"^```\w*\n?", "", text)
+            text = re.sub(r"\n?```$", "", text)
+        result = json.loads(text)
+        if isinstance(result, dict) and all(isinstance(v, str) for v in result.values()):
+            logger.info("LLM point descriptions generated for %d point values", len(result))
+            return result
+    except Exception as exc:
+        logger.warning("LLM point description generation failed: %s", exc)
+
+    return _fallback_point_descriptions(cals_with_data)
+
+
 def _worker_writing_patterns(all_stories: list[dict], progress: list[str]) -> WritingPatterns:
     """Worker 3: Work item shapes and writing pattern analysis."""
     progress.append("Computing velocity & spillover\u2026")
@@ -1597,6 +1710,14 @@ def _run_parallel_analysis(
         "by_task_count": dict(_spill_pcts(spill_by_tasks)),
     }
     examples["spillover_correlation"] = spillover_correlation  # type: ignore[assignment]
+
+    # LLM-generated point value descriptions
+    examples["point_descriptions"] = _generate_point_descriptions(  # type: ignore[assignment]
+        delivery_stories,
+        cal.get("calibrations", ()),
+        discipline_calibration,
+        spillover_correlation,
+    )
 
     # Velocity trend — simple linear regression over sprint velocities
     sprint_velocities = [sd.get("completed_points", 0.0) for sd in sprint_data if sd.get("completed_points", 0) > 0]
@@ -2560,6 +2681,21 @@ def generate_sample_stories(
     if median_ac:
         ac_info = f"Team averages {median_ac} acceptance criteria per story."
 
+    # Build DoD context from proposed_dod
+    dod_info = ""
+    proposed_dod = _ex.get("proposed_dod", {})
+    if isinstance(proposed_dod, dict):
+        dod_items = proposed_dod.get("items", [])
+        established = [it["practice"] for it in dod_items if isinstance(it, dict) and it.get("status") == "established"]
+        emerging = [it["practice"] for it in dod_items if isinstance(it, dict) and it.get("status") == "emerging"]
+        if established or emerging:
+            dod_parts = []
+            if established:
+                dod_parts.append("Established DoD practices: " + ", ".join(established))
+            if emerging:
+                dod_parts.append("Emerging DoD practices: " + ", ".join(emerging))
+            dod_info = "\n".join(dod_parts)
+
     prompt = f"""\
 Generate {n_stories} sample user stories for this epic, matching the team's conventions.
 
@@ -2568,6 +2704,7 @@ Generate {n_stories} sample user stories for this epic, matching the team's conv
 Epic: {epic_title}
 Description: {epic_desc}
 {ac_info}
+{dod_info}
 
 Return a JSON array where each story has:
 {{
@@ -2582,6 +2719,11 @@ Return a JSON array where each story has:
   "acceptance_criteria": [
     {{"given": "context", "when": "action", "then": "outcome"}}
   ],
+  "definition_of_done": [
+    "Code reviewed and approved",
+    "Unit tests passing",
+    "Deployed to staging"
+  ],
   "rationale": "Why this story structure matches the team's patterns"
 }}
 
@@ -2590,6 +2732,7 @@ Rules:
 - Discipline should match the team's common disciplines
 - ACs should use Given/When/Then if the team uses that format
 - Titles should match the team's naming conventions
+- definition_of_done MUST reflect the team's ACTUAL observed practices (established and emerging)
 - Return ONLY the JSON array"""
 
     try:
@@ -2621,6 +2764,7 @@ Rules:
             "priority": "high",
             "discipline": "infrastructure",
             "acceptance_criteria": [{"given": "system is running", "when": "action taken", "then": "expected result"}],
+            "definition_of_done": ["Code reviewed", "Tests passing", "Deployed to staging"],
             "rationale": "Fallback — LLM unavailable.",
         }
     ]

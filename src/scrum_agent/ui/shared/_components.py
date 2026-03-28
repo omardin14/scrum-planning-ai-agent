@@ -47,7 +47,7 @@ def planning_title() -> Text:
     # inline in 4+ functions and as _planning_title() in session/_screens.py.
     """
     ascii_lines = render_ascii_text("Planning")
-    base_r, base_g, base_b = COLOR_RGB.get("rgb(70,100,180)", (70, 100, 180))
+    base_r, base_g, base_b = COLOR_RGB.get("rgb(110,140,220)", (110, 140, 220))
     title_style = f"bold rgb({base_r},{base_g},{base_b})"
     title = Text(justify="left")
     title.append(PAD + ascii_lines[0] + "\n", style=title_style)

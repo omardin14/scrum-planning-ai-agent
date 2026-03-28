@@ -375,3 +375,155 @@ class TestComparePlanToActuals:
         result = compare_plan_to_actuals.invoke({"session_id": "test-123"})
         data = json.loads(result)
         assert "error" in data
+
+
+# ---------------------------------------------------------------------------
+# Point description generation
+# ---------------------------------------------------------------------------
+
+
+class TestGeneratePointDescriptions:
+    def _make_calibrations(self):
+        from scrum_agent.team_profile import StoryPointCalibration
+
+        return (
+            StoryPointCalibration(
+                point_value=1,
+                avg_cycle_time_days=0.5,
+                sample_count=10,
+                common_patterns=("config change",),
+                typical_task_count=1.0,
+                overshoot_pct=5.0,
+            ),
+            StoryPointCalibration(
+                point_value=3,
+                avg_cycle_time_days=3.0,
+                sample_count=20,
+                common_patterns=("create/build (40%)", "fix/resolve (30%)"),
+                typical_task_count=3.0,
+                overshoot_pct=25.0,
+            ),
+            StoryPointCalibration(
+                point_value=5,
+                avg_cycle_time_days=7.0,
+                sample_count=6,
+                common_patterns=("create/build (50%)",),
+                typical_task_count=8.0,
+                overshoot_pct=60.0,
+            ),
+        )
+
+    def _make_stories(self):
+        return [
+            {"points": 1, "summary": "Update staging config"},
+            {"points": 1, "summary": "Fix typo in error page"},
+            {"points": 3, "summary": "Build notification endpoint"},
+            {"points": 3, "summary": "Create user settings page"},
+            {"points": 5, "summary": "Rebuild central region failover"},
+            {"points": 5, "summary": "Migrate database to new cluster"},
+        ]
+
+    @patch("scrum_agent.agent.llm.get_llm")
+    def test_successful_generation(self, mock_get_llm):
+        from scrum_agent.tools.team_learning import _generate_point_descriptions
+
+        result_json = json.dumps(
+            {
+                "1": "Quick config changes completed in under a day.",
+                "3": "Standard feature work spanning 3 days with 3 subtasks.",
+                "5": "Complex multi-component work with high spill risk.",
+            }
+        )
+        mock_get_llm.return_value.invoke.return_value = SimpleNamespace(content=result_json)
+
+        result = _generate_point_descriptions(
+            self._make_stories(),
+            self._make_calibrations(),
+            {},
+            {},
+        )
+        assert isinstance(result, dict)
+        assert "1" in result
+        assert "3" in result
+        assert "5" in result
+        assert "config" in result["1"].lower() or "day" in result["1"].lower()
+
+    @patch("scrum_agent.agent.llm.get_llm")
+    def test_fallback_on_error(self, mock_get_llm):
+        from scrum_agent.tools.team_learning import _generate_point_descriptions
+
+        mock_get_llm.return_value.invoke.side_effect = RuntimeError("API error")
+
+        result = _generate_point_descriptions(
+            self._make_stories(),
+            self._make_calibrations(),
+            {},
+            {},
+        )
+        assert isinstance(result, dict)
+        assert len(result) >= 1
+        # Fallback should still produce descriptions
+        assert "1" in result
+
+    def test_empty_calibrations(self):
+        from scrum_agent.tools.team_learning import _generate_point_descriptions
+
+        result = _generate_point_descriptions([], (), {}, {})
+        assert result == {}
+
+    @patch("scrum_agent.agent.llm.get_llm")
+    def test_json_with_code_fences(self, mock_get_llm):
+        from scrum_agent.tools.team_learning import _generate_point_descriptions
+
+        result_json = '```json\n{"3": "Standard feature work."}\n```'
+        mock_get_llm.return_value.invoke.return_value = SimpleNamespace(content=result_json)
+
+        result = _generate_point_descriptions(
+            self._make_stories(),
+            self._make_calibrations(),
+            {},
+            {},
+        )
+        assert isinstance(result, dict)
+        assert "3" in result
+
+
+class TestFallbackPointDescriptions:
+    def test_produces_descriptions(self):
+        from scrum_agent.team_profile import StoryPointCalibration
+        from scrum_agent.tools.team_learning import _fallback_point_descriptions
+
+        cals = (
+            StoryPointCalibration(
+                point_value=3,
+                avg_cycle_time_days=3.0,
+                sample_count=20,
+                common_patterns=("create/build (40%)",),
+                typical_task_count=3.0,
+                overshoot_pct=10.0,
+            ),
+        )
+        result = _fallback_point_descriptions(cals)
+        assert "3" in result
+        assert "cycle time" in result["3"].lower() or "3d" in result["3"].lower()
+
+    def test_high_overshoot_warning(self):
+        from scrum_agent.team_profile import StoryPointCalibration
+        from scrum_agent.tools.team_learning import _fallback_point_descriptions
+
+        cals = (
+            StoryPointCalibration(
+                point_value=5,
+                avg_cycle_time_days=7.0,
+                sample_count=6,
+                typical_task_count=8.0,
+                overshoot_pct=60.0,
+            ),
+        )
+        result = _fallback_point_descriptions(cals)
+        assert "splitting" in result["5"].lower() or "overshoots" in result["5"].lower()
+
+    def test_empty_calibrations(self):
+        from scrum_agent.tools.team_learning import _fallback_point_descriptions
+
+        assert _fallback_point_descriptions(()) == {}

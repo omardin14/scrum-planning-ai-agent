@@ -155,6 +155,303 @@ def _run_preview_flow(
 
     _rk = lambda: read_key(timeout=frame_time) if supports_timeout else read_key()  # noqa: E731
 
+    # ── Inline editor helpers for dict-based artifacts ────────────
+    def _dict_editable_start(line: str) -> int | None:
+        """Return column where editable value starts, or None if non-editable."""
+        stripped = line.strip()
+        if not stripped:
+            return None
+        if stripped.startswith("\u2500\u2500") and stripped.endswith("\u2500\u2500"):
+            return None
+        import re as _re
+
+        m = _re.match(r"^[A-Za-z][A-Za-z /]+:\s*", line)
+        if m:
+            return m.end()
+        return None  # non-label lines are not editable
+
+    def _edit_dict_artifact(artifact: dict, fields: list[str], label: str) -> dict | None:
+        """Open inline editor for a dict artifact. Returns edited dict or None on cancel."""
+        from scrum_agent.ui.session.editor._editor_core import edit_buffer_loop, render_editor_panel
+        from scrum_agent.ui.shared._components import analysis_title as _a_title
+
+        # Serialize to text
+        w = max(len(f) for f in fields) + 2
+        buf_lines: list[str] = []
+        for f in fields:
+            display_label = f.replace("_", " ").title()
+            val = artifact.get(f, "")
+            if isinstance(val, list):
+                val = ", ".join(str(v) for v in val)
+            buf_lines.append(f"{display_label + ':':<{w}}{val}")
+            buf_lines.append("")
+
+        buffer = buf_lines
+        cr, cc = 0, len(buffer[0].split(":")[0]) + 2 if buffer else 0
+        # Find first editable position
+        for i, ln in enumerate(buffer):
+            col = _dict_editable_start(ln)
+            if col is not None:
+                cr, cc = i, col
+                break
+        _atitle = _a_title()
+
+        def _render(buf, _cr, _cc, so, rw, rh):
+            return render_editor_panel(
+                buf,
+                _cr,
+                _cc,
+                so,
+                width=rw,
+                height=rh,
+                editor_label=label,
+                title_override=_atitle,
+            )
+
+        result = edit_buffer_loop(
+            live,
+            console,
+            buffer,
+            cr,
+            cc,
+            _rk,
+            editable_start_fn=_dict_editable_start,
+            render_fn=_render,
+        )
+        if result is None:
+            return None
+
+        # Parse back: extract "Label: value" pairs
+        import re as _re
+
+        edited = dict(artifact)  # shallow copy
+        for line in result:
+            m = _re.match(r"^([A-Za-z][A-Za-z /]+):\s*(.*)", line)
+            if m:
+                key_display = m.group(1).strip()
+                value = m.group(2).strip()
+                # Map display label back to dict key
+                key = key_display.lower().replace(" ", "_")
+                if key in artifact:
+                    orig = artifact[key]
+                    if isinstance(orig, int):
+                        try:
+                            value = int(value)
+                        except ValueError:
+                            continue
+                    elif isinstance(orig, list):
+                        value = [v.strip() for v in value.split(",") if v.strip()]
+                    edited[key] = value
+        return edited
+
+    def _edit_story_dict(story: dict) -> dict | None:
+        """Edit a single story dict using the planning mode story editor."""
+        from scrum_agent.agent.state import (
+            AcceptanceCriterion,
+            Discipline,
+            Priority,
+            StoryPointValue,
+            UserStory,
+        )
+        from scrum_agent.ui.session.editor._editor import edit_story
+
+        # Convert dict → UserStory
+        acs = tuple(
+            AcceptanceCriterion(given=ac.get("given", ""), when=ac.get("when", ""), then=ac.get("then", ""))
+            for ac in story.get("acceptance_criteria", [])
+            if isinstance(ac, dict)
+        )
+        pts_raw = story.get("story_points", 3)
+        pts_val = pts_raw if pts_raw in (1, 2, 3, 5, 8) else 3
+        pri_str = story.get("priority", "medium").lower()
+        pri = Priority(pri_str) if pri_str in ("critical", "high", "medium", "low") else Priority.MEDIUM
+        disc_str = story.get("discipline", "fullstack").lower()
+        try:
+            disc = Discipline(disc_str)
+        except ValueError:
+            disc = Discipline.FULLSTACK
+
+        user_story = UserStory(
+            id=story.get("id", "S1"),
+            feature_id="F1",
+            persona=story.get("persona", "user"),
+            goal=story.get("goal", ""),
+            benefit=story.get("benefit", ""),
+            acceptance_criteria=acs,
+            story_points=StoryPointValue(pts_val),
+            priority=pri,
+            title=story.get("title", ""),
+            discipline=disc,
+            points_rationale=story.get("rationale", ""),
+        )
+
+        w, h = console.size
+        edited = edit_story(live, console, user_story, _rk, width=w, height=h)
+        if edited is None:
+            return None
+
+        # Convert UserStory → dict (preserving extra keys from original)
+        result = dict(story)
+        result["title"] = edited.title
+        result["persona"] = edited.persona
+        result["goal"] = edited.goal
+        result["benefit"] = edited.benefit
+        result["story_points"] = int(edited.story_points)
+        result["priority"] = edited.priority.value
+        result["discipline"] = edited.discipline.value
+        result["acceptance_criteria"] = [
+            {"given": ac.given, "when": ac.when, "then": ac.then} for ac in edited.acceptance_criteria
+        ]
+        result["rationale"] = edited.points_rationale
+        return result
+
+    def _edit_task_dict(tasks_for_story: list[dict], story_id: str) -> list[dict] | None:
+        """Edit tasks for a story using the planning mode task editor (with ANALYSIS title)."""
+        from scrum_agent.agent.state import Task
+        from scrum_agent.ui.session.editor._editor_artifacts import _find_first_editable, _task_editable_start
+        from scrum_agent.ui.session.editor._editor_core import edit_buffer_loop, render_editor_panel
+        from scrum_agent.ui.shared._components import analysis_title as _a_title
+
+        task_objs = [
+            Task(
+                id=t.get("id", f"T-{story_id}-{i:02d}"),
+                story_id=t.get("story_id", story_id),
+                title=t.get("title", ""),
+                description=t.get("description", ""),
+                label=t.get("label", "Code"),
+                test_plan=t.get("test_plan", ""),
+            )
+            for i, t in enumerate(tasks_for_story, 1)
+        ]
+        from scrum_agent.ui.session.editor._editor_artifacts import _parse_edited_tasks, _tasks_to_text
+
+        text = _tasks_to_text(task_objs)
+        buffer = text.split("\n")
+        cr, cc = _find_first_editable(buffer, _task_editable_start)
+        _atitle = _a_title()
+
+        def _render(buf, _cr, _cc, so, rw, rh):
+            return render_editor_panel(
+                buf,
+                _cr,
+                _cc,
+                so,
+                width=rw,
+                height=rh,
+                editor_label=f"tasks for {story_id}",
+                title_override=_atitle,
+            )
+
+        result = edit_buffer_loop(
+            live,
+            console,
+            buffer,
+            cr,
+            cc,
+            _rk,
+            editable_start_fn=_task_editable_start,
+            render_fn=_render,
+        )
+        if result is None:
+            return None
+        edited_objs = _parse_edited_tasks("\n".join(result), task_objs)
+        return [
+            {**orig, "title": et.title, "description": et.description} for orig, et in zip(tasks_for_story, edited_objs)
+        ]
+
+    def _edit_epic_dict(epic: dict) -> dict | None:
+        """Edit an epic dict using the planning mode feature editor (with ANALYSIS title)."""
+        from scrum_agent.agent.state import Feature, Priority
+        from scrum_agent.ui.session.editor._editor_artifacts import (
+            _feature_editable_start,
+            _features_to_text,
+            _find_first_editable,
+            _parse_edited_features,
+        )
+        from scrum_agent.ui.session.editor._editor_core import edit_buffer_loop, render_editor_panel
+        from scrum_agent.ui.shared._components import analysis_title as _a_title
+
+        pri_str = epic.get("priority", "high").lower()
+        pri = Priority(pri_str) if pri_str in ("critical", "high", "medium", "low") else Priority.HIGH
+        feature = Feature(
+            id="F1",
+            title=epic.get("title", ""),
+            description=epic.get("description", ""),
+            priority=pri,
+        )
+        text = _features_to_text([feature])
+        buffer = text.split("\n")
+        cr, cc = _find_first_editable(buffer, _feature_editable_start)
+        _atitle = _a_title()
+
+        def _render(buf, _cr, _cc, so, rw, rh):
+            return render_editor_panel(
+                buf,
+                _cr,
+                _cc,
+                so,
+                width=rw,
+                height=rh,
+                editor_label="epic",
+                title_override=_atitle,
+            )
+
+        result = edit_buffer_loop(
+            live,
+            console,
+            buffer,
+            cr,
+            cc,
+            _rk,
+            editable_start_fn=_feature_editable_start,
+            render_fn=_render,
+        )
+        if result is None:
+            return None
+        edited_list = _parse_edited_features("\n".join(result), [feature])
+        edited = edited_list[0]
+        result_dict = dict(epic)
+        result_dict["title"] = edited.title
+        result_dict["description"] = edited.description
+        result_dict["priority"] = edited.priority.value
+        return result_dict
+
+    def _regenerate(fn, label: str):
+        """Run an LLM generation function in a background thread with animation."""
+        import threading
+
+        result_box: list = [None, None]
+
+        def _worker():
+            try:
+                result_box[0] = fn()
+            except Exception as exc:
+                result_box[1] = exc
+
+        thread = threading.Thread(target=_worker, daemon=True)
+        thread.start()
+        start = time.monotonic()
+        while thread.is_alive():
+            elapsed = time.monotonic() - start
+            w, h = console.size
+            live.update(
+                _build_analysis_progress_screen(
+                    [f"Regenerating {label}\u2026"],
+                    width=w,
+                    height=h,
+                    elapsed=elapsed,
+                    anim_tick=elapsed,
+                    source="",
+                    mode="analysis",
+                )
+            )
+            time.sleep(1 / 30)
+        thread.join()
+        if result_box[1] is not None:
+            logger.warning("Regeneration failed: %s", result_box[1])
+            return None
+        return result_box[0]
+
     _flow_start = time.monotonic()
     last_page = (resume_state or {}).get("last_page", "")
     logger.info(
@@ -171,19 +468,21 @@ def _run_preview_flow(
             export_team_profile_md,
         )
 
-        export_team_profile_html(ta_profile, examples=ta_examples)
-        ep = export_team_profile_md(ta_profile, examples=ta_examples)
+        html_path = export_team_profile_html(ta_profile, examples=ta_examples)
+        md_path = export_team_profile_md(ta_profile, examples=ta_examples)
         w, h = console.size
         from scrum_agent.ui.mode_select.screens._screens_secondary import (
             _build_project_export_success_screen,
         )
 
+        paths = f"HTML  {html_path}\nMD    {md_path}"
         live.update(
             _build_project_export_success_screen(
-                str(ep),
+                paths,
                 width=w,
                 height=h,
                 subtitle="Exported (HTML + MD)",
+                mode="analysis",
             )
         )
         import time as _t
@@ -220,35 +519,43 @@ def _run_preview_flow(
                     _save_ana({"instructions": _instr, "last_page": "instructions"}, "instructions")
                     break  # → epic
                 elif sel == 1:
-                    # Edit
+                    # Edit — inline buffer editor (matches planning mode)
                     logger.info("Preview: user editing instructions")
-                    live.stop()
-                    console.print("\n[bold green]Edit instructions[/] [dim](type changes):[/dim]\n")
-                    try:
-                        fb = console.input("[green]> [/green]")
-                    except (EOFError, KeyboardInterrupt):
-                        fb = ""
-                    live.start()
-                    if fb.strip():
-                        try:
-                            from langchain_core.messages import HumanMessage
+                    from scrum_agent.ui.session.editor._editor_core import edit_buffer_loop, render_editor_panel
+                    from scrum_agent.ui.shared._components import analysis_title as _a_title
 
-                            from scrum_agent.agent.llm import get_llm
+                    _buf = _instr.split("\n")
+                    _cr, _cc = 0, 0
+                    _atitle = _a_title()
 
-                            _prompt = (
-                                f"Current instructions:\n\n{_instr}\n\n"
-                                f"User changes:\n{fb}\n\n"
-                                "Return FULL updated instructions."
-                            )
-                            r = get_llm(temperature=0.0).invoke([HumanMessage(content=_prompt)])
-                            _new = getattr(r, "content", str(r))
-                            if _new.strip():
-                                _instr = _new.strip()
-                        except Exception:
-                            pass
+                    def _instr_render(buf, cr, cc, so, rw, rh):
+                        return render_editor_panel(
+                            buf,
+                            cr,
+                            cc,
+                            so,
+                            width=rw,
+                            height=rh,
+                            editor_label="instructions",
+                            title_override=_atitle,
+                        )
+
+                    _edited = edit_buffer_loop(
+                        live,
+                        console,
+                        _buf,
+                        _cr,
+                        _cc,
+                        _rk,
+                        editable_start_fn=lambda line: 0,
+                        render_fn=_instr_render,
+                    )
+                    if _edited is not None:
+                        _instr = "\n".join(_edited)
                 elif sel == 2:
                     _do_export()
             elif k in ("esc", "q"):
+                _save_ana({"instructions": _instr, "last_page": "instructions"}, "instructions")
                 return
             w, h = console.size
             live.update(
@@ -277,7 +584,9 @@ def _run_preview_flow(
             )
         )
         logger.info("Preview: generating sample epic via LLM")
-        _epic = generate_sample_epic(_instr, ta_examples)
+        result = _regenerate(lambda: generate_sample_epic(_instr, ta_examples), "epic")
+        if result is not None:
+            _epic = result
         logger.info("Preview: sample epic generated: %s", _epic.get("title", "?"))
 
     if last_page not in ("stories", "tasks", "sprint"):
@@ -296,11 +605,19 @@ def _run_preview_flow(
                 if sel == 0:
                     _save_ana({"instructions": _instr, "sample_epic": _epic, "last_page": "epic"}, "epic")
                     break  # → stories
+                elif sel == 1:
+                    logger.info("Preview: user editing epic")
+                    edited = _edit_epic_dict(_epic)
+                    if edited is not None:
+                        _epic = edited
                 elif sel == 2:
-                    _epic = generate_sample_epic(_instr, ta_examples)
+                    result = _regenerate(lambda: generate_sample_epic(_instr, ta_examples), "epic")
+                    if result is not None:
+                        _epic = result
                 elif sel == 3:
                     _do_export()
             elif k in ("esc", "q"):
+                _save_ana({"instructions": _instr, "sample_epic": _epic, "last_page": "epic"}, "epic")
                 return
             w, h = console.size
             live.update(
@@ -330,7 +647,9 @@ def _run_preview_flow(
             )
         )
         logger.info("Preview: generating sample stories via LLM")
-        _stories = generate_sample_stories(_instr, _epic, ta_examples)
+        result = _regenerate(lambda: generate_sample_stories(_instr, _epic, ta_examples), "stories")
+        if result is not None:
+            _stories = result
         logger.info("Preview: %d sample stories generated", len(_stories))
 
     if last_page not in ("tasks", "sprint"):
@@ -355,11 +674,25 @@ def _run_preview_flow(
                     }  # noqa: E501
                     _save_ana(_st, "stories")
                     break  # → tasks
+                elif sel == 1:
+                    logger.info("Preview: user editing stories")
+                    for si, _s in enumerate(_stories):
+                        edited = _edit_story_dict(_s)
+                        if edited is not None:
+                            _stories[si] = edited
+                        else:
+                            break  # Esc cancels remaining edits
                 elif sel == 2:
-                    _stories = generate_sample_stories(_instr, _epic, ta_examples)
+                    result = _regenerate(lambda: generate_sample_stories(_instr, _epic, ta_examples), "stories")
+                    if result is not None:
+                        _stories = result
                 elif sel == 3:
                     _do_export()
             elif k in ("esc", "q"):
+                _save_ana(
+                    {"instructions": _instr, "sample_epic": _epic, "sample_stories": _stories, "last_page": "stories"},
+                    "stories",
+                )
                 return
             w, h = console.size
             live.update(
@@ -370,6 +703,7 @@ def _run_preview_flow(
                     height=h,
                     action_sel=sel,
                     epic_title=_epic.get("title", ""),
+                    examples=ta_examples,
                 )
             )
 
@@ -389,7 +723,9 @@ def _run_preview_flow(
             )
         )
         logger.info("Preview: generating sample tasks via LLM")
-        _tasks = generate_sample_tasks(_instr, _stories, ta_examples)
+        result = _regenerate(lambda: generate_sample_tasks(_instr, _stories, ta_examples), "tasks")
+        if result is not None:
+            _tasks = result
         logger.info("Preview: %d sample tasks generated", len(_tasks))
 
     if last_page != "sprint":
@@ -415,11 +751,39 @@ def _run_preview_flow(
                     }  # noqa: E501
                     _save_ana(_st, "tasks")
                     break  # → sprint
+                elif sel == 1:
+                    logger.info("Preview: user editing tasks")
+                    # Group tasks by story and edit each group
+                    _by_story: dict[str, list[tuple[int, dict]]] = {}
+                    for ti, _t in enumerate(_tasks):
+                        sid = _t.get("story_id", "?")
+                        _by_story.setdefault(sid, []).append((ti, _t))
+                    _cancelled = False
+                    for sid, group in _by_story.items():
+                        group_tasks = [t for _, t in group]
+                        edited_group = _edit_task_dict(group_tasks, sid)
+                        if edited_group is None:
+                            _cancelled = True
+                            break
+                        for (ti, _), et in zip(group, edited_group):
+                            _tasks[ti] = et
                 elif sel == 2:
-                    _tasks = generate_sample_tasks(_instr, _stories, ta_examples)
+                    result = _regenerate(lambda: generate_sample_tasks(_instr, _stories, ta_examples), "tasks")
+                    if result is not None:
+                        _tasks = result
                 elif sel == 3:
                     _do_export()
             elif k in ("esc", "q"):
+                _save_ana(
+                    {
+                        "instructions": _instr,
+                        "sample_epic": _epic,
+                        "sample_stories": _stories,
+                        "sample_tasks": _tasks,
+                        "last_page": "tasks",
+                    },
+                    "tasks",
+                )
                 return
             w, h = console.size
             live.update(
@@ -448,6 +812,8 @@ def _run_preview_flow(
         _tasks,
         ta_examples,
     )
+    # Clear session so next run starts fresh (not resuming from sprint)
+    _save_ana({"last_page": ""}, "done")
     logger.info(
         "Preview flow completed in %.1fs",
         time.monotonic() - _flow_start,
@@ -467,30 +833,56 @@ def _run_sprint_review(
 ):
     """Run the sample sprint review loop (extracted to reduce nesting depth)."""
     logger.info("Sprint review: generating sample sprint via LLM")
+    import threading as _threading
+
     from scrum_agent.tools.team_learning import generate_sample_sprint
     from scrum_agent.ui.mode_select.screens._screens_secondary import (
         _build_analysis_progress_screen,
         _build_sample_sprint_screen,
     )
 
-    w, h = console.size
-    live.update(
-        _build_analysis_progress_screen(
-            ["Generating sprint plan\u2026"],
-            width=w,
-            height=h,
-            elapsed=0,
-            anim_tick=0,
-            source="",
-            mode="analysis",
-        )
-    )
-    sprint = generate_sample_sprint(
-        instr_text,
-        sample_stories,
-        sample_tasks,
-        ta_examples,
-    )
+    def _regen_sprint():
+        result_box: list = [None, None]
+
+        def _worker():
+            try:
+                result_box[0] = generate_sample_sprint(instr_text, sample_stories, sample_tasks, ta_examples)
+            except Exception as exc:
+                result_box[1] = exc
+
+        thread = _threading.Thread(target=_worker, daemon=True)
+        thread.start()
+        start = time.monotonic()
+        while thread.is_alive():
+            elapsed = time.monotonic() - start
+            w, h = console.size
+            live.update(
+                _build_analysis_progress_screen(
+                    ["Regenerating sprint\u2026"],
+                    width=w,
+                    height=h,
+                    elapsed=elapsed,
+                    anim_tick=elapsed,
+                    source="",
+                    mode="analysis",
+                )
+            )
+            time.sleep(1 / 30)
+        thread.join()
+        if result_box[1] is not None:
+            logger.warning("Sprint regeneration failed: %s", result_box[1])
+            return None
+        return result_box[0]
+
+    sprint = _regen_sprint() or {
+        "sprint_name": "Sprint 1",
+        "velocity_target": 20,
+        "stories_included": [s.get("id", "") for s in sample_stories],
+        "total_points": sum(s.get("story_points", 0) for s in sample_stories),
+        "capacity_notes": "Fallback — generation failed.",
+        "risks": [],
+        "rationale": "Fallback sprint plan.",
+    }
     scroll = 0
     sel = 0
     while True:
@@ -507,12 +899,9 @@ def _run_sprint_review(
             if sel == 0:
                 break  # Done
             elif sel == 1:
-                sprint = generate_sample_sprint(
-                    instr_text,
-                    sample_stories,
-                    sample_tasks,
-                    ta_examples,
-                )
+                result = _regen_sprint()
+                if result is not None:
+                    sprint = result
             elif sel == 2:
                 pass  # Export (handled at report level)
         elif k in ("esc", "q"):
@@ -1023,9 +1412,6 @@ def select_mode(
                                                     _full,
                                                     examples=_stored_ex,
                                                 )
-                                                _si_resume = _load_ana_session(
-                                                    _full.project_key if _full else "",
-                                                )
                                                 if _si_text.strip():
                                                     _run_preview_flow(
                                                         live,
@@ -1036,7 +1422,6 @@ def select_mode(
                                                         _si_text,
                                                         _full,
                                                         _stored_ex,
-                                                        resume_state=_si_resume,
                                                     )
                                                 break
                                             if _esel == 0:
@@ -1439,10 +1824,6 @@ def select_mode(
                                             _ta_profile,
                                             examples=_ta_examples,
                                         )
-                                        # Check for resumable session
-                                        _resume = _load_ana_session(
-                                            _ta_profile.project_key if _ta_profile else "",
-                                        )
                                         if _instr_text.strip():
                                             _run_preview_flow(
                                                 live,
@@ -1453,7 +1834,6 @@ def select_mode(
                                                 _instr_text,
                                                 _ta_profile,
                                                 _ta_examples,
-                                                resume_state=_resume,
                                             )
                                         break
                                     if _ta_export_sel == 0:

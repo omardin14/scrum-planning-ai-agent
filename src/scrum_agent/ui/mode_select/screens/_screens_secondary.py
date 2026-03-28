@@ -67,21 +67,51 @@ def _build_analysis_review_screen(
 
     sub = Text(_PAD + subtitle, style="dim", justify="left")
 
-    # ── Viewport + Scrollbar
+    # ── Viewport + Scrollbar (height-aware to handle line wrapping)
     inner_h = height - 4  # panel border + padding
-    header_h = 6  # blank + title(2) + blank + progress + sub
+    header_h = 7  # blank + title(2) + blank + progress + sub + blank
     action_h = 4  # blank + 3 button lines
     viewport_h = max(3, inner_h - header_h - action_h)
-    total_lines = len(body_lines)
-    max_scroll = max(0, total_lines - viewport_h)
+
+    # Estimate rendered height per line (long lines wrap in the terminal)
+    # Content width = panel width - border(2) - padding(4) - scrollbar(1)
+    _content_w = max(20, width - 7)
+    _item_heights: list[int] = []
+    _total_rendered = 0
+    for bl in body_lines:
+        plain = bl.plain if hasattr(bl, "plain") else str(bl)
+        h = max(1, -(-len(plain) // _content_w))  # ceiling division
+        _item_heights.append(h)
+        _total_rendered += h
+
+    max_scroll = max(0, len(body_lines) - 1)
+    # Clamp: find the last valid scroll_offset where content fills viewport
+    # Walk backwards to find the true max_scroll (item index)
+    _acc = 0
+    for _ms in range(len(body_lines) - 1, -1, -1):
+        _acc += _item_heights[_ms]
+        if _acc >= viewport_h:
+            max_scroll = _ms
+            break
+    else:
+        max_scroll = 0
     actual_scroll = min(scroll_offset, max_scroll)
-    visible = body_lines[actual_scroll : actual_scroll + viewport_h]
+
+    # Collect visible items that fit within viewport_h rendered rows
+    visible: list = []
+    _vis_h = 0
+    for i in range(actual_scroll, len(body_lines)):
+        ih = _item_heights[i]
+        if _vis_h + ih > viewport_h:
+            break
+        visible.append(body_lines[i])
+        _vis_h += ih
 
     # Build scrollbar column text
-    _show_sb = total_lines > viewport_h
+    _show_sb = _total_rendered > viewport_h
     _sb_text = Text(justify="left")
     if _show_sb:
-        thumb_size = max(1, round(viewport_h * viewport_h / max(total_lines, 1)))
+        thumb_size = max(1, round(viewport_h * viewport_h / max(_total_rendered, 1)))
         thumb_pos = round(actual_scroll / max(max_scroll, 1) * (viewport_h - thumb_size)) if max_scroll > 0 else 0
         for i in range(viewport_h):
             is_thumb = thumb_pos <= i < thumb_pos + thumb_size
@@ -90,11 +120,10 @@ def _build_analysis_review_screen(
             else:
                 _sb_text.append("\u2502\n", style="rgb(40,40,50)")
 
-    # Build visible content
+    # Build visible content with padding to fill viewport
     padded_lines: list = list(visible)
-
-    # Fill remaining viewport
-    for _i in range(len(visible), viewport_h):
+    remaining_h = max(0, viewport_h - _vis_h)
+    for _i in range(remaining_h):
         padded_lines.append(Text(""))
 
     # ── Action buttons (matching planning mode exactly)
@@ -916,6 +945,15 @@ def _build_team_analysis_screen(
             elif conf == "low":
                 h.append("  \u00b7  low confidence", style=c_warn)
             _add(h)
+
+            # LLM-generated description — what this point value means in practice
+            _pt_descs = _ex.get("point_descriptions", {})
+            _pt_desc = _pt_descs.get(str(cal.point_value), "") if isinstance(_pt_descs, dict) else ""
+            if _pt_desc:
+                d = Text(_PAD + "    ", justify="left")
+                d.append("\u2192 ", style="rgb(100,180,100)")
+                d.append(str(_pt_desc), style="rgb(180,220,180)")
+                _add(d)
 
             # Common patterns — what kind of work this point value represents
             if cal.common_patterns:
@@ -1893,14 +1931,46 @@ def _build_team_analysis_screen(
 
     remaining = max(0, body_h - _vis_h)
 
+    # Build scrollbar
+    _show_sb = _rendered_lines > body_h
+    _sb_text = Text(justify="left")
+    if _show_sb:
+        thumb_size = max(1, round(body_h * body_h / max(_rendered_lines, 1)))
+        thumb_pos = round(actual_scroll / max(max_scroll, 1) * (body_h - thumb_size)) if max_scroll > 0 else 0
+        for i in range(body_h):
+            is_thumb = thumb_pos <= i < thumb_pos + thumb_size
+            if is_thumb:
+                _sb_text.append("\u2503\n", style="rgb(100,100,120)")
+            else:
+                _sb_text.append("\u2502\n", style="rgb(40,40,50)")
+
+    # Build viewport with optional scrollbar
+    _body_group = Group(*_vis_items, *[Text("") for _ in range(remaining)])
+    if _show_sb:
+        from rich.table import Table as _SbTable
+
+        _vp_table = _SbTable(
+            show_header=False,
+            show_edge=False,
+            box=None,
+            padding=0,
+            pad_edge=False,
+            expand=True,
+        )
+        _vp_table.add_column(ratio=1)  # content
+        _vp_table.add_column(width=1)  # scrollbar
+        _vp_table.add_row(_body_group, _sb_text)
+        viewport_renderable = _vp_table
+    else:
+        viewport_renderable = _body_group
+
     content = Group(
         Text(""),
         title,
         Text(""),
         sub,
         Text(""),
-        *_vis_items,
-        *[Text("") for _ in range(remaining)],
+        viewport_renderable,
         Text(""),
         btn_top,
         btn_mid,
@@ -1927,56 +1997,135 @@ def _build_instructions_review_screen(
     editing: bool = False,
 ) -> Panel:
     """Build the planning instructions review screen using shared layout."""
+    import re as _re
+
     c_section = "bold #22c55e"
+    c_subsection = "bold rgb(180,200,220)"
     c_label = "bold white"
+    c_value = "rgb(180,180,200)"
     c_muted = "rgb(120,120,140)"
-    c_standalone = "rgb(220,180,60)"
+    c_accent = "rgb(100,180,100)"
+    c_warn = "rgb(220,180,60)"
     c_arrow = "rgb(100,180,220)"
+    c_sep = "rgb(50,60,80)"
+    c_dim = "rgb(80,80,100)"
 
     body_lines: list = []
-    item_num = 0
+    wrap_w = max(40, width - len(_PAD) - 14)
+
+    def _wrap_append(text: str, style: str, indent: str = "    ") -> None:
+        """Word-wrap text into body_lines."""
+        # Strip markdown bold markers for display
+        text = _re.sub(r"\*\*([^*]+)\*\*", r"\1", text)
+        words = text.split()
+        buf = ""
+        for word in words:
+            if buf and len(buf) + len(word) + 1 > wrap_w:
+                body_lines.append(Text(_PAD + indent + buf, style=style, justify="left"))
+                buf = word
+            else:
+                buf = (buf + " " + word).strip()
+        if buf:
+            body_lines.append(Text(_PAD + indent + buf, style=style, justify="left"))
+
+    def _styled_bullet(text: str) -> None:
+        """Parse a markdown bullet line into styled Rich Text."""
+        # Strip leading "- "
+        text = text.strip()
+        if text.startswith("- "):
+            text = text[2:].strip()
+
+        # Strip markdown bold from entire text for processing
+        clean = _re.sub(r"\*\*([^*]+)\*\*", r"\1", text)
+
+        # Pattern: "**N pt**: description" — point calibration
+        pt_match = _re.match(r"(\d+)\s*pt\b[s]?[*]*:\s*(.*)", clean)
+        if pt_match:
+            pts, desc = pt_match.group(1), pt_match.group(2)
+            row = Text(_PAD + "    ", justify="left")
+            row.append(f"{pts} pt", style=f"bold {c_accent}")
+            row.append("  ", style=c_dim)
+            # Wrap long descriptions
+            if len(desc) > wrap_w - 10:
+                row.append(desc[: wrap_w - 10], style=c_value)
+                body_lines.append(row)
+                _wrap_append(desc[wrap_w - 10 :], c_value, indent="          ")
+            else:
+                row.append(desc, style=c_value)
+                body_lines.append(row)
+            return
+
+        # Pattern: "**label** stories: stats" — discipline shape
+        disc_match = _re.match(r"(\w[\w\-]*)\s+stories:\s*(.*)", clean)
+        if disc_match:
+            disc, stats = disc_match.group(1), disc_match.group(2)
+            row = Text(_PAD + "    ", justify="left")
+            row.append(f"{disc:<16s}", style=c_label)
+            row.append(stats, style=c_muted)
+            body_lines.append(row)
+            return
+
+        # Pattern: "label — value" or "label: value"
+        for sep in [" — ", "\u2014", ": "]:
+            if sep in clean:
+                parts = clean.split(sep, 1)
+                lbl, val = parts[0].strip(), parts[1].strip() if len(parts) > 1 else ""
+                row = Text(_PAD + "    ", justify="left")
+                row.append(lbl, style=c_label)
+                if val:
+                    row.append(f"  {val}", style=c_value)
+                body_lines.append(row)
+                return
+
+        # Fallback: plain bullet
+        _wrap_append(clean, c_value)
 
     for line in instructions_text.splitlines():
         stripped = line.strip()
         if not stripped:
             continue
-        if stripped.startswith("##"):
+
+        # ## Section header
+        if stripped.startswith("## "):
+            body_lines.append(Text(""))
+            title_text = stripped.lstrip("#").strip().rstrip(":")
+            body_lines.append(Text(_PAD + "  " + title_text, style=c_section, justify="left"))
+            body_lines.append(Text(_PAD + "  " + "\u2500" * min(len(title_text), 40), style=c_sep, justify="left"))
+            continue
+
+        # ### Subsection header
+        if stripped.startswith("### "):
             body_lines.append(Text(""))
             body_lines.append(
-                Text(
-                    _PAD + "  " + stripped.lstrip("#").strip().rstrip(":"),
-                    style=c_section,
-                    justify="left",
-                )
+                Text(_PAD + "  " + stripped.lstrip("#").strip().rstrip(":"), style=c_subsection, justify="left")
             )
-        elif stripped.startswith("- "):
-            item_num += 1
-            item_text = stripped[2:].strip()
-            if "\u2014" in item_text:
-                parts = item_text.split("\u2014", 1)
-                lbl, val = parts[0].strip(), (parts[1].strip() if len(parts) > 1 else "")
-            elif " — " in item_text:
-                parts = item_text.split(" — ", 1)
-                lbl, val = parts[0].strip(), (parts[1].strip() if len(parts) > 1 else "")
-            else:
-                lbl, val = item_text, ""
-            row = Text(_PAD + f"  {item_num:>3}  ", justify="left")
-            row.append(lbl, style=c_label)
-            if val:
-                row.append("  " + val, style=c_muted)
-            body_lines.append(row)
-        elif stripped.startswith("\u2192") or stripped.startswith("→"):
-            body_lines.append(Text(_PAD + "       " + stripped, style=f"bold {c_arrow}", justify="left"))
-        elif ":" in stripped and not stripped.startswith("Weight"):
-            k, _, v = stripped.partition(":")
-            body_lines.append(Text(""))
+            continue
+
+        # → Arrow directives
+        if stripped.startswith("\u2192") or stripped.startswith("→"):
+            clean = _re.sub(r"\*\*([^*]+)\*\*", r"\1", stripped)
+            body_lines.append(Text(_PAD + "      " + clean, style=f"bold {c_arrow}", justify="left"))
+            continue
+
+        # Bullet items
+        if stripped.startswith("- "):
+            _styled_bullet(stripped)
+            continue
+
+        # Standalone key: value lines (e.g. "Velocity: 14 ± 7")
+        if ":" in stripped and not stripped.startswith("Weight"):
+            clean = _re.sub(r"\*\*([^*]+)\*\*", r"\1", stripped)
+            k, _, v = clean.partition(":")
             row = Text(_PAD + "  ", justify="left")
-            row.append(k.strip(), style=f"bold {c_standalone}")
+            row.append(k.strip(), style=f"bold {c_warn}")
             if v.strip():
-                row.append(": " + v.strip(), style=c_muted)
+                row.append(": " + v.strip(), style=c_value)
             body_lines.append(row)
-        else:
-            body_lines.append(Text(_PAD + "       " + stripped, style=c_muted, justify="left"))
+            continue
+
+        # Fallback: plain text
+        clean = _re.sub(r"\*\*([^*]+)\*\*", r"\1", stripped)
+        _wrap_append(clean, c_muted)
 
     return _build_analysis_review_screen(
         body_lines,
@@ -2001,8 +2150,8 @@ def _build_sample_epic_screen(
 ) -> Panel:
     """Build the sample epic review screen matching planning mode's feature display.
 
-    Shows a pattern breakdown section at the top followed by the generated epic
-    in the same visual format as planning mode's feature cards.
+    Shows the generated epic card with description sections properly parsed,
+    followed by a compact "why this matches" rationale and pattern summary.
     """
     c_accent = "#22c55e"
     c_muted = "rgb(120,120,140)"
@@ -2011,81 +2160,27 @@ def _build_sample_epic_screen(
     c_desc = "rgb(160,160,160)"
     c_sep = "rgb(40,40,50)"
     c_section = f"bold {c_accent}"
+    c_label = "rgb(220,180,60)"
+    c_dim = "dim"
 
     _ex = examples or {}
     body_lines: list = []
-    max_w = max(40, width - len(_PAD) - 12)
+    wrap_w = max(40, width - len(_PAD) - 14)
 
-    # ── Pattern Breakdown Section ─────────────────────────────────
-    body_lines.append(
-        Text(
-            _PAD + "  Epic Design Patterns",
-            style=c_section,
-            justify="left",
-        )
-    )
-    body_lines.append(Text(""))
+    def _wrap_text(text: str, style: str, indent: str = "      ") -> None:
+        """Word-wrap text into body_lines with given style and indent."""
+        words = text.split()
+        line_buf = ""
+        for word in words:
+            if line_buf and len(line_buf) + len(word) + 1 > wrap_w:
+                body_lines.append(Text(_PAD + indent + line_buf, style=style, justify="left"))
+                line_buf = word
+            else:
+                line_buf = (line_buf + " " + word).strip()
+        if line_buf:
+            body_lines.append(Text(_PAD + indent + line_buf, style=style, justify="left"))
 
-    # Show team's actual epic metrics
-    from rich.table import Table as _EpicMetaTable
-
-    _mt = _EpicMetaTable(
-        show_lines=False,
-        show_edge=False,
-        show_header=False,
-        box=None,
-        padding=(0, 1),
-        width=max(50, width - 14),
-    )
-    _mt.add_column(width=4, justify="right")
-    _mt.add_column(width=22)
-    _mt.add_column(ratio=2)
-    _mt.add_column(width=12, justify="right", no_wrap=True)
-
-    _naming = _ex.get("naming_conventions", {})
-    _epic_style = _naming.get("epic_naming_style", "feature-scoped")
-    _epic_ex = _naming.get("epic_examples", [])
-
-    _patterns = [
-        ("Naming style", _epic_style, "from analysis"),
-        ("Stories/epic", str(epic.get("stories_estimate", "~5")), "team average"),
-        ("Points/epic", str(epic.get("points_estimate", "~18")), "team average"),
-    ]
-    if _epic_ex:
-        _patterns.append(("Example titles", ", ".join(_epic_ex[:2]), "from board"))
-
-    for idx, (label, value, source) in enumerate(_patterns):
-        _src_style = "green" if source == "from analysis" else "cyan"
-        _mt.add_row(
-            Text(str(idx + 1), style="dim"),
-            Text(label, style=c_value),
-            Text(value[:40], style=c_muted),
-            Text(source, style=_src_style),
-        )
-    body_lines.append(Padding(_mt, (0, 0, 0, len(_PAD))))
-    body_lines.append(Text(""))
-
-    # Separator
-    body_lines.append(
-        Text(
-            _PAD + "  " + "\u2500" * 36,
-            style=c_sep,
-            justify="left",
-        )
-    )
-    body_lines.append(Text(""))
-
-    # ── Generated Epic Card (planning mode style) ─────────────────
-    body_lines.append(
-        Text(
-            _PAD + "  Generated Sample",
-            style=c_section,
-            justify="left",
-        )
-    )
-    body_lines.append(Text(""))
-
-    # Feature header: [F1]  ·  Title  ·  Priority
+    # ── Epic Header ───────────────────────────────────────────────
     title = epic.get("title", "Sample Epic")
     priority = epic.get("priority", "high")
     _prio_colors = {"critical": "bold red", "high": "yellow", "medium": "rgb(70,100,180)", "low": "dim"}
@@ -2093,59 +2188,75 @@ def _build_sample_epic_screen(
 
     hdr = Text(_PAD + "  ", justify="left")
     hdr.append("[F1]", style=c_id)
-    hdr.append("  \u00b7  ", style="dim")
+    hdr.append("  \u00b7  ", style=c_dim)
     hdr.append(title, style=c_value)
-    hdr.append("  \u00b7  ", style="dim")
+    hdr.append("  \u00b7  ", style=c_dim)
     hdr.append(priority, style=_prio_style)
     body_lines.append(hdr)
-    body_lines.append(Text(""))
 
     # Metadata line
     stories_est = epic.get("stories_estimate", 0)
     points_est = epic.get("points_estimate", 0)
-    meta = Text(_PAD + "    ", justify="left")
+    meta = Text(_PAD + "  ", justify="left")
     meta.append(f"~{stories_est} stories", style=c_muted)
-    meta.append("  \u00b7  ", style="dim")
+    meta.append("  \u00b7  ", style=c_dim)
     meta.append(f"~{points_est} story points", style=c_muted)
     body_lines.append(meta)
+    body_lines.append(Text(_PAD + "  " + "\u2500" * min(40, wrap_w), style=c_sep, justify="left"))
     body_lines.append(Text(""))
 
-    # Description (wrapped, dim)
+    # ── Description — parse **Section?** markers into styled blocks ──
     desc = epic.get("description", "")
     if desc:
-        words = desc.split()
-        line_buf = ""
-        for word in words:
-            if len(line_buf) + len(word) + 1 > max_w:
-                body_lines.append(Text(_PAD + "    " + line_buf, style=c_desc, justify="left"))
-                line_buf = word
-            else:
-                line_buf = (line_buf + " " + word).strip()
-        if line_buf:
-            body_lines.append(Text(_PAD + "    " + line_buf, style=c_desc, justify="left"))
+        # Split on **Section** markers (e.g. "**What is this about?**")
+        import re as _re
+
+        _section_re = _re.compile(r"\*\*([^*]+)\*\*\s*")
+        parts = _section_re.split(desc)
+        # parts = [text_before, section_title, section_body, title2, body2, ...]
+        if parts[0].strip():
+            # Text before any section header
+            _wrap_text(parts[0].strip(), c_desc, indent="    ")
+            body_lines.append(Text(""))
+
+        i = 1
+        while i < len(parts) - 1:
+            section_title = parts[i].strip()
+            section_body = parts[i + 1].strip() if i + 1 < len(parts) else ""
+            # Section header
+            body_lines.append(Text(_PAD + "    " + section_title, style=f"bold {c_label}", justify="left"))
+            if section_body:
+                _wrap_text(section_body, c_desc, indent="    ")
+            body_lines.append(Text(""))
+            i += 2
+    else:
+        body_lines.append(Text(_PAD + "    No description provided.", style=c_muted, justify="left"))
         body_lines.append(Text(""))
 
-    # Rationale (why this matches)
+    # ── Rationale ─────────────────────────────────────────────────
     rationale = epic.get("rationale", "")
     if rationale:
+        body_lines.append(Text(_PAD + "  Why this matches your team", style=c_section, justify="left"))
+        _wrap_text(rationale, c_muted, indent="    ")
         body_lines.append(Text(""))
-        body_lines.append(
-            Text(
-                _PAD + "  Why this matches your team",
-                style=f"bold {c_muted}",
-                justify="left",
-            )
-        )
-        words = rationale.split()
-        line_buf = ""
-        for word in words:
-            if len(line_buf) + len(word) + 1 > max_w:
-                body_lines.append(Text(_PAD + "    " + line_buf, style=c_desc, justify="left"))
-                line_buf = word
-            else:
-                line_buf = (line_buf + " " + word).strip()
-        if line_buf:
-            body_lines.append(Text(_PAD + "    " + line_buf, style=c_desc, justify="left"))
+
+    # ── Pattern Summary (compact) ─────────────────────────────────
+    _naming = _ex.get("naming_conventions", {})
+    _epic_style = _naming.get("epic_naming_style", "")
+    _epic_ex = _naming.get("epic_examples", [])
+
+    if _epic_style or _epic_ex:
+        body_lines.append(Text(_PAD + "  Team Patterns", style=c_section, justify="left"))
+        if _epic_style:
+            row = Text(_PAD + "    ", justify="left")
+            row.append("Naming: ", style=c_dim)
+            row.append(_epic_style, style=c_muted)
+            body_lines.append(row)
+        if _epic_ex:
+            row = Text(_PAD + "    ", justify="left")
+            row.append("Examples: ", style=c_dim)
+            row.append(", ".join(f'"{e}"' for e in _epic_ex[:3]), style=c_muted)
+            body_lines.append(row)
 
     return _build_analysis_review_screen(
         body_lines,
@@ -2166,6 +2277,7 @@ def _build_sample_stories_screen(
     height: int = 24,
     action_sel: int = 0,
     epic_title: str = "",
+    examples: dict | None = None,
 ) -> Panel:
     """Build the sample stories review screen matching planning mode's story cards."""
     c_accent = "#22c55e"
@@ -2227,23 +2339,25 @@ def _build_sample_stories_screen(
         if title:
             body_lines.append(Text(_PAD + f"    {title}", style="bold white", justify="left"))
 
-        # Story sentence
+        # Description
+        body_lines.append(Text(_PAD + "    Description", style=f"bold {c_muted}", justify="left"))
         story_text = f"As a {persona}, I want to {goal}, so that {benefit}."
         words = story_text.split()
         buf = ""
         for word in words:
             if len(buf) + len(word) + 1 > max_w:
-                body_lines.append(Text(_PAD + "    " + buf, style=c_desc, justify="left"))
+                body_lines.append(Text(_PAD + "      " + buf, style=c_desc, justify="left"))
                 buf = word
             else:
                 buf = (buf + " " + word).strip()
         if buf:
-            body_lines.append(Text(_PAD + "    " + buf, style=c_desc, justify="left"))
+            body_lines.append(Text(_PAD + "      " + buf, style=c_desc, justify="left"))
 
-        # ACs with Given/When/Then
+        # Acceptance Criteria
         acs = story.get("acceptance_criteria", [])
         if acs:
             body_lines.append(Text(""))
+            body_lines.append(Text(_PAD + "    Acceptance Criteria", style=f"bold {c_muted}", justify="left"))
             for ac in acs[:3]:
                 if isinstance(ac, dict):
                     for kw, style in [("given", c_given), ("when", c_when), ("then", c_then)]:
@@ -2254,6 +2368,25 @@ def _build_sample_stories_screen(
                             row.append(val, style=c_desc)
                             body_lines.append(row)
                     body_lines.append(Text(""))
+
+        # Definition of Done — from LLM response, or fall back to team's proposed DoD
+        dod = story.get("definition_of_done", [])
+        if not dod and examples:
+            proposed = examples.get("proposed_dod", {})
+            if isinstance(proposed, dict):
+                dod = [
+                    it["practice"]
+                    for it in proposed.get("items", [])
+                    if isinstance(it, dict) and it.get("status") in ("established", "emerging")
+                ]
+        if dod:
+            body_lines.append(Text(_PAD + "    Definition of Done", style=f"bold {c_muted}", justify="left"))
+            for item in dod:
+                row = Text(_PAD + "      ", justify="left")
+                row.append("\u2713 ", style="rgb(80,180,80)")
+                row.append(str(item), style=c_desc)
+                body_lines.append(row)
+            body_lines.append(Text(""))
 
         if idx < len(stories) - 1:
             body_lines.append(Text(_PAD + "  " + "\u2500" * 36, style=c_sep, justify="left"))
@@ -2896,6 +3029,7 @@ def _build_project_export_success_screen(
     height: int = 24,
     subtitle: str = "Plan exported",
     hint: str = "Press any key to continue.",
+    mode: str = "planning",
 ) -> Panel:
     """Build the project export success/status screen.
 
@@ -2903,7 +3037,12 @@ def _build_project_export_success_screen(
     or during/after Jira sync operations. subtitle and hint can
     be customised for different contexts (e.g. loading states).
     """
-    title = planning_title()
+    if mode == "analysis":
+        from scrum_agent.ui.shared._components import analysis_title
+
+        title = analysis_title()
+    else:
+        title = planning_title()
 
     body: list = [
         Text(_PAD + subtitle, style="bold bright_green", justify="left"),

@@ -5169,31 +5169,37 @@ def _format_team_calibration(profile: object, *, examples: dict | None = None) -
     if sample_sprints == 0:
         return ""
 
+    _ex = examples or {}
     lines = [
         f"\n## Team Calibration Data (from {sample_sprints} sprints, {sample_stories} stories)\n",
     ]
 
-    # Point calibrations with confidence levels
+    # Point calibrations — prefer LLM-generated descriptions, fall back to raw metrics
     calibrations = getattr(profile, "point_calibrations", ())
+    point_descs = _ex.get("point_descriptions", {}) if isinstance(_ex.get("point_descriptions"), dict) else {}
     if calibrations:
         lines.append("### What story points mean for THIS team:\n")
         for cal in calibrations:
             if cal.sample_count > 0:
-                patterns = ", ".join(cal.common_patterns) if cal.common_patterns else ""
-                pattern_note = f' — typically "{patterns}"' if patterns else ""
-                overshoot_note = f", overshoots {cal.overshoot_pct:.0f}% of time" if cal.overshoot_pct > 10 else ""
-                # Confidence scoring based on sample size
-                if cal.sample_count >= 15:
-                    conf = " **(HIGH confidence)**"
-                elif cal.sample_count >= 5:
-                    conf = " *(medium confidence)*"
+                desc = point_descs.get(str(cal.point_value), "")
+                if desc:
+                    lines.append(f"- **{cal.point_value} pt**: {desc}")
                 else:
-                    conf = " *(low confidence — few samples, use cautiously)*"
-                lines.append(
-                    f"- **{cal.point_value} pt**: avg {cal.avg_cycle_time_days:.1f} day cycle time, "
-                    f"~{cal.typical_task_count:.0f} tasks ({cal.sample_count} samples)"
-                    f"{pattern_note}{overshoot_note}{conf}"
-                )
+                    # Fallback to raw metrics
+                    patterns = ", ".join(cal.common_patterns) if cal.common_patterns else ""
+                    pattern_note = f' — typically "{patterns}"' if patterns else ""
+                    overshoot_note = f", overshoots {cal.overshoot_pct:.0f}% of time" if cal.overshoot_pct > 10 else ""
+                    if cal.sample_count >= 15:
+                        conf = " **(HIGH confidence)**"
+                    elif cal.sample_count >= 5:
+                        conf = " *(medium confidence)*"
+                    else:
+                        conf = " *(low confidence — few samples, use cautiously)*"
+                    lines.append(
+                        f"- **{cal.point_value} pt**: avg {cal.avg_cycle_time_days:.1f} day cycle time, "
+                        f"~{cal.typical_task_count:.0f} tasks ({cal.sample_count} samples)"
+                        f"{pattern_note}{overshoot_note}{conf}"
+                    )
         lines.append("")
 
     # Story shapes with discipline-specific guidance
@@ -5320,7 +5326,6 @@ def _format_team_calibration(profile: object, *, examples: dict | None = None) -
             lines.append("")
 
     # ── Sections from examples dict (analysis data not in TeamProfile) ──
-    _ex = examples or {}
 
     # 1A: Spillover correlation — which sizes/disciplines spill most
     spill_corr = _ex.get("spillover_correlation", {})
