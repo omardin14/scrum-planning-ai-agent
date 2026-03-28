@@ -1804,53 +1804,54 @@ def _build_team_analysis_screen(
                 t.append(", ".join(str(r) for r in pt_repos[:3]), style=c_dim)
                 _add(t)
 
-    # ── Footer buttons — pinned to the bottom, matching planning mode style ──
-    # Bordered boxes: selected = green border + bold text, unselected = dim border
-    from rich.table import Table as _FooterTable
+    # ── Layout matching planning mode ──────────────────────────────────
+    from scrum_agent.ui.shared._components import analysis_title
 
-    _footer_labels = ["Export", "Continue"]
-    _footer_row = _FooterTable(box=None, padding=(0, 1), pad_edge=False, show_header=False)
-    _footer_row.add_column(width=3)  # left pad
-    for i, label in enumerate(_footer_labels):
-        _btn_w = len(label) + 4
-        _footer_row.add_column(width=_btn_w)
-    _btn_cells: list[Text] = [Text("")]
-    for i, label in enumerate(_footer_labels):
+    title = analysis_title()
+
+    # Action buttons using shared color scheme
+    _footer_actions = ["Export", "Continue"]
+    _btn_colors = {
+        "Export": ("rgb(70,100,180)", "rgb(100,140,220)", "rgb(40,40,50)", "rgb(50,50,60)"),
+        "Continue": ("rgb(60,160,80)", "rgb(80,200,100)", "rgb(40,50,40)", "rgb(50,60,50)"),
+    }
+    _btn_min_w = 12
+    _btn_gap = 2
+
+    btn_top = Text(_PAD, justify="left")
+    btn_mid = Text(_PAD, justify="left")
+    btn_bot = Text(_PAD, justify="left")
+
+    for i, label in enumerate(_footer_actions):
+        if i > 0:
+            btn_top.append(" " * _btn_gap)
+            btn_mid.append(" " * _btn_gap)
+            btn_bot.append(" " * _btn_gap)
+        inner_w = max(_btn_min_w - 2, len(label) + 2)
+        pad_l = (inner_w - len(label)) // 2
+        pad_r = inner_w - len(label) - pad_l
+        centered = " " * pad_l + label + " " * pad_r
+        accent_b, accent_l, grey_b, grey_l = _btn_colors.get(
+            label,
+            ("rgb(100,100,120)", "rgb(140,140,160)", "rgb(40,40,50)", "rgb(50,50,60)"),
+        )
         if i == export_sel:
-            # Selected: green border box
-            _top = "\u250c" + "\u2500" * (len(label) + 2) + "\u2510"
-            _mid = "\u2502 " + label + " \u2502"
-            _bot = "\u2514" + "\u2500" * (len(label) + 2) + "\u2518"
-            cell = Text(justify="center")
-            cell.append(_top + "\n", style="rgb(80,220,120)")
-            cell.append(_mid + "\n", style="bold rgb(80,220,120)")
-            cell.append(_bot, style="rgb(80,220,120)")
+            b_style, l_style = accent_b, f"bold {accent_l}"
         else:
-            # Unselected: dim border box
-            _top = "\u250c" + "\u2500" * (len(label) + 2) + "\u2510"
-            _mid = "\u2502 " + label + " \u2502"
-            _bot = "\u2514" + "\u2500" * (len(label) + 2) + "\u2518"
-            cell = Text(justify="center")
-            cell.append(_top + "\n", style="rgb(60,60,70)")
-            cell.append(_mid + "\n", style="rgb(100,100,110)")
-            cell.append(_bot, style="rgb(60,60,70)")
-        _btn_cells.append(cell)
-    _footer_row.add_row(*_btn_cells)
-    footer_lines = [Text(""), Padding(_footer_row, (0, 0, 0, len(_PAD)))]
-    footer_h = 5  # blank + 3-line bordered buttons + 1 padding
+            b_style, l_style = grey_b, grey_l
+        btn_top.append("\u256d" + "\u2500" * inner_w + "\u256e", style=b_style)
+        btn_mid.append("\u2502" + centered + "\u2502", style=l_style)
+        btn_bot.append("\u2570" + "\u2500" * inner_w + "\u256f", style=b_style)
 
-    # Scrollable viewport — reserves space for the pinned footer.
-    # Use _rendered_lines (not len(lines)) because some items like
-    # Padding(RichTable) render as multiple terminal rows.
+    # Viewport with per-item height tracking for Rich Tables
     inner_h = height - 4
-    header_h = 3  # sub + blank + panel title is in border
-    body_h = inner_h - header_h - footer_h
+    header_h = 6  # blank + title(2) + blank + sub + blank
+    action_h = 4  # blank + 3 button lines
+    body_h = max(3, inner_h - header_h - action_h)
 
     max_scroll = max(0, _rendered_lines - body_h)
     actual_scroll = min(scroll_offset, max_scroll)
 
-    # Build visible slice using per-item rendered heights
-    # so tables and multi-line items are counted correctly
     _vis_items: list = []
     _vis_h = 0
     for i in range(actual_scroll, len(lines)):
@@ -1863,18 +1864,22 @@ def _build_team_analysis_screen(
     remaining = max(0, body_h - _vis_h)
 
     content = Group(
+        Text(""),
+        title,
+        Text(""),
         sub,
         Text(""),
         *_vis_items,
         *[Text("") for _ in range(remaining)],
-        *footer_lines,
+        Text(""),
+        btn_top,
+        btn_mid,
+        btn_bot,
     )
 
     return Panel(
         content,
-        title="[bold rgb(100,180,100)] TEAM ANALYSIS [/]",
-        title_align="left",
-        border_style="rgb(100,180,100)",
+        border_style="white",
         box=rich.box.ROUNDED,
         expand=True,
         height=height,
