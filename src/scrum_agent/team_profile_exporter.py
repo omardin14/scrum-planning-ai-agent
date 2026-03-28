@@ -814,6 +814,46 @@ def export_team_profile_html(
         _nav("naming", "Naming")
         sections.append(_section("naming", "Ticket Naming &amp; Organisation", _kv_table(nm_rows)))
 
+    # ── Story & Epic Structure ──────────────────────────────────────
+    _h_struct = ex.get("story_structure", {})
+    if isinstance(_h_struct, dict) and (_h_struct.get("subtask_ordering") or _h_struct.get("epic_completion")):
+        st_rows: list[tuple[str, str]] = []
+        _st_ord = _h_struct.get("subtask_ordering", [])
+        if len(_st_ord) >= 2:
+            st_rows.append(("Subtask sequence", " &rarr; ".join(_e(s) for s in _st_ord)))
+        _st_skip = _h_struct.get("skipped_types", [])
+        if _st_skip:
+            st_rows.append(
+                (
+                    "Rarely created",
+                    " &middot; ".join(f"{s['type']} ({s['present_pct']}%)" for s in _st_skip),
+                )
+            )
+        _st_avg = _h_struct.get("avg_epic_completion", 0)
+        if _st_avg > 0:
+            st_rows.append(("Epic completion avg", f"{_st_avg}%"))
+        _st_ling = _h_struct.get("lingering_epics", [])
+        if _st_ling:
+            for ep in _st_ling[:3]:
+                st_rows.append(
+                    (
+                        _e(ep.get("epic_title", "?")),
+                        f"{ep['completed']}/{ep['total']} done ({ep['rate']}%)",
+                    )
+                )
+        _st_spread = _h_struct.get("epic_sprint_spread", [])
+        if _st_spread:
+            for ep in _st_spread[:3]:
+                st_rows.append(
+                    (
+                        _e(ep.get("epic", "?")),
+                        f"{ep['stories']} stories across {ep['sprints']} sprints",
+                    )
+                )
+        if st_rows:
+            _nav("structure", "Structure")
+            sections.append(_section("structure", "Story &amp; Epic Structure", _kv_table(st_rows)))
+
     # ── Acceptance Criteria Patterns ──────────────────────────────────
     ac_pat = ex.get("ac_patterns", {})
     if isinstance(ac_pat, dict) and ac_pat.get("stories_with_ac_pct") is not None:
@@ -1687,6 +1727,34 @@ def export_team_profile_md(
         if _mnt:
             _ss_str = " \u2192 ".join(f'"{s}"' for s, _ in _mnt[:5])
             lines.append(f"- **Description template:** {_ss_str}")
+        lines.append("")
+
+    # ── Story & Epic Structure ──────────────────────────────────────
+    _md_struct = ex.get("story_structure", {})
+    if isinstance(_md_struct, dict) and (_md_struct.get("subtask_ordering") or _md_struct.get("epic_completion")):
+        lines.extend(["## Story & Epic Structure", ""])
+        _mso = _md_struct.get("subtask_ordering", [])
+        if len(_mso) >= 2:
+            _mso_str = " \u2192 ".join(_mso)
+            lines.append(f"- **Subtask sequence:** {_mso_str}")
+        _msk = _md_struct.get("skipped_types", [])
+        if _msk:
+            _skp = " \u00b7 ".join(f"{s['type']} ({s['present_pct']}%)" for s in _msk)
+            lines.append(f"- **Rarely created:** {_skp}")
+        _msa = _md_struct.get("avg_epic_completion", 0)
+        if _msa > 0:
+            lines.append(f"- **Epic completion avg:** {_msa}%")
+        _msl = _md_struct.get("lingering_epics", [])
+        if _msl:
+            lines.append("")
+            for ep in _msl[:3]:
+                lines.append(f"- {ep.get('epic_title', '?')} \u2014 {ep['completed']}/{ep['total']} ({ep['rate']}%)")
+        _mss = _md_struct.get("epic_sprint_spread", [])
+        if _mss:
+            lines.append("")
+            lines.append("**Multi-sprint epics:**")
+            for ep in _mss[:3]:
+                lines.append(f"- {ep.get('epic', '?')} \u2014 {ep['stories']} stories across {ep['sprints']} sprints")
         lines.append("")
 
     # ── Acceptance Criteria Patterns ──────────────────────────────────

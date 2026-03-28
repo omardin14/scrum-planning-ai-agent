@@ -1054,11 +1054,11 @@ _Bring Azure DevOps to full feature parity with Jira — read board/velocity, cr
 - [x] Subtask label distribution (Development 64%, Testing 13%, etc.)
 - [x] Stories per epic (`avg_stories_per_epic`, range)
 - [x] Epic description analysis (`epics_with_description_pct`)
-- [ ] Detect subtask *ordering* — do they create tasks in a consistent sequence? (design → code → test → deploy)
-- [ ] Learn which subtask types are skipped — stories missing "Testing" subtask vs stories with it
-- [ ] Detect epic completion patterns — are epics fully completed or do stories linger?
-- [ ] Learn story splitting patterns — when a story is too large, how does the team split it?
-- [ ] Detect dependency patterns between stories within an epic
+- [x] Detect subtask *ordering* — typical sequence from pairwise transition analysis
+- [x] Learn which subtask types are skipped — presence rate per type, flag if < 30%
+- [x] Detect epic completion patterns — per-epic completion rate, flag lingering epics < 80%
+- [x] Learn story splitting patterns — detect point range variation within epics
+- [x] Detect dependency patterns — epic sprint spread (stories in same epic across N sprints)
 
 ### 16e: Mid-sprint scope changes
 - [x] Detect stories added to a sprint after sprint start (Jira changelog + AzDO revisions)
@@ -1081,7 +1081,7 @@ _Bring Azure DevOps to full feature parity with Jira — read board/velocity, cr
 - [x] Shadow spillover detection (closed then re-created)
 - [x] Repository activity correlation (which repos touch which stories)
 - [ ] Learn WIP patterns — how many stories are "In Progress" simultaneously per developer?
-- [ ] Detect estimation bias — do certain developers consistently over/under-estimate?
+- [ ] Detect estimation bias — are certain stories consistently over/under-estimate?
 - [ ] Learn review cycle time — how long between "In Review" and "Done"?
 - [ ] Detect seasonal patterns — velocity dips around holidays, end-of-quarter rushes
 - [ ] Track bug rate — how many bugs are filed within N sprints of a story being closed?

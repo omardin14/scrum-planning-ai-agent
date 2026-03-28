@@ -1469,6 +1469,9 @@ def _run_parallel_analysis(
     # Ticket naming and organisation analysis
     examples["naming_conventions"] = _analyse_naming_conventions(delivery_stories)  # type: ignore[assignment]
 
+    # Story/epic/subtask structure analysis
+    examples["story_structure"] = _analyse_story_structure(delivery_stories, all_stories)  # type: ignore[assignment]
+
     # Acceptance criteria pattern analysis
     examples["ac_patterns"] = _analyse_acceptance_criteria(delivery_stories)  # type: ignore[assignment]
 
@@ -2226,6 +2229,182 @@ def _analyse_naming_conventions(delivery_stories: list[dict]) -> dict:
         "template_sections": template_sections,
         "has_template": has_template,
         "recommendations": recommendations,
+    }
+
+
+def _analyse_story_structure(delivery_stories: list[dict], all_stories: list[dict]) -> dict:
+    """Analyse story/epic/subtask structure patterns.
+
+    Detects:
+    - Subtask ordering: consistent sequence (design → code → test → deploy)?
+    - Skipped subtask types: which task types are missing from stories?
+    - Epic completion patterns: are epics fully completed or do stories linger?
+    - Story splitting: large stories that get broken down across sprints
+    - Epic dependency patterns: stories within an epic that share sprints
+    """
+    if not delivery_stories:
+        return {}
+
+    # ── 1. Subtask ordering ────────────────────────────────────────
+    # Detect if subtasks follow a consistent sequence
+    _type_keywords = {
+        "Design": ("design", "ux", "ui", "mockup", "wireframe"),
+        "Development": ("implement", "create", "build", "develop", "code"),
+        "Testing": ("test", "qa", "verify", "validation", "e2e"),
+        "Review": ("review", "pr", "code review", "approval"),
+        "Documentation": ("doc", "documentation", "readme", "runbook"),
+        "Deploy": ("deploy", "release", "staging", "production"),
+    }
+
+    def _classify_task(title: str) -> str:
+        t = title.lower()
+        for cat, keywords in _type_keywords.items():
+            if any(k in t for k in keywords):
+                return cat
+        return "Development"
+
+    # Track ordering sequences across stories
+    _order_counts: dict[tuple[str, str], int] = defaultdict(int)
+    _stories_with_ordered_tasks = 0
+    for s in delivery_stories:
+        details = s.get("subtask_details", [])
+        if len(details) < 2:
+            continue
+        cats = [_classify_task(d.get("title", "")) for d in details]
+        # Remove consecutive duplicates
+        deduped = [cats[0]]
+        for c in cats[1:]:
+            if c != deduped[-1]:
+                deduped.append(c)
+        if len(deduped) >= 2:
+            _stories_with_ordered_tasks += 1
+            for i in range(len(deduped) - 1):
+                _order_counts[(deduped[i], deduped[i + 1])] += 1
+
+    # Build most common sequence
+    subtask_ordering: list[str] = []
+    if _order_counts:
+        # Find most common transitions to build the typical sequence
+        _first_scores: dict[str, int] = defaultdict(int)
+        for (a, _b), cnt in _order_counts.items():
+            _first_scores[a] += cnt
+        # Start with the category that appears first most often
+        if _first_scores:
+            current = max(_first_scores, key=_first_scores.get)  # type: ignore[arg-type]
+            subtask_ordering.append(current)
+            for _ in range(5):
+                nexts = {b: cnt for (a, b), cnt in _order_counts.items() if a == current and b not in subtask_ordering}
+                if not nexts:
+                    break
+                current = max(nexts, key=nexts.get)  # type: ignore[arg-type]
+                subtask_ordering.append(current)
+
+    # ── 2. Skipped subtask types ───────────────────────────────────
+    # Which task types are commonly created vs missing?
+    _type_presence: dict[str, int] = defaultdict(int)
+    _stories_with_tasks = 0
+    for s in delivery_stories:
+        details = s.get("subtask_details", [])
+        if not details:
+            continue
+        _stories_with_tasks += 1
+        seen_types: set[str] = set()
+        for d in details:
+            cat = _classify_task(d.get("title", ""))
+            seen_types.add(cat)
+        for cat in seen_types:
+            _type_presence[cat] += 1
+
+    skipped_types: list[dict] = []
+    if _stories_with_tasks >= 3:
+        for cat in ("Testing", "Review", "Documentation", "Deploy"):
+            pct = round(_type_presence.get(cat, 0) / _stories_with_tasks * 100)
+            if pct < 30:
+                skipped_types.append({"type": cat, "present_pct": pct})
+
+    # ── 3. Epic completion patterns ────────────────────────────────
+    # Group ALL stories (not just delivery) by epic to see completion rates
+    _epic_stories: dict[str, list[dict]] = defaultdict(list)
+    for s in all_stories:
+        ek = s.get("epic_key", "")
+        if ek:
+            _epic_stories[ek].append(s)
+
+    epic_completion: list[dict] = []
+    for ek, stories in _epic_stories.items():
+        if len(stories) < 2:
+            continue
+        completed = sum(1 for s in stories if not s.get("carried_over") and not s.get("is_recurring"))
+        total = sum(1 for s in stories if not s.get("is_recurring"))
+        if total == 0:
+            continue
+        rate = round(completed / total * 100)
+        title = next((s.get("epic_title", "") for s in stories if s.get("epic_title")), "")
+        epic_completion.append(
+            {
+                "epic_key": ek,
+                "epic_title": title[:40] if title else ek,
+                "completed": completed,
+                "total": total,
+                "rate": rate,
+            }
+        )
+    epic_completion.sort(key=lambda x: x["rate"])
+
+    lingering_epics = [e for e in epic_completion if e["rate"] < 80]
+    avg_epic_completion = (
+        round(sum(e["rate"] for e in epic_completion) / len(epic_completion)) if epic_completion else 0
+    )
+
+    # ── 4. Story splitting patterns ────────────────────────────────
+    # Detect large stories (5+ pts) that appear alongside smaller siblings in same epic
+    _splitting_signals: list[dict] = []
+    for ek, stories in _epic_stories.items():
+        delivery = [s for s in stories if not s.get("is_recurring")]
+        if len(delivery) < 2:
+            continue
+        pts_list = [_safe_float(s.get("points", 0)) for s in delivery]
+        max_pts = max(pts_list) if pts_list else 0
+        min_pts = min(p for p in pts_list if p > 0) if any(p > 0 for p in pts_list) else 0
+        if max_pts >= 5 and min_pts <= 2 and max_pts > min_pts * 2:
+            title = next((s.get("epic_title", "") for s in delivery if s.get("epic_title")), ek)
+            _splitting_signals.append(
+                {
+                    "epic": title[:40],
+                    "story_count": len(delivery),
+                    "point_range": f"{min_pts:g}-{max_pts:g}",
+                }
+            )
+    _splitting_signals.sort(key=lambda x: -x["story_count"])
+
+    # ── 5. Epic dependency patterns ────────────────────────────────
+    # Detect stories within the same epic that span multiple sprints
+    _epic_sprint_spread: list[dict] = []
+    for ek, stories in _epic_stories.items():
+        delivery = [s for s in stories if not s.get("is_recurring")]
+        if len(delivery) < 2:
+            continue
+        sprints = {s.get("sprint_name", "") for s in delivery if s.get("sprint_name")}
+        if len(sprints) >= 2:
+            title = next((s.get("epic_title", "") for s in delivery if s.get("epic_title")), ek)
+            _epic_sprint_spread.append(
+                {
+                    "epic": title[:40],
+                    "sprints": len(sprints),
+                    "stories": len(delivery),
+                }
+            )
+    _epic_sprint_spread.sort(key=lambda x: -x["sprints"])
+
+    return {
+        "subtask_ordering": subtask_ordering,
+        "stories_with_ordered_tasks": _stories_with_ordered_tasks,
+        "skipped_types": skipped_types,
+        "epic_completion": epic_completion[:8],
+        "avg_epic_completion": avg_epic_completion,
+        "lingering_epics": lingering_epics[:5],
+        "splitting_signals": _splitting_signals[:5],
+        "epic_sprint_spread": _epic_sprint_spread[:5],
     }
 
 

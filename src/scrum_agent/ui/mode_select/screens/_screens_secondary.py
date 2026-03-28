@@ -1034,6 +1034,77 @@ def _build_team_analysis_screen(
             row.append(" \u2192 ".join(s_parts), style=c_value)
             _add(row)
 
+    # ── Story & Epic Structure ──────────────────────────────────────
+    _struct = _ex.get("story_structure", {})
+    if isinstance(_struct, dict) and (
+        _struct.get("subtask_ordering") or _struct.get("epic_completion") or _struct.get("skipped_types")
+    ):
+        _heading("Story & Epic Structure")
+
+        # Subtask ordering
+        ordering = _struct.get("subtask_ordering", [])
+        if len(ordering) >= 2:
+            _kv("Subtask sequence", " \u2192 ".join(ordering))
+
+        # Skipped subtask types
+        skipped = _struct.get("skipped_types", [])
+        if skipped:
+            skip_parts = [f"{s['type']} ({s['present_pct']}%)" for s in skipped]
+            row = Text(_PAD + "  ", justify="left")
+            row.append("Rarely created: ", style=c_muted)
+            row.append(" \u00b7 ".join(skip_parts), style=c_warn)
+            _add(row)
+
+        # Epic completion
+        avg_comp = _struct.get("avg_epic_completion", 0)
+        if avg_comp > 0:
+            comp_sty = c_good if avg_comp >= 80 else (c_warn if avg_comp >= 50 else c_bad)
+            _kv("Epic completion avg", f"{avg_comp}%", comp_sty)
+
+        lingering = _struct.get("lingering_epics", [])
+        if lingering:
+            _add(Text(""))
+            row = Text(_PAD + "  ", justify="left")
+            row.append(f"\u26a0 {len(lingering)} epics below 80% completion:", style=f"bold {c_warn}")
+            _add(row)
+            for ep in lingering[:3]:
+                row = Text(_PAD + "    ", justify="left")
+                row.append(f"{ep.get('epic_title', '?')}", style=c_value)
+                row.append(f"  {ep['completed']}/{ep['total']} done ({ep['rate']}%)", style=c_dim)
+                _add(row)
+
+        # Epic sprint spread (dependency indicator)
+        spread = _struct.get("epic_sprint_spread", [])
+        if spread:
+            _add(Text(""))
+            row = Text(_PAD + "  ", justify="left")
+            row.append("Multi-sprint epics:", style=c_muted)
+            _add(row)
+            for ep in spread[:3]:
+                row = Text(_PAD + "    ", justify="left")
+                row.append(f"{ep.get('epic', '?')}", style=c_value)
+                row.append(
+                    f"  {ep['stories']} stories across {ep['sprints']} sprints",
+                    style=c_dim,
+                )
+                _add(row)
+
+        # Story splitting signals
+        splitting = _struct.get("splitting_signals", [])
+        if splitting:
+            _add(Text(""))
+            row = Text(_PAD + "  ", justify="left")
+            row.append("Story size variation within epics:", style=c_muted)
+            _add(row)
+            for sp in splitting[:3]:
+                row = Text(_PAD + "    ", justify="left")
+                row.append(f"{sp.get('epic', '?')}", style=c_value)
+                row.append(
+                    f"  {sp['story_count']} stories, {sp['point_range']} pts range",
+                    style=c_dim,
+                )
+                _add(row)
+
     # ── Acceptance Criteria Patterns ─────────────────────────────────
     ac_pat = _ex.get("ac_patterns", {})
     if isinstance(ac_pat, dict) and ac_pat.get("stories_with_ac_pct") is not None:
