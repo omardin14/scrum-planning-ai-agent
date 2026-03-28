@@ -97,9 +97,15 @@ def _load_ana_session(project_key: str) -> dict | None:
                     if state and state.get("last_page"):
                         global _ana_sid  # noqa: PLW0603
                         _ana_sid = sess["session_id"]
+                        logger.info(
+                            "Resuming analysis session %s at page '%s'",
+                            sess["session_id"],
+                            state["last_page"],
+                        )
                         return state
+        logger.debug("No resumable analysis session for %s", project_key)
     except Exception:
-        pass
+        logger.debug("Analysis session load failed", exc_info=True)
     return None
 
 
@@ -113,8 +119,9 @@ def _save_ana(state: dict, node: str) -> None:
         with SessionStore(_ana_dbp) as store:
             store.save_state(_ana_sid, state)
             store.update_last_node(_ana_sid, node)
+        logger.info("Analysis session saved: page='%s', session=%s", node, _ana_sid)
     except Exception:
-        pass
+        logger.debug("Analysis session save failed", exc_info=True)
 
 
 def _run_preview_flow(
@@ -148,8 +155,17 @@ def _run_preview_flow(
 
     _rk = lambda: read_key(timeout=frame_time) if supports_timeout else read_key()  # noqa: E731
 
+    _flow_start = time.monotonic()
+    last_page = (resume_state or {}).get("last_page", "")
+    logger.info(
+        "Preview flow started: resume=%s, last_page='%s'",
+        resume_state is not None,
+        last_page,
+    )
+
     def _do_export():
         """Cumulative export — includes analysis profile + all accepted samples."""
+        logger.info("Preview: exporting analysis (HTML + MD)")
         from scrum_agent.team_profile_exporter import (
             export_team_profile_html,
             export_team_profile_md,
@@ -186,6 +202,7 @@ def _run_preview_flow(
     _tasks = (resume_state or {}).get("sample_tasks")
 
     # ── Page 1: Instructions ──────────────────────────────────────
+    logger.info("Preview: entering Instructions page")
     if last_page not in ("epic", "stories", "tasks", "sprint"):
         scroll, sel = 0, 0
         while True:
@@ -204,6 +221,7 @@ def _run_preview_flow(
                     break  # → epic
                 elif sel == 1:
                     # Edit
+                    logger.info("Preview: user editing instructions")
                     live.stop()
                     console.print("\n[bold green]Edit instructions[/] [dim](type changes):[/dim]\n")
                     try:
@@ -244,6 +262,7 @@ def _run_preview_flow(
             )
 
     # ── Page 2: Epic ──────────────────────────────────────────────
+    logger.info("Preview: entering Epic page")
     if not _epic:
         w, h = console.size
         live.update(
@@ -257,7 +276,9 @@ def _run_preview_flow(
                 mode="analysis",
             )
         )
+        logger.info("Preview: generating sample epic via LLM")
         _epic = generate_sample_epic(_instr, ta_examples)
+        logger.info("Preview: sample epic generated: %s", _epic.get("title", "?"))
 
     if last_page not in ("stories", "tasks", "sprint"):
         scroll, sel = 0, 0
@@ -294,6 +315,7 @@ def _run_preview_flow(
             )
 
     # ── Page 3: Stories ───────────────────────────────────────────
+    logger.info("Preview: entering Stories page")
     if not _stories:
         w, h = console.size
         live.update(
@@ -307,7 +329,9 @@ def _run_preview_flow(
                 mode="analysis",
             )
         )
+        logger.info("Preview: generating sample stories via LLM")
         _stories = generate_sample_stories(_instr, _epic, ta_examples)
+        logger.info("Preview: %d sample stories generated", len(_stories))
 
     if last_page not in ("tasks", "sprint"):
         scroll, sel = 0, 0
@@ -350,6 +374,7 @@ def _run_preview_flow(
             )
 
     # ── Page 4: Tasks ─────────────────────────────────────────────
+    logger.info("Preview: entering Tasks page")
     if not _tasks:
         w, h = console.size
         live.update(
@@ -363,7 +388,9 @@ def _run_preview_flow(
                 mode="analysis",
             )
         )
+        logger.info("Preview: generating sample tasks via LLM")
         _tasks = generate_sample_tasks(_instr, _stories, ta_examples)
+        logger.info("Preview: %d sample tasks generated", len(_tasks))
 
     if last_page != "sprint":
         scroll, sel = 0, 0
@@ -406,6 +433,10 @@ def _run_preview_flow(
             )
 
     # ── Page 5: Sprint ────────────────────────────────────────────
+    logger.info(
+        "Preview: entering Sprint page (%.1fs elapsed)",
+        time.monotonic() - _flow_start,
+    )
     _run_sprint_review(
         live,
         console,
@@ -416,6 +447,10 @@ def _run_preview_flow(
         _stories,
         _tasks,
         ta_examples,
+    )
+    logger.info(
+        "Preview flow completed in %.1fs",
+        time.monotonic() - _flow_start,
     )
 
 
@@ -431,6 +466,7 @@ def _run_sprint_review(
     ta_examples,
 ):
     """Run the sample sprint review loop (extracted to reduce nesting depth)."""
+    logger.info("Sprint review: generating sample sprint via LLM")
     from scrum_agent.tools.team_learning import generate_sample_sprint
     from scrum_agent.ui.mode_select.screens._screens_secondary import (
         _build_analysis_progress_screen,
@@ -676,6 +712,7 @@ def select_mode(
 
             # ── Route: Team Analysis mode → dedicated analysis flow ──────
             if chosen["key"] == "team-analysis":
+                logger.info("Analysis mode selected")
                 from scrum_agent.azdevops_sync import is_azdevops_board_configured as _azdevops_check
                 from scrum_agent.jira_sync import is_jira_configured as _jira_check
 
@@ -751,6 +788,14 @@ def select_mode(
                             _ana_sessions = _ss.list_analysis_sessions()
                 except Exception:
                     pass
+
+                logger.info(
+                    "Analysis mode: %d profiles, %d sessions, jira=%s, azdevops=%s",
+                    len(_profiles_for_analysis),
+                    len(_ana_sessions),
+                    _jira_ok,
+                    _azdevops_ok,
+                )
 
                 # Always one button; board picker popup shown if both configured
                 _ana_labels = ["+ New Analysis"]
@@ -1293,6 +1338,11 @@ def select_mode(
                             target=_run_team_analysis_mode,
                             daemon=True,
                         )
+                        logger.info(
+                            "Analysis: starting %s analysis for %s",
+                            _ta_source,
+                            _ta_project_key,
+                        )
                         _ta_thread.start()
 
                         from scrum_agent.ui.mode_select.screens._screens_secondary import (
@@ -1319,6 +1369,16 @@ def select_mode(
 
                         _ta_profile = _ta_profile_box[0]
                         _ta_duration = time.monotonic() - _ta_thread_start
+                        if _ta_profile:
+                            logger.info(
+                                "Analysis completed in %.1fs: %d sprints, %d stories, vel=%.1f",
+                                _ta_duration,
+                                _ta_profile.sample_sprints,
+                                _ta_profile.sample_stories,
+                                _ta_profile.velocity_avg,
+                            )
+                        elif _ta_error_box[0]:
+                            logger.error("Analysis failed: %s", _ta_error_box[0])
                         if _ta_profile:
                             db_dir = Path.home() / ".scrum-agent"
                             db_dir.mkdir(parents=True, exist_ok=True)
