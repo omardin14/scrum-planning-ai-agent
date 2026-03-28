@@ -546,11 +546,11 @@ def select_mode(
                                         elif kk == "enter" or kk == " ":
                                             if _esel == 2:
                                                 # Continue → show planning instructions
-                                                from scrum_agent.agent.nodes import (
-                                                    _format_team_calibration,
-                                                )
+                                                from scrum_agent.agent.nodes import _format_team_calibration
+                                                from scrum_agent.tools.team_learning import generate_sample_epic
                                                 from scrum_agent.ui.mode_select.screens._screens_secondary import (
                                                     _build_instructions_review_screen,
+                                                    _build_sample_epic_screen,
                                                 )
 
                                                 _si_text = _format_team_calibration(
@@ -577,7 +577,51 @@ def select_mode(
                                                             _si_sel = min(2, _si_sel + 1)
                                                         elif sk == "enter" or sk == " ":
                                                             if _si_sel == 0:
-                                                                _si_loop = False  # Accept
+                                                                # Accept → sample epic
+                                                                _si_epic = generate_sample_epic(
+                                                                    _si_text,
+                                                                    _stored_ex,
+                                                                )
+                                                                _sie_scroll = 0
+                                                                _sie_sel = 0
+                                                                _sie_loop = True
+                                                                while _sie_loop:
+                                                                    _sek = (
+                                                                        read_key(timeout=_FRAME_TIME)
+                                                                        if _supports_timeout
+                                                                        else read_key()
+                                                                    )
+                                                                    if _sek in ("up", "scroll_up"):
+                                                                        _sie_scroll = max(0, _sie_scroll - 1)
+                                                                    elif _sek in ("down", "scroll_down"):
+                                                                        _sie_scroll += 1
+                                                                    elif _sek == "left":
+                                                                        _sie_sel = max(0, _sie_sel - 1)
+                                                                    elif _sek == "right":
+                                                                        _sie_sel = min(3, _sie_sel + 1)
+                                                                    elif _sek == "enter" or _sek == " ":
+                                                                        if _sie_sel == 0:
+                                                                            _sie_loop = False
+                                                                        elif _sie_sel == 2:
+                                                                            _si_epic = generate_sample_epic(
+                                                                                _si_text,
+                                                                                _stored_ex,
+                                                                            )
+                                                                        else:
+                                                                            _sie_loop = False
+                                                                    elif _sek in ("esc", "q"):
+                                                                        _sie_loop = False
+                                                                    w, h = console.size
+                                                                    live.update(
+                                                                        _build_sample_epic_screen(
+                                                                            _si_epic,
+                                                                            scroll_offset=_sie_scroll,
+                                                                            width=w,
+                                                                            height=h,
+                                                                            action_sel=_sie_sel,
+                                                                        )
+                                                                    )
+                                                                _si_loop = False
                                                             elif _si_sel == 1:
                                                                 _si_loop = False  # Edit (TODO)
                                                             elif _si_sel == 2:
@@ -995,11 +1039,11 @@ def select_mode(
                                 elif kk == "enter" or kk == " ":
                                     if _ta_export_sel == 2:
                                         # Continue → show planning instructions
-                                        from scrum_agent.agent.nodes import (
-                                            _format_team_calibration,
-                                        )
+                                        from scrum_agent.agent.nodes import _format_team_calibration
+                                        from scrum_agent.tools.team_learning import generate_sample_epic
                                         from scrum_agent.ui.mode_select.screens._screens_secondary import (
                                             _build_instructions_review_screen,
+                                            _build_sample_epic_screen,
                                         )
 
                                         _instr_text = _format_team_calibration(
@@ -1022,8 +1066,72 @@ def select_mode(
                                                     _instr_sel = min(2, _instr_sel + 1)
                                                 elif ik == "enter" or ik == " ":
                                                     if _instr_sel == 0:
-                                                        # Accept — save instructions
-                                                        # TODO Phase B: proceed to sample epic
+                                                        # Accept → generate sample epic
+                                                        # Show loading
+                                                        w, h = console.size
+                                                        live.update(
+                                                            _build_analysis_progress_screen(
+                                                                ["Generating sample epic\u2026"],
+                                                                width=w,
+                                                                height=h,
+                                                                elapsed=0,
+                                                                anim_tick=0,
+                                                                source="",
+                                                                mode="analysis",
+                                                            )
+                                                        )
+
+                                                        _sample_epic = generate_sample_epic(
+                                                            _instr_text,
+                                                            _ta_examples,
+                                                        )
+
+                                                        _epic_scroll = 0
+                                                        _epic_sel = 0
+                                                        _epic_loop = True
+                                                        while _epic_loop:
+                                                            ek3 = (
+                                                                read_key(timeout=_FRAME_TIME)
+                                                                if _supports_timeout
+                                                                else read_key()
+                                                            )
+                                                            if ek3 in ("up", "scroll_up"):
+                                                                _epic_scroll = max(0, _epic_scroll - 1)
+                                                            elif ek3 in ("down", "scroll_down"):
+                                                                _epic_scroll += 1
+                                                            elif ek3 == "left":
+                                                                _epic_sel = max(0, _epic_sel - 1)
+                                                            elif ek3 == "right":
+                                                                _epic_sel = min(3, _epic_sel + 1)
+                                                            elif ek3 == "enter" or ek3 == " ":
+                                                                if _epic_sel == 0:
+                                                                    # Accept
+                                                                    # TODO Phase C: proceed to sample stories
+                                                                    _epic_loop = False
+                                                                elif _epic_sel == 1:
+                                                                    # Edit — TODO
+                                                                    _epic_loop = False
+                                                                elif _epic_sel == 2:
+                                                                    # Regenerate
+                                                                    _sample_epic = generate_sample_epic(
+                                                                        _instr_text,
+                                                                        _ta_examples,
+                                                                    )
+                                                                elif _epic_sel == 3:
+                                                                    # Export — TODO
+                                                                    pass
+                                                            elif ek3 in ("esc", "q"):
+                                                                _epic_loop = False
+                                                            w, h = console.size
+                                                            live.update(
+                                                                _build_sample_epic_screen(
+                                                                    _sample_epic,
+                                                                    scroll_offset=_epic_scroll,
+                                                                    width=w,
+                                                                    height=h,
+                                                                    action_sel=_epic_sel,
+                                                                )
+                                                            )
                                                         _instr_loop = False
                                                     elif _instr_sel == 1:
                                                         # Edit — TODO: edit flow

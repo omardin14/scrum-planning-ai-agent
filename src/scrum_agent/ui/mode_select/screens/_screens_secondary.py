@@ -1849,6 +1849,139 @@ def _build_instructions_review_screen(
     )
 
 
+def _build_sample_epic_screen(
+    epic: dict,
+    *,
+    scroll_offset: int = 0,
+    width: int = 80,
+    height: int = 24,
+    action_sel: int = 0,
+) -> Panel:
+    """Build the sample epic review screen."""
+    c_accent = "#22c55e"
+    c_muted = "rgb(120,120,140)"
+    c_value = "bold white"
+
+    body_lines: list = []
+
+    # Epic header
+    title = epic.get("title", "Sample Epic")
+    priority = epic.get("priority", "high")
+    body_lines.append(
+        Text(
+            _PAD + f"  {title}",
+            style=f"bold {c_accent}",
+            justify="left",
+        )
+    )
+    body_lines.append(Text(""))
+
+    # Metadata
+    stories_est = epic.get("stories_estimate", 0)
+    points_est = epic.get("points_estimate", 0)
+    meta = Text(_PAD + "  ", justify="left")
+    meta.append(f"Priority: {priority}", style=c_value)
+    meta.append(f"  \u00b7  ~{stories_est} stories", style=c_muted)
+    meta.append(f"  \u00b7  ~{points_est} pts", style=c_muted)
+    body_lines.append(meta)
+    body_lines.append(Text(""))
+
+    # Description
+    desc = epic.get("description", "")
+    if desc:
+        body_lines.append(Text(_PAD + "  Description:", style=c_value, justify="left"))
+        # Wrap description text
+        max_w = max(40, width - len(_PAD) - 12)
+        words = desc.split()
+        line_buf = ""
+        for word in words:
+            if len(line_buf) + len(word) + 1 > max_w:
+                body_lines.append(Text(_PAD + "    " + line_buf, style=c_muted, justify="left"))
+                line_buf = word
+            else:
+                line_buf = (line_buf + " " + word).strip()
+        if line_buf:
+            body_lines.append(Text(_PAD + "    " + line_buf, style=c_muted, justify="left"))
+        body_lines.append(Text(""))
+
+    # Rationale
+    rationale = epic.get("rationale", "")
+    if rationale:
+        body_lines.append(Text(_PAD + "  Why this matches your team:", style=c_value, justify="left"))
+        words = rationale.split()
+        line_buf = ""
+        for word in words:
+            if len(line_buf) + len(word) + 1 > max_w:
+                body_lines.append(Text(_PAD + "    " + line_buf, style=c_muted, justify="left"))
+                line_buf = word
+            else:
+                line_buf = (line_buf + " " + word).strip()
+        if line_buf:
+            body_lines.append(Text(_PAD + "    " + line_buf, style=c_muted, justify="left"))
+
+    # Footer buttons
+    from rich.table import Table as _EpicBtnTable
+
+    _btn_labels = ["Accept", "Edit", "Regenerate", "Export"]
+    _btn_row = _EpicBtnTable(box=None, padding=(0, 1), pad_edge=False, show_header=False)
+    _btn_row.add_column(width=3)
+    for label in _btn_labels:
+        _btn_row.add_column(width=len(label) + 4)
+    _btn_cells: list[Text] = [Text("")]
+    for i, label in enumerate(_btn_labels):
+        top = "\u250c" + "\u2500" * (len(label) + 2) + "\u2510"
+        mid = "\u2502 " + label + " \u2502"
+        bot = "\u2514" + "\u2500" * (len(label) + 2) + "\u2518"
+        cell = Text(justify="center")
+        if i == action_sel:
+            cell.append(top + "\n", style=c_accent)
+            cell.append(mid + "\n", style=f"bold {c_accent}")
+            cell.append(bot, style=c_accent)
+        else:
+            cell.append(top + "\n", style="rgb(60,60,70)")
+            cell.append(mid + "\n", style="rgb(100,100,110)")
+            cell.append(bot, style="rgb(60,60,70)")
+        _btn_cells.append(cell)
+    _btn_row.add_row(*_btn_cells)
+    footer = [Text(""), Padding(_btn_row, (0, 0, 0, len(_PAD)))]
+    footer_h = 5
+
+    # Viewport
+    inner_h = height - 4
+    header_h = 2
+    body_h = inner_h - header_h - footer_h
+    n_lines = len(body_lines)
+    max_scroll = max(0, n_lines - body_h)
+    actual_scroll = min(scroll_offset, max_scroll)
+    visible = body_lines[actual_scroll : actual_scroll + body_h]
+    remaining = max(0, body_h - len(visible))
+
+    sub = Text(
+        _PAD + "Sample Epic \u2014 does this match your team's style?",
+        style="bold white",
+        justify="left",
+    )
+
+    content = Group(
+        sub,
+        Text(""),
+        *visible,
+        *[Text("") for _ in range(remaining)],
+        *footer,
+    )
+
+    return Panel(
+        content,
+        title="[bold rgb(100,180,100)] SAMPLE EPIC [/]",
+        title_align="left",
+        border_style=c_accent,
+        box=rich.box.ROUNDED,
+        expand=True,
+        height=height,
+        padding=(1, 2),
+    )
+
+
 def _build_intake_screen(
     selected: int,
     *,

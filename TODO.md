@@ -1114,7 +1114,7 @@ _Bring Azure DevOps to full feature parity with Jira — read board/velocity, cr
 
 ### 17a-4: Analysis Mode — Simulated Plan Preview
 - [x] Phase A: Planning Instructions page — show/edit calibration instructions after analysis, Accept/Edit/Export
-- [ ] Phase B: Sample Epic page — LLM generates sample epic matching team style, Accept/Edit/Regenerate/Export
+- [x] Phase B: Sample Epic page — LLM generates sample epic matching team style, Accept/Edit/Regenerate/Export
 - [ ] Phase C: Sample User Stories page — LLM generates 2-3 sample stories with ACs, points, discipline
 - [ ] Phase D: Sample Tasks page — LLM generates sample tasks for the stories
 - [ ] Phase E: Sample Sprint Plan page — LLM generates sprint plan using team velocity/capacity

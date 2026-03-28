@@ -2452,6 +2452,90 @@ def _analyse_story_structure(delivery_stories: list[dict], all_stories: list[dic
     }
 
 
+# ---------------------------------------------------------------------------
+# Sample artifact generation for analysis preview
+# ---------------------------------------------------------------------------
+
+
+def generate_sample_epic(calibration_text: str, examples: dict | None = None) -> dict:
+    """Generate a sample epic matching the team's style using LLM.
+
+    Uses the full team calibration text to guide the LLM in producing
+    an epic that matches the team's naming conventions, sizing patterns,
+    and description template.
+
+    Returns a dict with: title, description, priority, stories_estimate,
+    points_estimate, rationale.
+    """
+    _ex = examples or {}
+    naming = _ex.get("naming_conventions", {})
+    epic_style = naming.get("epic_naming_style", "feature-scoped")
+    epic_examples = naming.get("epic_examples", [])
+    template_sections = naming.get("template_sections", [])
+
+    # Build context from analysis
+    epic_ctx_parts: list[str] = []
+    if epic_examples:
+        epic_ctx_parts.append("Real epic titles from this team: " + ", ".join(f'"{e}"' for e in epic_examples[:5]))
+    epic_ctx_parts.append(f"Epic naming style: {epic_style}")
+    if template_sections:
+        secs = ", ".join(f'"{s}"' for s, _ in template_sections[:5])
+        epic_ctx_parts.append(f"Description template sections: {secs}")
+
+    epic_context = "\n".join(epic_ctx_parts)
+
+    prompt = f"""\
+You are generating a SAMPLE epic to preview how the planning phase will create epics
+for this team. The epic should match the team's actual style and conventions.
+
+{calibration_text}
+
+Team's epic context:
+{epic_context}
+
+Generate ONE sample epic as JSON matching this schema:
+{{
+  "title": "Epic title matching the team's naming convention",
+  "description": "Epic description using the team's template structure if detected",
+  "priority": "high",
+  "stories_estimate": 5,
+  "points_estimate": 18,
+  "rationale": "Why this epic structure matches the team's patterns"
+}}
+
+Rules:
+- Title MUST match the team's naming style (feature-scoped, quarter-scoped, etc.)
+- Description MUST use the team's template sections if detected
+- stories_estimate and points_estimate should match historical averages
+- Make the epic realistic for an infrastructure/platform team
+- Return ONLY the JSON object, no other text."""
+
+    try:
+        from langchain_core.messages import HumanMessage
+
+        from scrum_agent.agent.llm import get_llm
+
+        response = get_llm(temperature=0.3).invoke([HumanMessage(content=prompt)])
+        text = response.content if hasattr(response, "content") else str(response)
+        text = text.strip()
+        if text.startswith("```"):
+            text = re.sub(r"^```\w*\n?", "", text)
+            text = re.sub(r"\n?```$", "", text)
+        return json.loads(text)
+    except Exception as exc:
+        logger.warning("Sample epic generation failed: %s", exc)
+        # Deterministic fallback
+        title = epic_examples[0] if epic_examples else "Platform Improvement Initiative"
+        return {
+            "title": title,
+            "description": "Sample epic matching the team's conventions.",
+            "priority": "high",
+            "stories_estimate": 5,
+            "points_estimate": 18,
+            "rationale": "Fallback — LLM unavailable. Based on historical averages.",
+        }
+
+
 def _analyse_workflow_columns(delivery_stories: list[dict]) -> dict:
     """Analyse board column workflow patterns from status/column transitions.
 
