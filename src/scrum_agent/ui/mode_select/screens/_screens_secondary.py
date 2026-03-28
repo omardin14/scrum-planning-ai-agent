@@ -1933,90 +1933,176 @@ def _build_sample_epic_screen(
     width: int = 80,
     height: int = 24,
     action_sel: int = 0,
+    examples: dict | None = None,
 ) -> Panel:
-    """Build the sample epic review screen."""
+    """Build the sample epic review screen matching planning mode's feature display.
+
+    Shows a pattern breakdown section at the top followed by the generated epic
+    in the same visual format as planning mode's feature cards.
+    """
     c_accent = "#22c55e"
     c_muted = "rgb(120,120,140)"
     c_value = "bold white"
+    c_id = "cyan"
+    c_desc = "rgb(160,160,160)"
+    c_sep = "rgb(40,40,50)"
+    c_section = f"bold {c_accent}"
 
+    _ex = examples or {}
     body_lines: list = []
+    max_w = max(40, width - len(_PAD) - 12)
 
-    # Epic header
-    title = epic.get("title", "Sample Epic")
-    priority = epic.get("priority", "high")
+    # ── Pattern Breakdown Section ─────────────────────────────────
     body_lines.append(
         Text(
-            _PAD + f"  {title}",
-            style=f"bold {c_accent}",
+            _PAD + "  Epic Design Patterns",
+            style=c_section,
             justify="left",
         )
     )
     body_lines.append(Text(""))
 
-    # Metadata
+    # Show team's actual epic metrics
+    from rich.table import Table as _EpicMetaTable
+
+    _mt = _EpicMetaTable(
+        show_lines=False,
+        show_edge=False,
+        show_header=False,
+        box=None,
+        padding=(0, 1),
+        width=max(50, width - 14),
+    )
+    _mt.add_column(width=4, justify="right")
+    _mt.add_column(width=22)
+    _mt.add_column(ratio=2)
+    _mt.add_column(width=12, justify="right", no_wrap=True)
+
+    _naming = _ex.get("naming_conventions", {})
+    _epic_style = _naming.get("epic_naming_style", "feature-scoped")
+    _epic_ex = _naming.get("epic_examples", [])
+
+    _patterns = [
+        ("Naming style", _epic_style, "from analysis"),
+        ("Stories/epic", str(epic.get("stories_estimate", "~5")), "team average"),
+        ("Points/epic", str(epic.get("points_estimate", "~18")), "team average"),
+    ]
+    if _epic_ex:
+        _patterns.append(("Example titles", ", ".join(_epic_ex[:2]), "from board"))
+
+    for idx, (label, value, source) in enumerate(_patterns):
+        _src_style = "green" if source == "from analysis" else "cyan"
+        _mt.add_row(
+            Text(str(idx + 1), style="dim"),
+            Text(label, style=c_value),
+            Text(value[:40], style=c_muted),
+            Text(source, style=_src_style),
+        )
+    body_lines.append(Padding(_mt, (0, 0, 0, len(_PAD))))
+    body_lines.append(Text(""))
+
+    # Separator
+    body_lines.append(
+        Text(
+            _PAD + "  " + "\u2500" * 36,
+            style=c_sep,
+            justify="left",
+        )
+    )
+    body_lines.append(Text(""))
+
+    # ── Generated Epic Card (planning mode style) ─────────────────
+    body_lines.append(
+        Text(
+            _PAD + "  Generated Sample",
+            style=c_section,
+            justify="left",
+        )
+    )
+    body_lines.append(Text(""))
+
+    # Feature header: [F1]  ·  Title  ·  Priority
+    title = epic.get("title", "Sample Epic")
+    priority = epic.get("priority", "high")
+    _prio_colors = {"critical": "bold red", "high": "yellow", "medium": "rgb(70,100,180)", "low": "dim"}
+    _prio_style = _prio_colors.get(priority, "yellow")
+
+    hdr = Text(_PAD + "  ", justify="left")
+    hdr.append("[F1]", style=c_id)
+    hdr.append("  \u00b7  ", style="dim")
+    hdr.append(title, style=c_value)
+    hdr.append("  \u00b7  ", style="dim")
+    hdr.append(priority, style=_prio_style)
+    body_lines.append(hdr)
+    body_lines.append(Text(""))
+
+    # Metadata line
     stories_est = epic.get("stories_estimate", 0)
     points_est = epic.get("points_estimate", 0)
-    meta = Text(_PAD + "  ", justify="left")
-    meta.append(f"Priority: {priority}", style=c_value)
-    meta.append(f"  \u00b7  ~{stories_est} stories", style=c_muted)
-    meta.append(f"  \u00b7  ~{points_est} pts", style=c_muted)
+    meta = Text(_PAD + "    ", justify="left")
+    meta.append(f"~{stories_est} stories", style=c_muted)
+    meta.append("  \u00b7  ", style="dim")
+    meta.append(f"~{points_est} story points", style=c_muted)
     body_lines.append(meta)
     body_lines.append(Text(""))
 
-    # Description
+    # Description (wrapped, dim)
     desc = epic.get("description", "")
     if desc:
-        body_lines.append(Text(_PAD + "  Description:", style=c_value, justify="left"))
-        # Wrap description text
-        max_w = max(40, width - len(_PAD) - 12)
         words = desc.split()
         line_buf = ""
         for word in words:
             if len(line_buf) + len(word) + 1 > max_w:
-                body_lines.append(Text(_PAD + "    " + line_buf, style=c_muted, justify="left"))
+                body_lines.append(Text(_PAD + "    " + line_buf, style=c_desc, justify="left"))
                 line_buf = word
             else:
                 line_buf = (line_buf + " " + word).strip()
         if line_buf:
-            body_lines.append(Text(_PAD + "    " + line_buf, style=c_muted, justify="left"))
+            body_lines.append(Text(_PAD + "    " + line_buf, style=c_desc, justify="left"))
         body_lines.append(Text(""))
 
-    # Rationale
+    # Rationale (why this matches)
     rationale = epic.get("rationale", "")
     if rationale:
-        body_lines.append(Text(_PAD + "  Why this matches your team:", style=c_value, justify="left"))
+        body_lines.append(Text(""))
+        body_lines.append(
+            Text(
+                _PAD + "  Why this matches your team",
+                style=f"bold {c_muted}",
+                justify="left",
+            )
+        )
         words = rationale.split()
         line_buf = ""
         for word in words:
             if len(line_buf) + len(word) + 1 > max_w:
-                body_lines.append(Text(_PAD + "    " + line_buf, style=c_muted, justify="left"))
+                body_lines.append(Text(_PAD + "    " + line_buf, style=c_desc, justify="left"))
                 line_buf = word
             else:
                 line_buf = (line_buf + " " + word).strip()
         if line_buf:
-            body_lines.append(Text(_PAD + "    " + line_buf, style=c_muted, justify="left"))
+            body_lines.append(Text(_PAD + "    " + line_buf, style=c_desc, justify="left"))
 
-    # Footer buttons
-    from rich.table import Table as _EpicBtnTable
-
+    # Footer buttons (rounded corners matching planning mode)
     _btn_labels = ["Accept", "Edit", "Regenerate", "Export"]
-    _btn_row = _EpicBtnTable(box=None, padding=(0, 1), pad_edge=False, show_header=False)
+    _btn_row = _EpicMetaTable.__class__(box=None, padding=(0, 1), pad_edge=False, show_header=False)
     _btn_row.add_column(width=3)
     for label in _btn_labels:
         _btn_row.add_column(width=len(label) + 4)
     _btn_cells: list[Text] = [Text("")]
     for i, label in enumerate(_btn_labels):
-        top = "\u250c" + "\u2500" * (len(label) + 2) + "\u2510"
+        top = "\u256d" + "\u2500" * (len(label) + 2) + "\u256e"
         mid = "\u2502 " + label + " \u2502"
-        bot = "\u2514" + "\u2500" * (len(label) + 2) + "\u2518"
+        bot = "\u2570" + "\u2500" * (len(label) + 2) + "\u256f"
         cell = Text(justify="center")
         if i == action_sel:
-            cell.append(top + "\n", style=c_accent)
-            cell.append(mid + "\n", style=f"bold {c_accent}")
-            cell.append(bot, style=c_accent)
+            _sc = c_accent if i == 0 else ("rgb(100,140,220)" if i != 2 else "rgb(220,180,60)")
+            cell.append(top + "\n", style=_sc)
+            cell.append(mid + "\n", style=f"bold {_sc}")
+            cell.append(bot, style=_sc)
         else:
             cell.append(top + "\n", style="rgb(60,60,70)")
-            cell.append(mid + "\n", style="rgb(100,100,110)")
+            cell.append(mid + "\n", style="rgb(90,90,100)")
             cell.append(bot, style="rgb(60,60,70)")
         _btn_cells.append(cell)
     _btn_row.add_row(*_btn_cells)
@@ -2034,8 +2120,8 @@ def _build_sample_epic_screen(
     remaining = max(0, body_h - len(visible))
 
     sub = Text(
-        _PAD + "Sample Epic \u2014 does this match your team's style?",
-        style="bold white",
+        _PAD + "Does this epic match your team's style?",
+        style="dim",
         justify="left",
     )
 

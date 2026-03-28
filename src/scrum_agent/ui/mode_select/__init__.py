@@ -619,6 +619,7 @@ def select_mode(
                                                                             width=w,
                                                                             height=h,
                                                                             action_sel=_sie_sel,
+                                                                            examples=_stored_ex,
                                                                         )
                                                                     )
                                                                 _si_loop = False
@@ -1159,6 +1160,7 @@ def select_mode(
                                                                     width=w,
                                                                     height=h,
                                                                     action_sel=_epic_sel,
+                                                                    examples=_ta_examples,
                                                                 )
                                                             )
                                                         _instr_loop = False
