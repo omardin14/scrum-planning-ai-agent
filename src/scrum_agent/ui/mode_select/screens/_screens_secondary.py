@@ -1105,6 +1105,61 @@ def _build_team_analysis_screen(
                 )
                 _add(row)
 
+    # ── Additional Patterns ─────────────────────────────────────────
+    _addl = _ex.get("additional_patterns", {})
+    if isinstance(_addl, dict):
+        # Estimation bias
+        est = _addl.get("estimation_bias", {})
+        if isinstance(est, dict) and est.get("sample", 0) >= 5:
+            _heading("Estimation Accuracy")
+            u_pct = est.get("underestimated_pct", 0)
+            o_pct = est.get("overestimated_pct", 0)
+            a_pct = est.get("accurate_pct", 0)
+            _kv("Accurate", f"{a_pct}%", c_good if a_pct >= 60 else c_warn)
+            _kv("Underestimated", f"{u_pct}% (took >2x expected)", c_bad if u_pct >= 30 else c_muted)
+            _kv("Overestimated", f"{o_pct}% (finished in <½ expected)", c_warn if o_pct >= 20 else c_muted)
+            worst = est.get("worst_sizes", [])
+            if worst:
+                row = Text(_PAD + "  ", justify="left")
+                row.append("Most underestimated: ", style=c_muted)
+                row.append(", ".join(f"{p}pt" for p in worst), style=c_bad)
+                _add(row)
+
+        # Seasonal velocity
+        seas = _addl.get("seasonal", {})
+        if isinstance(seas, dict) and seas.get("monthly_avg"):
+            monthly = seas["monthly_avg"]
+            low = seas.get("low_months", {})
+            high = seas.get("high_months", {})
+            if low or high:
+                _heading("Seasonal Patterns")
+                row = Text(_PAD + "  ", justify="left")
+                m_parts = [f"{m} {v:g}" for m, v in monthly.items()]
+                row.append(" \u00b7 ".join(m_parts), style=c_muted)
+                _add(row)
+                if low:
+                    for m, v in low.items():
+                        row = Text(_PAD + "  ", justify="left")
+                        row.append(f"\u2193 {m}: {v:g} pts", style=c_bad)
+                        row.append(f" (avg {seas.get('overall_avg', 0):g})", style=c_dim)
+                        _add(row)
+                if high:
+                    for m, v in high.items():
+                        row = Text(_PAD + "  ", justify="left")
+                        row.append(f"\u2191 {m}: {v:g} pts", style=c_good)
+                        row.append(f" (avg {seas.get('overall_avg', 0):g})", style=c_dim)
+                        _add(row)
+
+        # Bug rate
+        bugs = _addl.get("bug_rate", {})
+        if isinstance(bugs, dict) and bugs.get("bug_count", 0) > 0:
+            b_pct = bugs.get("bug_pct", 0)
+            _kv(
+                "Bug rate",
+                f"{bugs['bug_count']} bugs ({b_pct}% of stories, {bugs.get('bug_pts', 0):g} pts)",
+                c_warn if b_pct >= 10 else c_muted,
+            )
+
     # ── Acceptance Criteria Patterns ─────────────────────────────────
     ac_pat = _ex.get("ac_patterns", {})
     if isinstance(ac_pat, dict) and ac_pat.get("stories_with_ac_pct") is not None:

@@ -5465,6 +5465,28 @@ def _format_team_calibration(profile: object, *, examples: dict | None = None) -
             lines.extend(naming_parts)
             lines.append("\n→ Generated tickets MUST match these naming conventions.\n")
 
+    # Estimation bias and seasonal patterns
+    addl = _ex.get("additional_patterns", {})
+    if isinstance(addl, dict):
+        est = addl.get("estimation_bias", {})
+        if isinstance(est, dict) and est.get("underestimated_pct", 0) >= 20:
+            worst = est.get("worst_sizes", [])
+            w_str = ", ".join(f"{p}pt" for p in worst) if worst else "larger stories"
+            lines.append(
+                f"### Estimation warning: {est['underestimated_pct']}% of stories take >2x expected.\n"
+                f"- Most affected: {w_str}\n"
+                "- Add estimation buffer for these sizes or break into smaller pieces.\n"
+            )
+        seas = addl.get("seasonal", {})
+        if isinstance(seas, dict) and seas.get("low_months"):
+            low = seas["low_months"]
+            low_str = ", ".join(f"{m} ({v:g} pts)" for m, v in low.items())
+            lines.append(
+                f"### Seasonal velocity dips: {low_str}\n"
+                f"- Average velocity is {seas.get('overall_avg', 0):g} pts/sprint.\n"
+                "- Plan lighter sprints in low-velocity months.\n"
+            )
+
     lines.append(
         "### Estimation note: Use THESE team-specific patterns, not generic Fibonacci rules. "
         "Weight HIGH confidence calibrations heavily; treat low confidence data as rough guidance only.\n"

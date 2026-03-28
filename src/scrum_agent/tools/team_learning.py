@@ -1472,6 +1472,12 @@ def _run_parallel_analysis(
     # Story/epic/subtask structure analysis
     examples["story_structure"] = _analyse_story_structure(delivery_stories, all_stories)  # type: ignore[assignment]
 
+    # Additional patterns: estimation bias, seasonal velocity, bug rate
+    examples["additional_patterns"] = _analyse_additional_patterns(  # type: ignore[assignment]
+        delivery_stories,
+        sprint_data,
+    )
+
     # Acceptance criteria pattern analysis
     examples["ac_patterns"] = _analyse_acceptance_criteria(delivery_stories)  # type: ignore[assignment]
 
@@ -2405,6 +2411,114 @@ def _analyse_story_structure(delivery_stories: list[dict], all_stories: list[dic
         "lingering_epics": lingering_epics[:5],
         "splitting_signals": _splitting_signals[:5],
         "epic_sprint_spread": _epic_sprint_spread[:5],
+    }
+
+
+def _analyse_additional_patterns(
+    delivery_stories: list[dict],
+    sprint_data: list[dict],
+) -> dict:
+    """Analyse estimation bias, seasonal velocity, and bug rate patterns."""
+    if not delivery_stories:
+        return {}
+
+    # ── Estimation bias ────────────────────────────────────────────
+    # Compare actual cycle time to avg for same point value
+    # Group completed stories by point tier
+    _by_pts: dict[int, list[float]] = defaultdict(list)
+    for s in delivery_stories:
+        ct = s.get("cycle_time_days")
+        pts = int(_safe_float(s.get("points", 0)))
+        if ct and ct > 0 and pts in (1, 2, 3, 5, 8):
+            _by_pts[pts].append(ct)
+
+    _pt_avgs: dict[int, float] = {}
+    for pts, cts in _by_pts.items():
+        if cts:
+            _pt_avgs[pts] = sum(cts) / len(cts)
+
+    underestimated = 0
+    overestimated = 0
+    accurate = 0
+    _under_by_pts: dict[int, int] = defaultdict(int)
+    for s in delivery_stories:
+        ct = s.get("cycle_time_days")
+        pts = int(_safe_float(s.get("points", 0)))
+        if not ct or ct <= 0 or pts not in _pt_avgs:
+            continue
+        avg = _pt_avgs[pts]
+        if ct > avg * 2:
+            underestimated += 1
+            _under_by_pts[pts] += 1
+        elif ct < avg * 0.5:
+            overestimated += 1
+        else:
+            accurate += 1
+
+    total_estimated = underestimated + overestimated + accurate
+    estimation_bias: dict = {}
+    if total_estimated >= 5:
+        estimation_bias = {
+            "underestimated_pct": round(underestimated / total_estimated * 100),
+            "overestimated_pct": round(overestimated / total_estimated * 100),
+            "accurate_pct": round(accurate / total_estimated * 100),
+            "worst_sizes": [
+                pts
+                for pts in sorted(_under_by_pts, key=_under_by_pts.get, reverse=True)  # type: ignore[arg-type]
+                if _under_by_pts[pts] >= 2
+            ][:3],
+            "sample": total_estimated,
+        }
+
+    # ── Seasonal velocity patterns ─────────────────────────────────
+    _monthly_velocity: dict[str, list[float]] = defaultdict(list)
+    for sd in sprint_data:
+        start_str = sd.get("sprint_start", "")
+        pts_val = sd.get("completed_points", 0)
+        if not start_str or not pts_val:
+            continue
+        dt = _parse_date(start_str)
+        if dt:
+            month_key = dt.strftime("%b")  # "Jan", "Feb", etc.
+            _monthly_velocity[month_key].append(pts_val)
+
+    seasonal: dict = {}
+    if len(_monthly_velocity) >= 3:
+        _month_avgs = {m: round(sum(v) / len(v), 1) for m, v in _monthly_velocity.items()}
+        overall_avg = sum(v for vals in _monthly_velocity.values() for v in vals) / max(
+            1, sum(len(v) for v in _monthly_velocity.values())
+        )
+        # Find months significantly above/below average (>25% deviation)
+        high_months = {m: avg for m, avg in _month_avgs.items() if avg > overall_avg * 1.25}
+        low_months = {m: avg for m, avg in _month_avgs.items() if avg < overall_avg * 0.75}
+        seasonal = {
+            "monthly_avg": _month_avgs,
+            "overall_avg": round(overall_avg, 1),
+            "high_months": high_months,
+            "low_months": low_months,
+        }
+
+    # ── Bug rate ───────────────────────────────────────────────────
+    total_stories = len(delivery_stories)
+    bug_count = sum(1 for s in delivery_stories if s.get("issue_type", "").lower() in ("bug", "defect"))
+    bug_pts = sum(
+        _safe_float(s.get("points", 0))
+        for s in delivery_stories
+        if s.get("issue_type", "").lower() in ("bug", "defect")
+    )
+    bug_rate: dict = {}
+    if total_stories >= 5:
+        bug_rate = {
+            "bug_count": bug_count,
+            "bug_pct": round(bug_count / total_stories * 100),
+            "bug_pts": round(bug_pts, 1),
+            "total_stories": total_stories,
+        }
+
+    return {
+        "estimation_bias": estimation_bias,
+        "seasonal": seasonal,
+        "bug_rate": bug_rate,
     }
 
 
@@ -3805,6 +3919,7 @@ def _fetch_jira_history(project_key: str, sprint_count: int) -> list[dict]:
                 "points": pts,
                 "cycle_time_days": ct,
                 "discipline": discipline,
+                "issue_type": type_name,
                 "task_count": task_count,
                 "ac_count": ac_count,
                 "epic_key": epic_key,
@@ -3907,6 +4022,8 @@ def _fetch_jira_history(project_key: str, sprint_count: int) -> list[dict]:
         )
         sd_entry: dict = {
             "sprint_name": sp.name,
+            "sprint_start": sprint_start,
+            "sprint_end": sprint_end,
             "completed_points": completed_pts,
             "stories": stories,
             "planned_count": planned_count,
@@ -4209,10 +4326,13 @@ def _fetch_azdevops_history(project_key: str, sprint_count: int) -> list[dict]:
             st_titles = [t["title"] for t in child_tasks if t.get("title")]
             st_labels = [t.get("type", "Task") for t in child_tasks]
 
+            _wi_type = (fields.get("System.WorkItemType", "") or "").lower()
+
             story_row = {
                 "points": pts,
                 "cycle_time_days": ct,
                 "discipline": discipline,
+                "issue_type": _wi_type,
                 "task_count": len(child_tasks),
                 "ac_count": ac_count,
                 "epic_key": epic_key,
@@ -4280,6 +4400,8 @@ def _fetch_azdevops_history(project_key: str, sprint_count: int) -> list[dict]:
         )
         _azdo_sd_entry: dict = {
             "sprint_name": _iter_name,
+            "sprint_start": iter_start_str,
+            "sprint_end": iter_end_str,
             "completed_points": completed_pts,
             "stories": stories,
             "planned_count": planned_count,

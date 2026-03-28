@@ -1080,11 +1080,11 @@ _Bring Azure DevOps to full feature parity with Jira — read board/velocity, cr
 - [x] Recurring/ceremony ticket detection and exclusion
 - [x] Shadow spillover detection (closed then re-created)
 - [x] Repository activity correlation (which repos touch which stories)
-- [ ] Learn WIP patterns — how many stories are "In Progress" simultaneously per developer?
-- [ ] Detect estimation bias — are certain stories consistently over/under-estimate?
-- [ ] Learn review cycle time — how long between "In Review" and "Done"?
-- [ ] Detect seasonal patterns — velocity dips around holidays, end-of-quarter rushes
-- [ ] Track bug rate — how many bugs are filed within N sprints of a story being closed?
+- [x] Detect estimation bias — compare actual cycle time vs point-value average, flag >2x as underestimated
+- [x] Detect seasonal patterns — velocity by month, flag months >25% below/above average
+- [x] Track bug rate — count bug/defect issue types per sprint, compute ratio and points
+- [ ] Learn WIP patterns — needs intermediate state timestamps (deferred)
+- [ ] Learn review cycle time — needs state transition timestamps (deferred)
 
 ---
 
