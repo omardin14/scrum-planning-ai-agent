@@ -80,6 +80,81 @@ _FRAME_TIME = FRAME_TIME_60FPS
 # ---------------------------------------------------------------------------
 
 
+def _run_sprint_review(
+    live,
+    console,
+    read_key,
+    frame_time,
+    supports_timeout,
+    instr_text,
+    sample_stories,
+    sample_tasks,
+    ta_examples,
+):
+    """Run the sample sprint review loop (extracted to reduce nesting depth)."""
+    from scrum_agent.tools.team_learning import generate_sample_sprint
+    from scrum_agent.ui.mode_select.screens._screens_secondary import (
+        _build_analysis_progress_screen,
+        _build_sample_sprint_screen,
+    )
+
+    w, h = console.size
+    live.update(
+        _build_analysis_progress_screen(
+            ["Generating sprint plan\u2026"],
+            width=w,
+            height=h,
+            elapsed=0,
+            anim_tick=0,
+            source="",
+            mode="analysis",
+        )
+    )
+    sprint = generate_sample_sprint(
+        instr_text,
+        sample_stories,
+        sample_tasks,
+        ta_examples,
+    )
+    scroll = 0
+    sel = 0
+    while True:
+        k = read_key(timeout=frame_time) if supports_timeout else read_key()
+        if k in ("up", "scroll_up"):
+            scroll = max(0, scroll - 1)
+        elif k in ("down", "scroll_down"):
+            scroll += 1
+        elif k == "left":
+            sel = max(0, sel - 1)
+        elif k == "right":
+            sel = min(2, sel + 1)
+        elif k in ("enter", " "):
+            if sel == 0:
+                break  # Done
+            elif sel == 1:
+                sprint = generate_sample_sprint(
+                    instr_text,
+                    sample_stories,
+                    sample_tasks,
+                    ta_examples,
+                )
+            else:
+                break
+        elif k in ("esc", "q"):
+            break
+        w, h = console.size
+        live.update(
+            _build_sample_sprint_screen(
+                sprint,
+                sample_stories,
+                scroll_offset=scroll,
+                width=w,
+                height=h,
+                action_sel=sel,
+            )
+        )
+
+
 def select_mode(
     console: Console | None = None, *, dry_run: bool = False, _read_key_fn=None
 ) -> tuple[str, str | None, str | None] | None:
@@ -1219,6 +1294,18 @@ def select_mode(
                                                                                         _st_sel = min(3, _st_sel + 1)
                                                                                     elif _stk in ("enter", " "):
                                                                                         if _st_sel == 0:
+                                                                                            # Accept → sprint
+                                                                                            _run_sprint_review(
+                                                                                                live,
+                                                                                                console,
+                                                                                                read_key,
+                                                                                                _FRAME_TIME,
+                                                                                                _supports_timeout,
+                                                                                                _instr_text,
+                                                                                                _sample_stories,
+                                                                                                _sample_tasks,
+                                                                                                _ta_examples,
+                                                                                            )
                                                                                             _st_loop = False
                                                                                         elif _st_sel == 2:
                                                                                             _sample_tasks = (

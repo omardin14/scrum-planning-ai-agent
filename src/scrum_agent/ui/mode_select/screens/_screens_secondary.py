@@ -2477,6 +2477,189 @@ def _build_sample_tasks_screen(
     )
 
 
+def _build_sample_sprint_screen(
+    sprint: dict,
+    stories: list[dict],
+    *,
+    scroll_offset: int = 0,
+    width: int = 80,
+    height: int = 24,
+    action_sel: int = 0,
+) -> Panel:
+    """Build the sample sprint plan review screen."""
+    c_accent = "#22c55e"
+    c_muted = "rgb(120,120,140)"
+    c_desc = "rgb(160,160,160)"
+    c_sep = "rgb(40,40,50)"
+    c_section = f"bold {c_accent}"
+    c_standalone = "rgb(220,180,60)"
+
+    body_lines: list = []
+    max_w = max(40, width - len(_PAD) - 12)
+
+    # Sprint header
+    sprint_name = sprint.get("sprint_name", "Sprint 1")
+    vel_target = sprint.get("velocity_target", 0)
+    total_pts = sprint.get("total_points", 0)
+
+    body_lines.append(
+        Text(
+            _PAD + "  Sprint Plan Preview",
+            style=c_section,
+            justify="left",
+        )
+    )
+    body_lines.append(Text(""))
+
+    # Sprint card
+    hdr = Text(_PAD + "  ", justify="left")
+    hdr.append(sprint_name, style="bold white")
+    hdr.append(f"  \u00b7  {total_pts} pts", style=c_muted)
+    hdr.append(f"  \u00b7  capacity {vel_target} pts", style=c_muted)
+    body_lines.append(hdr)
+    body_lines.append(Text(""))
+
+    # Capacity notes
+    cap_notes = sprint.get("capacity_notes", "")
+    if cap_notes:
+        body_lines.append(
+            Text(
+                _PAD + f"    {cap_notes}",
+                style=c_standalone,
+                justify="left",
+            )
+        )
+        body_lines.append(Text(""))
+
+    # Stories in sprint
+    included = sprint.get("stories_included", [])
+    if included:
+        body_lines.append(
+            Text(
+                _PAD + "  Stories included:",
+                style=f"bold {c_muted}",
+                justify="left",
+            )
+        )
+        for sid in included:
+            # Find matching story
+            story = next((s for s in stories if s.get("id") == sid), None)
+            row = Text(_PAD + "    ", justify="left")
+            row.append(sid, style="cyan")
+            if story:
+                row.append(f"  {story.get('title', '')}  ", style="white")
+                row.append(f"{story.get('story_points', '?')} pts", style="dim")
+            body_lines.append(row)
+        body_lines.append(Text(""))
+
+    # Utilisation
+    if vel_target > 0 and total_pts > 0:
+        util_pct = round(total_pts / vel_target * 100)
+        util_style = c_accent if 70 <= util_pct <= 90 else (c_standalone if util_pct < 70 else "bold red")
+        body_lines.append(
+            Text(
+                _PAD + f"  Sprint utilisation: {util_pct}%",
+                style=util_style,
+                justify="left",
+            )
+        )
+        body_lines.append(Text(""))
+
+    # Risks
+    risks = sprint.get("risks", [])
+    if risks:
+        body_lines.append(Text(_PAD + "  " + "\u2500" * 36, style=c_sep, justify="left"))
+        body_lines.append(Text(""))
+        body_lines.append(Text(_PAD + "  Risks:", style=f"bold {c_standalone}", justify="left"))
+        for risk in risks[:5]:
+            body_lines.append(Text(_PAD + f"    \u26a0 {risk}", style=c_desc, justify="left"))
+        body_lines.append(Text(""))
+
+    # Rationale
+    rationale = sprint.get("rationale", "")
+    if rationale:
+        body_lines.append(Text(_PAD + "  " + "\u2500" * 36, style=c_sep, justify="left"))
+        body_lines.append(Text(""))
+        body_lines.append(
+            Text(
+                _PAD + "  Why this sprint plan matches your team",
+                style=f"bold {c_muted}",
+                justify="left",
+            )
+        )
+        words = rationale.split()
+        buf = ""
+        for word in words:
+            if len(buf) + len(word) + 1 > max_w:
+                body_lines.append(Text(_PAD + "    " + buf, style=c_desc, justify="left"))
+                buf = word
+            else:
+                buf = (buf + " " + word).strip()
+        if buf:
+            body_lines.append(Text(_PAD + "    " + buf, style=c_desc, justify="left"))
+
+    # Footer buttons — final page, so "Done" instead of "Accept"
+    from rich.table import Table as _SpBtnT
+
+    _btn_labels = ["Done", "Regenerate", "Export"]
+    _btn_row = _SpBtnT(box=None, padding=(0, 1), pad_edge=False, show_header=False)
+    _btn_row.add_column(width=3)
+    for label in _btn_labels:
+        _btn_row.add_column(width=len(label) + 4)
+    _btn_cells: list[Text] = [Text("")]
+    for i, label in enumerate(_btn_labels):
+        top = "\u256d" + "\u2500" * (len(label) + 2) + "\u256e"
+        mid = "\u2502 " + label + " \u2502"
+        bot = "\u2570" + "\u2500" * (len(label) + 2) + "\u256f"
+        cell = Text(justify="center")
+        if i == action_sel:
+            _sc = c_accent if i == 0 else ("rgb(220,180,60)" if i == 1 else "rgb(100,140,220)")
+            cell.append(top + "\n", style=_sc)
+            cell.append(mid + "\n", style=f"bold {_sc}")
+            cell.append(bot, style=_sc)
+        else:
+            cell.append(top + "\n", style="rgb(60,60,70)")
+            cell.append(mid + "\n", style="rgb(90,90,100)")
+            cell.append(bot, style="rgb(60,60,70)")
+        _btn_cells.append(cell)
+    _btn_row.add_row(*_btn_cells)
+    footer = [Text(""), Padding(_btn_row, (0, 0, 0, len(_PAD)))]
+    footer_h = 5
+
+    inner_h = height - 4
+    header_h = 2
+    body_h = inner_h - header_h - footer_h
+    max_scroll = max(0, len(body_lines) - body_h)
+    actual_scroll = min(scroll_offset, max_scroll)
+    visible = body_lines[actual_scroll : actual_scroll + body_h]
+    remaining = max(0, body_h - len(visible))
+
+    sub = Text(
+        _PAD + "Does this sprint plan match your team's capacity?",
+        style="dim",
+        justify="left",
+    )
+
+    content = Group(
+        sub,
+        Text(""),
+        *visible,
+        *[Text("") for _ in range(remaining)],
+        *footer,
+    )
+
+    return Panel(
+        content,
+        title="[bold rgb(100,180,100)] SAMPLE SPRINT [/]",
+        title_align="left",
+        border_style=c_accent,
+        box=rich.box.ROUNDED,
+        expand=True,
+        height=height,
+        padding=(1, 2),
+    )
+
+
 def _build_intake_screen(
     selected: int,
     *,

@@ -2712,6 +2712,73 @@ def generate_sample_tasks(
     return tasks
 
 
+def generate_sample_sprint(
+    calibration_text: str,
+    sample_stories: list[dict],
+    sample_tasks: list[dict],
+    examples: dict | None = None,
+) -> dict:
+    """Generate a sample sprint plan matching the team's velocity and capacity."""
+    _ex = examples or {}
+    scope = _ex.get("scope_changes", {})
+    totals = scope.get("totals", {}) if isinstance(scope, dict) else {}
+    delivered_vel = totals.get("avg_delivered_velocity", 0)
+    committed_vel = totals.get("avg_committed_velocity", 0)
+
+    total_pts = sum(s.get("story_points", 0) for s in sample_stories)
+    story_ids = [s.get("id", "") for s in sample_stories]
+
+    prompt = (
+        "Generate a sample sprint plan for these stories and tasks.\n\n"
+        f"{calibration_text}\n\n"
+        f"Team velocity: {delivered_vel or 'unknown'} pts/sprint delivered\n"
+        f"Committed velocity: {committed_vel or 'unknown'} pts/sprint\n\n"
+        f"Stories ({total_pts} total pts): {', '.join(story_ids)}\n"
+        f"Tasks: {len(sample_tasks)} total\n\n"
+        "Return a JSON object:\n"
+        "{\n"
+        '  "sprint_name": "Sprint 1",\n'
+        '  "velocity_target": 20,\n'
+        '  "stories_included": ["S1", "S2"],\n'
+        '  "total_points": 8,\n'
+        '  "capacity_notes": "Based on team avg of 20 pts/sprint",\n'
+        '  "risks": ["Story S2 has external dependency"],\n'
+        '  "rationale": "Why this sprint allocation matches team patterns"\n'
+        "}\n\n"
+        "Rules:\n"
+        "- Use delivered velocity (not committed) for capacity\n"
+        "- Include realistic capacity notes and risks\n"
+        "- Return ONLY the JSON object"
+    )
+
+    try:
+        from langchain_core.messages import HumanMessage
+
+        from scrum_agent.agent.llm import get_llm
+
+        response = get_llm(temperature=0.3).invoke([HumanMessage(content=prompt)])
+        text = response.content if hasattr(response, "content") else str(response)
+        text = text.strip()
+        if text.startswith("```"):
+            text = re.sub(r"^```\w*\n?", "", text)
+            text = re.sub(r"\n?```$", "", text)
+        result = json.loads(text)
+        if isinstance(result, dict):
+            return result
+    except Exception as exc:
+        logger.warning("Sample sprint generation failed: %s", exc)
+
+    return {
+        "sprint_name": "Sprint 1",
+        "velocity_target": delivered_vel or 20,
+        "stories_included": story_ids,
+        "total_points": total_pts,
+        "capacity_notes": "Based on team delivered velocity.",
+        "risks": [],
+        "rationale": "Fallback — LLM unavailable.",
+    }
+
+
 def _analyse_workflow_columns(delivery_stories: list[dict]) -> dict:
     """Analyse board column workflow patterns from status/column transitions.
 
