@@ -80,6 +80,24 @@ _FRAME_TIME = FRAME_TIME_60FPS
 # ---------------------------------------------------------------------------
 
 
+_ana_sid = ""  # module-level analysis session ID
+_ana_dbp = Path.home() / ".scrum-agent" / "sessions.db"  # module-level DB path
+
+
+def _save_ana(state: dict, node: str) -> None:
+    """Save analysis session state (extracted to reduce nesting depth)."""
+    if not _ana_sid:
+        return
+    try:
+        from scrum_agent.sessions import SessionStore
+
+        with SessionStore(_ana_dbp) as store:
+            store.save_state(_ana_sid, state)
+            store.update_last_node(_ana_sid, node)
+    except Exception:
+        pass
+
+
 def _run_sprint_review(
     live,
     console,
@@ -1147,12 +1165,27 @@ def select_mode(
                                 elif kk == "enter" or kk == " ":
                                     if _ta_export_sel == 1:
                                         # Continue → show planning instructions
+                                        global _ana_sid  # noqa: PLW0603
+
                                         from scrum_agent.agent.nodes import _format_team_calibration
+                                        from scrum_agent.sessions import SessionStore as _AStore
+                                        from scrum_agent.sessions import make_session_id
                                         from scrum_agent.tools.team_learning import generate_sample_epic
                                         from scrum_agent.ui.mode_select.screens._screens_secondary import (
                                             _build_instructions_review_screen,
                                             _build_sample_epic_screen,
                                         )
+
+                                        _ana_sid = make_session_id()
+                                        try:
+                                            with _AStore(_ana_dbp) as _as:
+                                                _as.create_session(
+                                                    _ana_sid,
+                                                    _ta_profile.project_key if _ta_profile else "",
+                                                    mode="analysis",
+                                                )
+                                        except Exception:
+                                            pass
 
                                         _instr_text = _format_team_calibration(
                                             _ta_profile,
@@ -1174,7 +1207,9 @@ def select_mode(
                                                     _instr_sel = min(2, _instr_sel + 1)
                                                 elif ik == "enter" or ik == " ":
                                                     if _instr_sel == 0:
-                                                        # Accept → generate sample epic
+                                                        # Accept → save + generate sample epic
+                                                        _st = {"instructions": _instr_text, "last_page": "instructions"}
+                                                        _save_ana(_st, "instructions")
                                                         # Show loading
                                                         w, h = console.size
                                                         live.update(
@@ -1213,7 +1248,13 @@ def select_mode(
                                                                 _epic_sel = min(3, _epic_sel + 1)
                                                             elif ek3 == "enter" or ek3 == " ":
                                                                 if _epic_sel == 0:
-                                                                    # Accept → generate sample stories
+                                                                    # Accept → save + generate stories
+                                                                    _st = {
+                                                                        "instructions": _instr_text,
+                                                                        "sample_epic": _sample_epic,
+                                                                        "last_page": "epic",
+                                                                    }  # noqa: E501
+                                                                    _save_ana(_st, "epic")
                                                                     w, h = console.size
                                                                     live.update(
                                                                         _build_analysis_progress_screen(
@@ -1250,7 +1291,14 @@ def select_mode(
                                                                             _ss_sel = min(3, _ss_sel + 1)
                                                                         elif _ssk == "enter" or _ssk == " ":
                                                                             if _ss_sel == 0:
-                                                                                # Accept → generate tasks
+                                                                                # Accept → save + generate tasks
+                                                                                _st = {
+                                                                                    "instructions": _instr_text,
+                                                                                    "sample_epic": _sample_epic,
+                                                                                    "sample_stories": _sample_stories,
+                                                                                    "last_page": "stories",
+                                                                                }
+                                                                                _save_ana(_st, "stories")
                                                                                 w, h = console.size
                                                                                 _lp = ["Generating sample tasks\u2026"]
                                                                                 live.update(
@@ -1294,7 +1342,16 @@ def select_mode(
                                                                                         _st_sel = min(3, _st_sel + 1)
                                                                                     elif _stk in ("enter", " "):
                                                                                         if _st_sel == 0:
-                                                                                            # Accept → sprint
+                                                                                            # Accept → save + sprint
+                                                                                            _d = dict(  # noqa: C408
+                                                                                                instructions=_instr_text,
+                                                                                                sample_epic=_sample_epic,
+                                                                                                sample_stories=_sample_stories,
+                                                                                                sample_tasks=_sample_tasks,
+                                                                                                last_page="tasks",
+                                                                                            )
+                                                                                            _st = _d
+                                                                                            _save_ana(_st, "tasks")
                                                                                             _run_sprint_review(
                                                                                                 live,
                                                                                                 console,
