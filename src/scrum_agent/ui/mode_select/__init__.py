@@ -545,6 +545,86 @@ def select_mode(
                                             _esel = min(2, _esel + 1)
                                         elif kk == "enter" or kk == " ":
                                             if _esel == 2:
+                                                # Continue → show planning instructions
+                                                from scrum_agent.agent.nodes import (
+                                                    _format_team_calibration,
+                                                )
+                                                from scrum_agent.ui.mode_select.screens._screens_secondary import (
+                                                    _build_instructions_review_screen,
+                                                )
+
+                                                _si_text = _format_team_calibration(
+                                                    _full,
+                                                    examples=_stored_ex,
+                                                )
+                                                if _si_text.strip():
+                                                    _si_scroll = 0
+                                                    _si_sel = 0
+                                                    _si_loop = True
+                                                    while _si_loop:
+                                                        sk = (
+                                                            read_key(timeout=_FRAME_TIME)
+                                                            if _supports_timeout
+                                                            else read_key()
+                                                        )
+                                                        if sk in ("up", "scroll_up"):
+                                                            _si_scroll = max(0, _si_scroll - 1)
+                                                        elif sk in ("down", "scroll_down"):
+                                                            _si_scroll += 1
+                                                        elif sk == "left":
+                                                            _si_sel = max(0, _si_sel - 1)
+                                                        elif sk == "right":
+                                                            _si_sel = min(2, _si_sel + 1)
+                                                        elif sk == "enter" or sk == " ":
+                                                            if _si_sel == 0:
+                                                                _si_loop = False  # Accept
+                                                            elif _si_sel == 1:
+                                                                _si_loop = False  # Edit (TODO)
+                                                            elif _si_sel == 2:
+                                                                # Export
+                                                                from scrum_agent.team_profile_exporter import (
+                                                                    export_team_profile_html,
+                                                                    export_team_profile_md,
+                                                                )
+
+                                                                export_team_profile_html(
+                                                                    _full,
+                                                                    examples=_stored_ex,
+                                                                )
+                                                                _si_ep = export_team_profile_md(
+                                                                    _full,
+                                                                    examples=_stored_ex,
+                                                                )
+                                                                w, h = console.size
+                                                                live.update(
+                                                                    _build_project_export_success_screen(
+                                                                        str(_si_ep),
+                                                                        width=w,
+                                                                        height=h,
+                                                                        subtitle="Instructions exported",
+                                                                    )
+                                                                )
+                                                                _si_t = time.monotonic()
+                                                                while True:
+                                                                    _si_k = (
+                                                                        read_key(timeout=_FRAME_TIME)
+                                                                        if _supports_timeout
+                                                                        else read_key()
+                                                                    )
+                                                                    if time.monotonic() - _si_t > 1.5 and _si_k:
+                                                                        break
+                                                        elif sk in ("esc", "q"):
+                                                            _si_loop = False
+                                                        w, h = console.size
+                                                        live.update(
+                                                            _build_instructions_review_screen(
+                                                                _si_text,
+                                                                scroll_offset=_si_scroll,
+                                                                width=w,
+                                                                height=h,
+                                                                action_sel=_si_sel,
+                                                            )
+                                                        )
                                                 break
                                             if _esel == 0:
                                                 from scrum_agent.team_profile_exporter import export_team_profile_html
@@ -914,6 +994,87 @@ def select_mode(
                                     _ta_export_sel = min(2, _ta_export_sel + 1)
                                 elif kk == "enter" or kk == " ":
                                     if _ta_export_sel == 2:
+                                        # Continue → show planning instructions
+                                        from scrum_agent.agent.nodes import (
+                                            _format_team_calibration,
+                                        )
+                                        from scrum_agent.ui.mode_select.screens._screens_secondary import (
+                                            _build_instructions_review_screen,
+                                        )
+
+                                        _instr_text = _format_team_calibration(
+                                            _ta_profile,
+                                            examples=_ta_examples,
+                                        )
+                                        if _instr_text.strip():
+                                            _instr_scroll = 0
+                                            _instr_sel = 0
+                                            _instr_loop = True
+                                            while _instr_loop:
+                                                ik = read_key(timeout=_FRAME_TIME) if _supports_timeout else read_key()
+                                                if ik in ("up", "scroll_up"):
+                                                    _instr_scroll = max(0, _instr_scroll - 1)
+                                                elif ik in ("down", "scroll_down"):
+                                                    _instr_scroll += 1
+                                                elif ik == "left":
+                                                    _instr_sel = max(0, _instr_sel - 1)
+                                                elif ik == "right":
+                                                    _instr_sel = min(2, _instr_sel + 1)
+                                                elif ik == "enter" or ik == " ":
+                                                    if _instr_sel == 0:
+                                                        # Accept — save instructions
+                                                        # TODO Phase B: proceed to sample epic
+                                                        _instr_loop = False
+                                                    elif _instr_sel == 1:
+                                                        # Edit — TODO: edit flow
+                                                        _instr_loop = False
+                                                    elif _instr_sel == 2:
+                                                        # Export
+                                                        from scrum_agent.team_profile_exporter import (
+                                                            export_team_profile_html,
+                                                            export_team_profile_md,
+                                                        )
+
+                                                        export_team_profile_html(
+                                                            _ta_profile,
+                                                            examples=_ta_examples,
+                                                            sprint_names=_ta_sprint_names,
+                                                        )
+                                                        _ep = export_team_profile_md(
+                                                            _ta_profile,
+                                                            examples=_ta_examples,
+                                                            sprint_names=_ta_sprint_names,
+                                                        )
+                                                        w, h = console.size
+                                                        live.update(
+                                                            _build_project_export_success_screen(
+                                                                str(_ep),
+                                                                width=w,
+                                                                height=h,
+                                                                subtitle="Instructions exported",
+                                                            )
+                                                        )
+                                                        _et2 = time.monotonic()
+                                                        while True:
+                                                            ek2 = (
+                                                                read_key(timeout=_FRAME_TIME)
+                                                                if _supports_timeout
+                                                                else read_key()
+                                                            )
+                                                            if time.monotonic() - _et2 > 1.5 and ek2:
+                                                                break
+                                                elif ik in ("esc", "q"):
+                                                    _instr_loop = False
+                                                w, h = console.size
+                                                live.update(
+                                                    _build_instructions_review_screen(
+                                                        _instr_text,
+                                                        scroll_offset=_instr_scroll,
+                                                        width=w,
+                                                        height=h,
+                                                        action_sel=_instr_sel,
+                                                    )
+                                                )
                                         break
                                     if _ta_export_sel == 0:
                                         from scrum_agent.team_profile_exporter import export_team_profile_html

@@ -1747,6 +1747,108 @@ def _build_team_analysis_screen(
     )
 
 
+def _build_instructions_review_screen(
+    instructions_text: str,
+    *,
+    scroll_offset: int = 0,
+    width: int = 80,
+    height: int = 24,
+    action_sel: int = 0,
+) -> Panel:
+    """Build the planning instructions review screen.
+
+    Shows the calibration instructions that will be injected into planning prompts.
+    User can Accept, Edit, or Export.
+    """
+    c_accent = "#22c55e"
+    c_muted = "rgb(120,120,140)"
+
+    # Build body from instructions text
+    body_lines: list = []
+    for line in instructions_text.splitlines():
+        if line.startswith("###"):
+            body_lines.append(Text(""))
+            body_lines.append(
+                Text(
+                    _PAD + line.lstrip("#").strip(),
+                    style=f"bold {c_accent} underline",
+                    justify="left",
+                )
+            )
+        elif line.startswith("- "):
+            body_lines.append(Text(_PAD + "  " + line, style="white", justify="left"))
+        elif line.startswith("\u2192") or line.startswith("→"):
+            body_lines.append(Text(_PAD + "  " + line, style=c_accent, justify="left"))
+        elif line.strip():
+            body_lines.append(Text(_PAD + "  " + line, style=c_muted, justify="left"))
+
+    # Footer buttons: Accept | Edit | Export
+    from rich.table import Table as _BtnTable
+
+    _btn_labels = ["Accept", "Edit", "Export"]
+    _btn_row = _BtnTable(box=None, padding=(0, 1), pad_edge=False, show_header=False)
+    _btn_row.add_column(width=3)
+    for label in _btn_labels:
+        _btn_row.add_column(width=len(label) + 4)
+    _btn_cells: list[Text] = [Text("")]
+    for i, label in enumerate(_btn_labels):
+        if i == action_sel:
+            top = "\u250c" + "\u2500" * (len(label) + 2) + "\u2510"
+            mid = "\u2502 " + label + " \u2502"
+            bot = "\u2514" + "\u2500" * (len(label) + 2) + "\u2518"
+            cell = Text(justify="center")
+            cell.append(top + "\n", style=c_accent)
+            cell.append(mid + "\n", style=f"bold {c_accent}")
+            cell.append(bot, style=c_accent)
+        else:
+            top = "\u250c" + "\u2500" * (len(label) + 2) + "\u2510"
+            mid = "\u2502 " + label + " \u2502"
+            bot = "\u2514" + "\u2500" * (len(label) + 2) + "\u2518"
+            cell = Text(justify="center")
+            cell.append(top + "\n", style="rgb(60,60,70)")
+            cell.append(mid + "\n", style="rgb(100,100,110)")
+            cell.append(bot, style="rgb(60,60,70)")
+        _btn_cells.append(cell)
+    _btn_row.add_row(*_btn_cells)
+    footer = [Text(""), Padding(_btn_row, (0, 0, 0, len(_PAD)))]
+    footer_h = 5
+
+    # Viewport
+    inner_h = height - 4
+    header_h = 2  # sub + blank
+    body_h = inner_h - header_h - footer_h
+    n_lines = len(body_lines)
+    max_scroll = max(0, n_lines - body_h)
+    actual_scroll = min(scroll_offset, max_scroll)
+    visible = body_lines[actual_scroll : actual_scroll + body_h]
+    remaining = max(0, body_h - len(visible))
+
+    sub = Text(
+        _PAD + "Planning Instructions \u2014 review and edit before planning",
+        style="bold white",
+        justify="left",
+    )
+
+    content = Group(
+        sub,
+        Text(""),
+        *visible,
+        *[Text("") for _ in range(remaining)],
+        *footer,
+    )
+
+    return Panel(
+        content,
+        title="[bold rgb(100,180,100)] PLANNING INSTRUCTIONS [/]",
+        title_align="left",
+        border_style=c_accent,
+        box=rich.box.ROUNDED,
+        expand=True,
+        height=height,
+        padding=(1, 2),
+    )
+
+
 def _build_intake_screen(
     selected: int,
     *,
