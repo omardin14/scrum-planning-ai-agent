@@ -2295,6 +2295,188 @@ def _build_sample_stories_screen(
     )
 
 
+def _build_sample_tasks_screen(
+    tasks: list[dict],
+    *,
+    scroll_offset: int = 0,
+    width: int = 80,
+    height: int = 24,
+    action_sel: int = 0,
+) -> Panel:
+    """Build the sample tasks review screen matching planning mode's task display."""
+    c_accent = "#22c55e"
+    c_id = "cyan"
+    c_muted = "rgb(120,120,140)"
+    c_desc = "rgb(160,160,160)"
+    c_sep = "rgb(40,40,50)"
+    c_section = f"bold {c_accent}"
+    _label_colors = {
+        "code": "rgb(100,140,220)",
+        "testing": "rgb(220,180,60)",
+        "documentation": "rgb(160,100,220)",
+        "infrastructure": "rgb(100,180,100)",
+    }
+
+    body_lines: list = []
+    max_w = max(40, width - len(_PAD) - 12)
+
+    # Group tasks by story
+    _by_story: dict[str, list[dict]] = {}
+    for t in tasks:
+        sid = t.get("story_id", "?")
+        _by_story.setdefault(sid, []).append(t)
+
+    # Pattern breakdown
+    body_lines.append(
+        Text(
+            _PAD + "  Task Decomposition Preview",
+            style=c_section,
+            justify="left",
+        )
+    )
+    body_lines.append(
+        Text(
+            _PAD + f"    {len(tasks)} tasks across {len(_by_story)} stories",
+            style=c_muted,
+            justify="left",
+        )
+    )
+    body_lines.append(Text(""))
+    body_lines.append(Text(_PAD + "  " + "\u2500" * 36, style=c_sep, justify="left"))
+    body_lines.append(Text(""))
+
+    # Render tasks grouped by story
+    for s_idx, (sid, story_tasks) in enumerate(_by_story.items()):
+        # Story header
+        hdr = Text(_PAD + "  ", justify="left")
+        hdr.append(sid, style=f"bold {c_id}")
+        hdr.append(f"  ({len(story_tasks)} tasks)", style="dim")
+        body_lines.append(hdr)
+        body_lines.append(Text(""))
+
+        for t in story_tasks:
+            tid = t.get("id", "T-?")
+            title = t.get("title", "")
+            label = t.get("label", "Code")
+            desc = t.get("description", "")
+            test_plan = t.get("test_plan", "")
+            label_sty = _label_colors.get(label.lower(), c_muted)
+
+            # Task header: T-S1-01 · [Code] · Title
+            row = Text(_PAD + "    ", justify="left")
+            row.append(tid, style=c_id)
+            row.append("  ", style="dim")
+            row.append(f"[{label}]", style=label_sty)
+            row.append("  ", style="dim")
+            row.append(title, style="bold white")
+            body_lines.append(row)
+
+            # Description (wrapped)
+            if desc:
+                words = desc.split()
+                buf = ""
+                for word in words:
+                    if len(buf) + len(word) + 1 > max_w:
+                        body_lines.append(
+                            Text(
+                                _PAD + "         " + buf,
+                                style=c_desc,
+                                justify="left",
+                            )
+                        )
+                        buf = word
+                    else:
+                        buf = (buf + " " + word).strip()
+                if buf:
+                    body_lines.append(
+                        Text(
+                            _PAD + "         " + buf,
+                            style=c_desc,
+                            justify="left",
+                        )
+                    )
+
+            # Test plan
+            if test_plan:
+                tp_row = Text(_PAD + "         ", justify="left")
+                tp_row.append("Test: ", style="bold rgb(220,180,60)")
+                tp_row.append(test_plan[:60], style=c_desc)
+                body_lines.append(tp_row)
+
+            body_lines.append(Text(""))
+
+        if s_idx < len(_by_story) - 1:
+            body_lines.append(
+                Text(
+                    _PAD + "  " + "\u2500" * 36,
+                    style=c_sep,
+                    justify="left",
+                )
+            )
+            body_lines.append(Text(""))
+
+    # Footer buttons
+    from rich.table import Table as _TBtnT
+
+    _btn_labels = ["Accept", "Edit", "Regenerate", "Export"]
+    _btn_row = _TBtnT(box=None, padding=(0, 1), pad_edge=False, show_header=False)
+    _btn_row.add_column(width=3)
+    for label in _btn_labels:
+        _btn_row.add_column(width=len(label) + 4)
+    _btn_cells: list[Text] = [Text("")]
+    for i, label in enumerate(_btn_labels):
+        top = "\u256d" + "\u2500" * (len(label) + 2) + "\u256e"
+        mid = "\u2502 " + label + " \u2502"
+        bot = "\u2570" + "\u2500" * (len(label) + 2) + "\u256f"
+        cell = Text(justify="center")
+        if i == action_sel:
+            _sc = c_accent if i == 0 else ("rgb(100,140,220)" if i != 2 else "rgb(220,180,60)")
+            cell.append(top + "\n", style=_sc)
+            cell.append(mid + "\n", style=f"bold {_sc}")
+            cell.append(bot, style=_sc)
+        else:
+            cell.append(top + "\n", style="rgb(60,60,70)")
+            cell.append(mid + "\n", style="rgb(90,90,100)")
+            cell.append(bot, style="rgb(60,60,70)")
+        _btn_cells.append(cell)
+    _btn_row.add_row(*_btn_cells)
+    footer = [Text(""), Padding(_btn_row, (0, 0, 0, len(_PAD)))]
+    footer_h = 5
+
+    inner_h = height - 4
+    header_h = 2
+    body_h = inner_h - header_h - footer_h
+    max_scroll = max(0, len(body_lines) - body_h)
+    actual_scroll = min(scroll_offset, max_scroll)
+    visible = body_lines[actual_scroll : actual_scroll + body_h]
+    remaining = max(0, body_h - len(visible))
+
+    sub = Text(
+        _PAD + "Do these tasks match your team's decomposition style?",
+        style="dim",
+        justify="left",
+    )
+
+    content = Group(
+        sub,
+        Text(""),
+        *visible,
+        *[Text("") for _ in range(remaining)],
+        *footer,
+    )
+
+    return Panel(
+        content,
+        title="[bold rgb(100,180,100)] SAMPLE TASKS [/]",
+        title_align="left",
+        border_style=c_accent,
+        box=rich.box.ROUNDED,
+        expand=True,
+        height=height,
+        padding=(1, 2),
+    )
+
+
 def _build_intake_screen(
     selected: int,
     *,

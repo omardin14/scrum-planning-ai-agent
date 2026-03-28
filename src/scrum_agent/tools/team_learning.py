@@ -2626,6 +2626,92 @@ Rules:
     ]
 
 
+def generate_sample_tasks(
+    calibration_text: str,
+    sample_stories: list[dict],
+    examples: dict | None = None,
+) -> list[dict]:
+    """Generate sample tasks for the sample stories matching the team's patterns."""
+    _ex = examples or {}
+    td = _ex.get("task_decomposition", {})
+
+    task_ctx_parts: list[str] = []
+    avg_tasks = td.get("avg_tasks_per_story", 0) if isinstance(td, dict) else 0
+    if avg_tasks:
+        task_ctx_parts.append(f"Team averages {avg_tasks:.1f} tasks per story.")
+    type_dist = td.get("type_distribution", {}) if isinstance(td, dict) else {}
+    if type_dist:
+        dist_str = ", ".join(f"{t} {p}%" for t, p in type_dist.items())
+        task_ctx_parts.append(f"Task type distribution: {dist_str}")
+    common = td.get("common_tasks", []) if isinstance(td, dict) else []
+    if common:
+        names = ", ".join(f'"{t}"' for t, _ in common[:5])
+        task_ctx_parts.append(f"Common task patterns: {names}")
+    task_context = "\n".join(task_ctx_parts)
+
+    stories_block = ""
+    for s in sample_stories:
+        sid = s.get("id", "S1")
+        title = s.get("title", "")
+        pts = s.get("story_points", 3)
+        stories_block += f"\n{sid}: {title} ({pts} pts)\n"
+        for ac in s.get("acceptance_criteria", [])[:2]:
+            if isinstance(ac, dict):
+                stories_block += (
+                    f"  Given {ac.get('given', '')}, When {ac.get('when', '')}, Then {ac.get('then', '')}\n"
+                )
+
+    prompt = (
+        "Generate tasks for each story below, matching the team's task patterns.\n\n"
+        f"{calibration_text}\n\n"
+        f"Task patterns:\n{task_context}\n\n"
+        f"Stories:\n{stories_block}\n\n"
+        "Return a JSON array of tasks:\n"
+        '[{{"id": "T-S1-01", "story_id": "S1", "title": "Implement X", '
+        '"description": "Details", "label": "Code", '
+        '"test_plan": "Unit test: verify X"}}]\n\n'
+        "Rules:\n"
+        "- Generate 2-5 tasks per story (match team's average)\n"
+        "- Labels: Code, Testing, Documentation, Infrastructure\n"
+        "- IDs: T-S{story_id}-01, T-S{story_id}-02, etc.\n"
+        "- Titles must be imperative (verb-first)\n"
+        "- Return ONLY the JSON array"
+    )
+
+    try:
+        from langchain_core.messages import HumanMessage
+
+        from scrum_agent.agent.llm import get_llm
+
+        response = get_llm(temperature=0.3).invoke([HumanMessage(content=prompt)])
+        text = response.content if hasattr(response, "content") else str(response)
+        text = text.strip()
+        if text.startswith("```"):
+            text = re.sub(r"^```\w*\n?", "", text)
+            text = re.sub(r"\n?```$", "", text)
+        result = json.loads(text)
+        if isinstance(result, list):
+            return result
+    except Exception as exc:
+        logger.warning("Sample tasks generation failed: %s", exc)
+
+    # Fallback
+    tasks = []
+    for s in sample_stories:
+        sid = s.get("id", "S1")
+        tasks.append(
+            {
+                "id": f"T-{sid}-01",
+                "story_id": sid,
+                "title": "Implement core functionality",
+                "description": "Build the main feature.",
+                "label": "Code",
+                "test_plan": "Unit test the implementation.",
+            }
+        )
+    return tasks
+
+
 def _analyse_workflow_columns(delivery_stories: list[dict]) -> dict:
     """Analyse board column workflow patterns from status/column transitions.
 

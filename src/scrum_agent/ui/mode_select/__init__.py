@@ -1046,10 +1046,12 @@ def select_mode(
                             from scrum_agent.tools.team_learning import (
                                 generate_sample_epic,
                                 generate_sample_stories,
+                                generate_sample_tasks,
                             )
                             from scrum_agent.ui.mode_select.screens._screens_secondary import (
                                 _build_sample_epic_screen,
                                 _build_sample_stories_screen,
+                                _build_sample_tasks_screen,
                                 _build_team_analysis_screen,
                             )
 
@@ -1173,7 +1175,74 @@ def select_mode(
                                                                             _ss_sel = min(3, _ss_sel + 1)
                                                                         elif _ssk == "enter" or _ssk == " ":
                                                                             if _ss_sel == 0:
-                                                                                _ss_loop = False  # Accept
+                                                                                # Accept → generate tasks
+                                                                                w, h = console.size
+                                                                                _lp = ["Generating sample tasks\u2026"]
+                                                                                live.update(
+                                                                                    _build_analysis_progress_screen(
+                                                                                        _lp,
+                                                                                        width=w,
+                                                                                        height=h,
+                                                                                        elapsed=0,
+                                                                                        anim_tick=0,
+                                                                                        source="",
+                                                                                        mode="analysis",
+                                                                                    )
+                                                                                )
+                                                                                _sample_tasks = generate_sample_tasks(
+                                                                                    _instr_text,
+                                                                                    _sample_stories,
+                                                                                    _ta_examples,
+                                                                                )
+                                                                                _st_scroll = 0
+                                                                                _st_sel = 0
+                                                                                _st_loop = True
+                                                                                while _st_loop:
+                                                                                    _stk = (
+                                                                                        read_key(timeout=_FRAME_TIME)
+                                                                                        if _supports_timeout
+                                                                                        else read_key()
+                                                                                    )
+                                                                                    if _stk in ("up", "scroll_up"):
+                                                                                        _st_scroll = max(
+                                                                                            0,
+                                                                                            _st_scroll - 1,
+                                                                                        )
+                                                                                    elif _stk in (
+                                                                                        "down",
+                                                                                        "scroll_down",
+                                                                                    ):
+                                                                                        _st_scroll += 1
+                                                                                    elif _stk == "left":
+                                                                                        _st_sel = max(0, _st_sel - 1)
+                                                                                    elif _stk == "right":
+                                                                                        _st_sel = min(3, _st_sel + 1)
+                                                                                    elif _stk in ("enter", " "):
+                                                                                        if _st_sel == 0:
+                                                                                            _st_loop = False
+                                                                                        elif _st_sel == 2:
+                                                                                            _sample_tasks = (
+                                                                                                generate_sample_tasks(
+                                                                                                    _instr_text,
+                                                                                                    _sample_stories,
+                                                                                                    _ta_examples,
+                                                                                                )
+                                                                                            )
+                                                                                        else:
+                                                                                            _st_loop = False
+                                                                                    elif _stk in ("esc", "q"):
+                                                                                        _st_loop = False
+                                                                                    w, h = console.size
+                                                                                    live.update(
+                                                                                        _build_sample_tasks_screen(
+                                                                                            _sample_tasks,
+                                                                                            scroll_offset=_st_scroll,
+                                                                                            width=w,
+                                                                                            height=h,
+                                                                                            action_sel=_st_sel,
+                                                                                        )
+                                                                                    )
+                                                                                _ss_loop = False
                                                                             elif _ss_sel == 2:
                                                                                 _sample_stories = (
                                                                                     generate_sample_stories(
