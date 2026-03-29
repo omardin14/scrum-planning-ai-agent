@@ -917,6 +917,66 @@ def export_team_profile_html(
             ep_rows.append(("Story count range", f"{lo}&ndash;{hi}"))
         sections.append(_section("epics", "Epic Sizing", _kv_table(ep_rows)))
 
+    # ── Point Descriptions (LLM-generated) ──────────────────────────
+    pt_descs = ex.get("point_descriptions", {})
+    if isinstance(pt_descs, dict) and pt_descs:
+        pd_rows: list[str] = []
+        for pts_key in sorted(pt_descs.keys(), key=lambda x: int(x) if x.isdigit() else 99):
+            pd_rows.append(f"<tr><td><strong>{pts_key} pt</strong></td><td>{_e(pt_descs[pts_key])}</td></tr>")
+        if pd_rows:
+            pd_table = (
+                f'<div class="card" style="padding:0;overflow:hidden;">'
+                f'<table class="data-table"><tr><th>Points</th><th>What it means for this team</th></tr>'
+                f"{''.join(pd_rows)}</table></div>"
+            )
+            _nav("point-descriptions", "Point Descriptions")
+            sections.append(
+                _section("point-descriptions", "What Each Point Value Means (LLM Interpretation)", pd_table)
+            )
+
+    # ── Estimation Accuracy ───────────────────────────────────────
+    addl = ex.get("additional_patterns", {})
+    est_bias = addl.get("estimation_bias", {}) if isinstance(addl, dict) else {}
+    if isinstance(est_bias, dict) and est_bias.get("sample_size", 0) >= 5:
+        eb_rows = [
+            ("Accurate (at original estimate)", f"{est_bias.get('accurate_pct', 0):.0f}%"),
+            ("Underestimated (points increased)", f"{est_bias.get('underestimated_pct', 0):.0f}%"),
+            ("Overestimated (points decreased)", f"{est_bias.get('overestimated_pct', 0):.0f}%"),
+        ]
+        worst = est_bias.get("worst_overestimate_sizes", [])
+        if worst:
+            eb_rows.append(("Most overestimated sizes", ", ".join(f"{s}pt" for s in worst)))
+        _nav("estimation", "Estimation")
+        sections.append(_section("estimation", "Estimation Accuracy", _kv_table(eb_rows)))
+
+    # ── Seasonal Patterns ─────────────────────────────────────────
+    seasonal = addl.get("seasonal", {}) if isinstance(addl, dict) else {}
+    if isinstance(seasonal, dict) and seasonal.get("monthly_avg"):
+        monthly = seasonal["monthly_avg"]
+        s_rows = [(m, f"{v:g} pts") for m, v in monthly.items()]
+        low_m = seasonal.get("low_months", {})
+        high_m = seasonal.get("high_months", {})
+        for m, v in low_m.items():
+            s_rows.append((f"\u2193 {m} (low)", f"{v:g} pts"))
+        for m, v in high_m.items():
+            s_rows.append((f"\u2191 {m} (high)", f"{v:g} pts"))
+        _nav("seasonal", "Seasonal")
+        sections.append(_section("seasonal", "Seasonal Patterns", _kv_table(s_rows)))
+
+    # ── Workflow ──────────────────────────────────────────────────
+    wf = ex.get("workflow_style", {})
+    if isinstance(wf, dict) and wf.get("workflow"):
+        wf_seq = " \u2192 ".join(wf["workflow"])
+        wf_rows = [("Workflow", wf_seq)]
+        wf_style_label = {"columns-as-dod": "Columns as DoD steps", "minimal": "Minimal workflow"}.get(
+            wf.get("style", "minimal"), wf.get("style", "minimal")
+        )
+        wf_rows.append(("Style", wf_style_label))
+        for col, rate in wf.get("dod_columns", {}).items():
+            wf_rows.append((f"  {col} pass-through", f"{rate}%"))
+        _nav("workflow", "Workflow")
+        sections.append(_section("workflow", "Board Workflow", _kv_table(wf_rows)))
+
     # ── Recommendations (all 13 types, matching TUI) ────────────────
     recs: list[tuple[str, str]] = []
     if vel > 0:
@@ -1815,6 +1875,57 @@ def export_team_profile_md(
         lo, hi = epic.typical_story_count_range
         if lo > 0 or hi > 0:
             lines.append(f"- **Story count range:** {lo}–{hi}")
+        lines.append("")
+
+    # ── Point Descriptions (LLM-generated) ──────────────────────────
+    pt_descs = ex.get("point_descriptions", {})
+    if isinstance(pt_descs, dict) and pt_descs:
+        lines.extend(["## What Each Point Value Means (LLM Interpretation)", ""])
+        for pts_key in sorted(pt_descs.keys(), key=lambda x: int(x) if x.isdigit() else 99):
+            lines.append(f"- **{pts_key} pt:** {pt_descs[pts_key]}")
+        lines.append("")
+
+    # ── Estimation Accuracy ───────────────────────────────────────
+    addl_md = ex.get("additional_patterns", {})
+    est_bias_md = addl_md.get("estimation_bias", {}) if isinstance(addl_md, dict) else {}
+    if isinstance(est_bias_md, dict) and est_bias_md.get("sample_size", 0) >= 5:
+        lines.extend(["## Estimation Accuracy", ""])
+        lines.append(f"- **Accurate:** {est_bias_md.get('accurate_pct', 0):.0f}%")
+        lines.append(f"- **Underestimated:** {est_bias_md.get('underestimated_pct', 0):.0f}%")
+        lines.append(f"- **Overestimated:** {est_bias_md.get('overestimated_pct', 0):.0f}%")
+        worst_md = est_bias_md.get("worst_overestimate_sizes", [])
+        if worst_md:
+            lines.append(f"- **Most overestimated:** {', '.join(f'{s}pt' for s in worst_md)}")
+        lines.append("")
+
+    # ── Seasonal Patterns ─────────────────────────────────────────
+    seasonal_md = addl_md.get("seasonal", {}) if isinstance(addl_md, dict) else {}
+    if isinstance(seasonal_md, dict) and seasonal_md.get("monthly_avg"):
+        monthly_md = seasonal_md["monthly_avg"]
+        lines.extend(["## Seasonal Patterns", ""])
+        lines.append("| Month | Velocity |")
+        lines.append("|-------|----------|")
+        for m, v in monthly_md.items():
+            lines.append(f"| {m} | {v:g} pts |")
+        low_md = seasonal_md.get("low_months", {})
+        high_md = seasonal_md.get("high_months", {})
+        for m, v in low_md.items():
+            lines.append(f"- ↓ **{m}:** {v:g} pts (below average)")
+        for m, v in high_md.items():
+            lines.append(f"- ↑ **{m}:** {v:g} pts (above average)")
+        lines.append("")
+
+    # ── Workflow ──────────────────────────────────────────────────
+    wf_md = ex.get("workflow_style", {})
+    if isinstance(wf_md, dict) and wf_md.get("workflow"):
+        lines.extend(["## Board Workflow", ""])
+        lines.append(f"**Sequence:** {' → '.join(wf_md['workflow'])}")
+        wf_s = {"columns-as-dod": "Columns as DoD steps", "minimal": "Minimal workflow"}.get(
+            wf_md.get("style", "minimal"), wf_md.get("style", "minimal")
+        )
+        lines.append(f"**Style:** {wf_s}")
+        for col, rate in wf_md.get("dod_columns", {}).items():
+            lines.append(f"- {col}: {rate}% pass-through")
         lines.append("")
 
     # ── Recommendations (all 13 types, matching TUI) ────────────────
