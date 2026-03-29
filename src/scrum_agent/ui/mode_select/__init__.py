@@ -1000,7 +1000,11 @@ def _collect_usage_data() -> dict:
     except Exception:
         data["profiles"] = []
 
-    # Token usage from LLM calls in this process
+    # Token usage — session (in-memory) + lifetime (from DB)
+    def _calc_cost(inp: int, out: int) -> float:
+        # Claude Sonnet 4: $3/MTok input, $15/MTok output
+        return round((inp * 3.0 + out * 15.0) / 1_000_000, 4)
+
     try:
         from scrum_agent.agent.llm import get_usage_stats
 
@@ -1009,19 +1013,38 @@ def _collect_usage_data() -> dict:
         if stats.get("call_count", 0) > 0:
             inp = stats.get("input_tokens", 0)
             out = stats.get("output_tokens", 0)
-            # Estimate cost (Claude Sonnet 4: $3/MTok input, $15/MTok output)
-            cost = (inp * 3.0 + out * 15.0) / 1_000_000
             data["tokens"] = {
                 "input": inp,
                 "output": out,
                 "total": inp + out,
                 "calls": stats.get("call_count", 0),
-                "estimated_cost": round(cost, 4),
+                "estimated_cost": _calc_cost(inp, out),
             }
         else:
             data["tokens"] = {}
     except Exception:
         data["tokens"] = {}
+
+    # Lifetime usage from DB (persisted across all sessions)
+    try:
+        from scrum_agent.sessions import SessionStore
+
+        with SessionStore(_ana_dbp) as store:
+            lifetime = store.get_lifetime_usage()
+            if lifetime.get("call_count", 0) > 0:
+                lt_inp = lifetime["input_tokens"]
+                lt_out = lifetime["output_tokens"]
+                data["lifetime_tokens"] = {
+                    "input": lt_inp,
+                    "output": lt_out,
+                    "total": lt_inp + lt_out,
+                    "calls": lifetime["call_count"],
+                    "estimated_cost": _calc_cost(lt_inp, lt_out),
+                }
+            else:
+                data["lifetime_tokens"] = {}
+    except Exception:
+        data["lifetime_tokens"] = {}
 
     return data
 

@@ -315,7 +315,7 @@ class TestSessionsMigration:
         conn = sqlite3.connect(str(db_path))
         row = conn.execute("SELECT schema_version FROM schema_info").fetchone()
         conn.close()
-        assert row[0] == CURRENT_SCHEMA_VERSION == 4
+        assert row[0] == CURRENT_SCHEMA_VERSION == 5
 
 
 # ---------------------------------------------------------------------------

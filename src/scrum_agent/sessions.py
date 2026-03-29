@@ -128,7 +128,7 @@ CREATE TABLE IF NOT EXISTS sessions_meta (
 #   stored < current → run migrations, UPDATE to current
 #   stored == current → schema_mismatch=False
 # See README: "Memory & State" — session persistence
-CURRENT_SCHEMA_VERSION = 4  # v1=Phase 8A, v2=Phase 8B, v3=team_profiles, v4=session_mode
+CURRENT_SCHEMA_VERSION = 5  # v1=Phase 8A, v2=Phase 8B, v3=team_profiles, v4=session_mode, v5=token_usage
 
 _SCHEMA_INFO = """\
 CREATE TABLE IF NOT EXISTS schema_info (
@@ -476,6 +476,36 @@ class SessionStore:
                 logger.info("Migration v4: added session_mode column")
             except sqlite3.OperationalError:
                 pass  # column already exists
+
+        if from_version < 5:
+            self._conn.execute(
+                """CREATE TABLE IF NOT EXISTS token_usage (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT NOT NULL,
+                    input_tokens INT NOT NULL DEFAULT 0,
+                    output_tokens INT NOT NULL DEFAULT 0,
+                    model TEXT NOT NULL DEFAULT '',
+                    provider TEXT NOT NULL DEFAULT ''
+                )"""
+            )
+            logger.info("Migration v5: created token_usage table")
+
+    # ── Token usage persistence ──────────────────────────────────────────
+
+    def record_token_usage(self, input_tokens: int, output_tokens: int, model: str = "", provider: str = "") -> None:
+        """Record a single LLM call's token usage to persistent storage."""
+        self._conn.execute(
+            "INSERT INTO token_usage (timestamp, input_tokens, output_tokens, model, provider) VALUES (?, ?, ?, ?, ?)",
+            (self._now(), input_tokens, output_tokens, model, provider),
+        )
+
+    def get_lifetime_usage(self) -> dict:
+        """Return cumulative token usage across all sessions."""
+        row = self._conn.execute(
+            "SELECT COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0), COUNT(*) FROM token_usage"
+        ).fetchone()
+        inp, out, calls = row if row else (0, 0, 0)
+        return {"input_tokens": inp, "output_tokens": out, "total_tokens": inp + out, "call_count": calls}
 
     # ── Lifecycle ─────────────────────────────────────────────────────────
 

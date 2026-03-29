@@ -3034,8 +3034,20 @@ def _build_usage_screen(
     status_style = theme.good if api_status == "configured" else theme.bad
     _row("API key", api_status, status_style)
 
-    # ── Token Usage ───────────────────────────────────────────────
-    _heading("Token Usage (this session)")
+    # ── Lifetime Token Usage (persisted across all sessions) ────
+    lifetime = usage_data.get("lifetime_tokens", {})
+    if lifetime:
+        _heading("Lifetime Token Usage")
+        _row("Total LLM calls", f"{lifetime.get('calls', 0):,}")
+        _row("Input tokens", f"{lifetime.get('input', 0):,}")
+        _row("Output tokens", f"{lifetime.get('output', 0):,}")
+        _row("Total tokens", f"{lifetime.get('total', 0):,}")
+        lt_cost = lifetime.get("estimated_cost", 0.0)
+        if lt_cost > 0:
+            _row("Estimated total cost", f"${lt_cost:.4f}", theme.warn)
+
+    # ── Current Session Usage ─────────────────────────────────────
+    _heading("Current Session")
     tokens = usage_data.get("tokens", {})
     if tokens:
         _row("LLM calls", f"{tokens.get('calls', 0):,}")
@@ -3044,9 +3056,11 @@ def _build_usage_screen(
         _row("Total tokens", f"{tokens.get('total', 0):,}")
         cost = tokens.get("estimated_cost", 0.0)
         if cost > 0:
-            _row("Estimated cost", f"${cost:.4f}", theme.warn)
+            _row("Session cost", f"${cost:.4f}", theme.warn)
     else:
-        body_lines.append(Text(_PAD + "    No token data available yet.", style=theme.muted, justify="left"))
+        body_lines.append(Text(_PAD + "    No calls in this session yet.", style=theme.muted, justify="left"))
+
+    if not lifetime and not tokens:
         body_lines.append(
             Text(
                 _PAD + "    Token tracking starts when you run analysis or planning.",

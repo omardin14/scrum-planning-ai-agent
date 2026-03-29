@@ -65,6 +65,19 @@ def track_usage(response) -> None:
             _usage_stats["total_tokens"],
             _usage_stats["call_count"],
         )
+        # Persist to SQLite for lifetime tracking across sessions
+        try:
+            from pathlib import Path
+
+            from scrum_agent.sessions import SessionStore
+
+            provider = get_llm_provider()
+            model = get_llm_model() or _PROVIDER_DEFAULTS.get(provider, "")
+            db = Path.home() / ".scrum-agent" / "sessions.db"
+            with SessionStore(db) as store:
+                store.record_token_usage(inp, out, model=model, provider=provider)
+        except Exception:
+            logger.debug("Failed to persist token usage to DB", exc_info=True)
     else:
         logger.warning("track_usage: no token data found in response metadata")
 
