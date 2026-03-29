@@ -703,6 +703,113 @@ def _strip_borders(renderable):
 
 
 # ---------------------------------------------------------------------------
+# Calibration banner (shown when analysis profile is active)
+# ---------------------------------------------------------------------------
+
+_cached_profile = None
+_cached_profile_id = ""
+_cached_examples = None
+
+
+def _render_calibration_banner(profile_id: str, width: int = 80) -> Panel | None:
+    """Render a compact calibration summary banner from the selected analysis profile.
+
+    Caches the loaded profile to avoid repeated DB reads on every frame.
+    Returns None if the profile cannot be loaded.
+    """
+    global _cached_profile, _cached_profile_id, _cached_examples  # noqa: PLW0603
+
+    if profile_id != _cached_profile_id:
+        try:
+            from scrum_agent.agent.nodes import _load_profile_by_id
+
+            _cached_profile, _cached_examples = _load_profile_by_id(profile_id)
+            _cached_profile_id = profile_id
+        except Exception:
+            return None
+
+    p = _cached_profile
+    if p is None:
+        return None
+
+    _ex = _cached_examples or {}
+    c_label = "rgb(100,180,100)"
+    c_value = "bold white"
+    c_muted = "rgb(120,120,140)"
+
+    # Display name
+    display_name = profile_id.split("-", 1)[1] if "-" in profile_id else profile_id
+    source = getattr(p, "source", "?")
+
+    lines: list[Text] = []
+
+    # Line 1: Velocity · Completion · Team size
+    row1 = Text("  ", justify="left")
+    vel = getattr(p, "velocity_avg", 0.0)
+    if vel > 0:
+        row1.append(f"Velocity: {vel:.0f} pts/sprint", style=c_value)
+        row1.append("  \u00b7  ", style="dim")
+    comp = getattr(p, "sprint_completion_rate", 0.0)
+    if comp > 0:
+        row1.append(f"Completion: {comp:.0f}%", style=c_value)
+        row1.append("  \u00b7  ", style="dim")
+    # Team size from contributors
+    contrib = _ex.get("contributor_stats", {})
+    if isinstance(contrib, dict) and contrib:
+        row1.append(f"Team: {len(contrib)} engineers", style=c_value)
+    lines.append(row1)
+
+    # Line 2: Spillover · Sprint length · Points scale
+    row2 = Text("  ", justify="left")
+    spill = getattr(p, "spillover", None)
+    if spill and getattr(spill, "carried_over_pct", 0) > 0:
+        row2.append(f"Spillover: {spill.carried_over_pct:.0f}%", style=c_value)
+        row2.append("  \u00b7  ", style="dim")
+    # Point values from calibrations
+    cals = getattr(p, "point_calibrations", ())
+    pts_with_data = [c.point_value for c in cals if c.sample_count > 0]
+    if pts_with_data:
+        row2.append(f"Points: {'/'.join(str(v) for v in pts_with_data)}", style=c_value)
+        row2.append("  \u00b7  ", style="dim")
+    row2.append(f"{getattr(p, 'sample_sprints', 0)} sprints analysed", style=c_muted)
+    lines.append(row2)
+
+    # Line 3: DoD + naming
+    row3 = Text("  ", justify="left")
+    dod = getattr(p, "dod_signal", None)
+    if dod:
+        dod_items = []
+        if getattr(dod, "stories_with_review_mention_pct", 0) > 30:
+            dod_items.append("code review")
+        if getattr(dod, "stories_with_testing_mention_pct", 0) > 30:
+            dod_items.append("testing")
+        if getattr(dod, "stories_with_deploy_mention_pct", 0) > 30:
+            dod_items.append("deploy")
+        if dod_items:
+            row3.append(f"DoD: {', '.join(dod_items)}", style=c_value)
+            row3.append("  \u00b7  ", style="dim")
+    naming = _ex.get("naming_conventions", {})
+    if isinstance(naming, dict):
+        style = naming.get("epic_naming_style", "")
+        if style:
+            row3.append(f"Naming: {style}", style=c_muted)
+    lines.append(row3)
+
+    content = Group(*lines)
+    banner_w = min(width - 4, 72)
+
+    return Panel(
+        content,
+        title=f"Team Analysis: {display_name} ({source})",
+        title_align="left",
+        border_style=c_label,
+        box=rich.box.ROUNDED,
+        width=banner_w,
+        padding=(0, 1),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Pipeline artifact rendering (main entry point)
 # ---------------------------------------------------------------------------
 
@@ -771,6 +878,13 @@ def _render_pipeline_artifacts(
         if msgs and isinstance(msgs[-1], AIMessage):
             return msgs[-1].content.splitlines(), []
         return ["(rendering error)"], []
+
+    # Prepend calibration banner when an analysis profile is active
+    _profile_id = graph_state.get("analysis_profile_id", "")
+    if _profile_id:
+        banner = _render_calibration_banner(_profile_id, render_w)
+        if banner:
+            renderable = Group(banner, Text(""), renderable)
 
     lines = _render_to_lines(console, renderable, render_w)
 
