@@ -381,6 +381,14 @@ def _export_plan_markdown(graph_state: dict, path: Path | None = None) -> Path:
     lines: list[str] = []
     logger.debug("_export_plan_markdown: path=%s", output_path)
 
+    # Analysis profile provenance
+    profile_id = graph_state.get("analysis_profile_id", "")
+    if profile_id:
+        display_name = profile_id.split("-", 1)[1] if "-" in profile_id else profile_id
+        source = profile_id.split("-", 1)[0] if "-" in profile_id else ""
+        lines.append(f"> Calibrated with team analysis: **{display_name}** ({source})")
+        lines.append("")
+
     # Project Analysis
     analysis = graph_state.get("project_analysis")
     if analysis:

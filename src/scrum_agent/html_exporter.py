@@ -671,6 +671,18 @@ def _build_header(graph_state: dict, stage_label: str) -> str:
 
     badges = "".join(f'<span class="badge">{_e(s)}</span>' for s in stages_done)
 
+    # Analysis profile provenance
+    profile_banner = ""
+    profile_id = graph_state.get("analysis_profile_id", "")
+    if profile_id:
+        display_name = profile_id.split("-", 1)[1] if "-" in profile_id else profile_id
+        source = profile_id.split("-", 1)[0] if "-" in profile_id else ""
+        profile_banner = (
+            f'\n  <div class="meta" style="margin-top:0.3rem;">'
+            f"<span>Calibrated with: <strong>{_e(display_name)}</strong>"
+            f"{f' ({_e(source)})' if source else ''}</span></div>"
+        )
+
     return f"""
 <header class="site-header">
   <h1>{_e(project_name)}</h1>
@@ -678,7 +690,7 @@ def _build_header(graph_state: dict, stage_label: str) -> str:
     <span>Exported: {_e(now)}</span>
     <span>Stage: {_e(stage_label)}</span>
     {badges}
-  </div>
+  </div>{profile_banner}
 </header>
 """
 
