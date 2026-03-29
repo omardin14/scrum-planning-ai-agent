@@ -224,8 +224,10 @@ def run_repl(
     # the existing HISTORY_DIR monkeypatch in tests automatically redirects
     # the db to tmp_path, keeping tests isolated from ~/.scrum-agent/.
     # See README: "Memory & State" — session persistence
+    from scrum_agent.paths import get_db_path
+
     _session_id = resume_session_id or make_session_id()
-    _store = SessionStore(HISTORY_DIR / "sessions.db")
+    _store = SessionStore(get_db_path())
 
     # Phase 8C: warn if the DB was written by a newer version of the code.
     # This can happen when a user downgrades — schema changes may be

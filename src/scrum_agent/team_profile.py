@@ -576,22 +576,39 @@ class TeamProfileStore:
         """Remove exports and logs associated with a project_key."""
         import shutil
 
-        base = self._db_path.parent  # ~/.scrum-agent/
+        base = self._db_path.parent  # works in both tests (tmp_path) and production
         pk_lower = project_key.lower()
 
-        # Remove export directory: ~/.scrum-agent/exports/{project_key}/
-        export_dir = base / "exports" / pk_lower
-        if export_dir.is_dir():
-            shutil.rmtree(export_dir, ignore_errors=True)
-            logger.info("Removed exports: %s", export_dir)
+        # Check both legacy and new export locations
+        export_candidates = [
+            base / "exports" / pk_lower,  # legacy: ~/.scrum-agent/exports/{key}/
+            base / "exports" / "analysis" / pk_lower,  # new: exports/analysis/{key}/
+        ]
+        try:
+            from scrum_agent.paths import ANALYSIS_EXPORTS_DIR
 
-        # Remove analysis logs: ~/.scrum-agent/logs/team-analysis-{project_key}-*.log
-        log_dir = base / "logs"
-        if log_dir.is_dir():
-            prefix = f"team-analysis-{pk_lower}-"
-            for f in log_dir.iterdir():
-                if f.name.startswith(prefix) and f.is_file():
-                    f.unlink(missing_ok=True)
+            export_candidates.append(ANALYSIS_EXPORTS_DIR / pk_lower)
+        except Exception:
+            pass
+        for export_dir in export_candidates:
+            if export_dir.is_dir():
+                shutil.rmtree(export_dir, ignore_errors=True)
+                logger.info("Removed exports: %s", export_dir)
+
+        # Check both legacy and new log locations
+        log_dirs = [base / "logs"]
+        try:
+            from scrum_agent.paths import ANALYSIS_LOGS_DIR
+
+            log_dirs.append(ANALYSIS_LOGS_DIR)
+        except Exception:
+            pass
+        prefix = f"team-analysis-{pk_lower}-"
+        for log_dir in log_dirs:
+            if log_dir.is_dir():
+                for f in log_dir.iterdir():
+                    if f.name.startswith(prefix) and f.is_file():
+                        f.unlink(missing_ok=True)
                     logger.info("Removed log: %s", f.name)
 
     # ── Read operations ───────────────────────────────────────────────────

@@ -842,11 +842,11 @@ def _run_learn(console: "Console") -> None:
 
 def _run_team_profile(console: "Console") -> None:
     """Display the current stored team calibration profile."""
-    from pathlib import Path
 
+    from scrum_agent.paths import get_db_path
     from scrum_agent.team_profile import TeamProfileStore
 
-    db_path = Path.home() / ".scrum-agent" / "sessions.db"
+    db_path = get_db_path()
     if not db_path.exists():
         console.print("[yellow]No team profiles found. Run --learn first.[/yellow]")
         return
@@ -941,14 +941,17 @@ def main(argv: list[str] | None = None) -> None:
         _run_headless(args)
         return
 
+    # ── Migrate legacy file structure ────────────────────────────────────────
+    from scrum_agent.paths import get_tui_log_path, migrate_legacy_paths
+
+    migrate_legacy_paths()
+
     # ── File-based logging ────────────────────────────────────────────────────
-    # Writes to ~/.scrum-agent/scrum-agent.log so developers can diagnose
-    # issues without interfering with the TUI display. Rotates at 2 MB.
+    # Writes to ~/.scrum-agent/logs/tui/scrum-agent.log so developers can
+    # diagnose issues without interfering with the TUI display. Rotates at 2 MB.
     # Log level is controlled by LOG_LEVEL in .env (default: WARNING).
     # Set LOG_LEVEL=DEBUG for full diagnostics.
-    _log_dir = Path.home() / ".scrum-agent"
-    _log_dir.mkdir(parents=True, exist_ok=True)
-    _log_path = _log_dir / "scrum-agent.log"
+    _log_path = get_tui_log_path()
     _log_level = getattr(logging, get_log_level(), logging.WARNING)
     _file_handler = logging.handlers.RotatingFileHandler(
         _log_path,

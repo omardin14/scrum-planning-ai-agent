@@ -21,6 +21,7 @@ from pathlib import Path
 from rich.console import Console
 from rich.live import Live
 
+from scrum_agent.paths import get_db_path as _get_db_path
 from scrum_agent.ui.mode_select.screens._project_cards import (  # noqa: F401
     ProfileSummary,
     ProjectSummary,
@@ -81,7 +82,7 @@ _FRAME_TIME = FRAME_TIME_60FPS
 
 
 _ana_sid = ""  # module-level analysis session ID
-_ana_dbp = Path.home() / ".scrum-agent" / "sessions.db"  # module-level DB path
+_ana_dbp = _get_db_path()  # module-level DB path
 
 
 def _load_ana_session(project_key: str) -> dict | None:
@@ -1269,7 +1270,7 @@ def select_mode(
 
                     from scrum_agent.team_profile import TeamProfileStore
 
-                    _tp_db = Path.home() / ".scrum-agent" / "sessions.db"
+                    _tp_db = _ana_dbp
                     if _tp_db.exists():
                         with TeamProfileStore(_tp_db) as _tp_store:
                             _raw_profiles = _tp_store.list_profiles()
@@ -1301,7 +1302,7 @@ def select_mode(
                 try:
                     from scrum_agent.sessions import SessionStore as _SessStore
 
-                    _sess_db = Path.home() / ".scrum-agent" / "sessions.db"
+                    _sess_db = _ana_dbp
                     if _sess_db.exists():
                         with _SessStore(_sess_db) as _ss:
                             _ana_sessions = _ss.list_analysis_sessions()
@@ -1395,7 +1396,7 @@ def select_mode(
                                 _ana_sub_md_fade = 1.0 if _ana_sub_sel == 1 else 0.0
                             elif key == "enter":
                                 _sel_p = _profiles_for_analysis[_ana_selected]
-                                _tp_db = Path.home() / ".scrum-agent" / "sessions.db"
+                                _tp_db = _ana_dbp
                                 _full_p = None
                                 _st_ex: dict | None = None
                                 if _tp_db.exists():
@@ -1454,7 +1455,7 @@ def select_mode(
                                 try:
                                     from scrum_agent.team_profile import TeamProfileStore
 
-                                    _tp_db = Path.home() / ".scrum-agent" / "sessions.db"
+                                    _tp_db = _ana_dbp
                                     if _tp_db.exists():
                                         _del_p = _profiles_for_analysis[_ana_selected]
                                         with TeamProfileStore(_tp_db) as _s:
@@ -1510,7 +1511,7 @@ def select_mode(
                                 _sel_p = _profiles_for_analysis[_ana_selected]
                                 from scrum_agent.team_profile import TeamProfileStore
 
-                                _tp_db = Path.home() / ".scrum-agent" / "sessions.db"
+                                _tp_db = _ana_dbp
                                 _full = None
                                 _stored_ex: dict | None = None
                                 if _tp_db.exists():
@@ -2036,7 +2037,7 @@ def select_mode(
 
                             from scrum_agent.team_profile import TeamProfileStore
 
-                            _tp_db = Path.home() / ".scrum-agent" / "sessions.db"
+                            _tp_db = _ana_dbp
                             if _tp_db.exists():
                                 with TeamProfileStore(_tp_db) as _tp_s:
                                     _raw2 = _tp_s.list_profiles()
@@ -2105,7 +2106,7 @@ def select_mode(
                 try:
                     from scrum_agent.team_profile import TeamProfileStore
 
-                    _tp_db = Path.home() / ".scrum-agent" / "sessions.db"
+                    _tp_db = _ana_dbp
                     if _tp_db.exists():
                         with TeamProfileStore(_tp_db) as _tp_store:
                             _tp_profiles = _tp_store.list_profiles()
@@ -3180,7 +3181,7 @@ def select_mode(
                                 try:
                                     from scrum_agent.team_profile import TeamProfileStore
 
-                                    _pp_db = Path.home() / ".scrum-agent" / "sessions.db"
+                                    _pp_db = _ana_dbp
                                     if _pp_db.exists():
                                         with TeamProfileStore(_pp_db) as _pp_store:
                                             _pp_profiles = _pp_store.list_profiles()

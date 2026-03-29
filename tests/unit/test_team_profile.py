@@ -1149,8 +1149,8 @@ class TestTeamProfileExporter:
         assert "12.3s" in content
         assert "Raw profile JSON:" in content
         assert '"team_id"' in content
-        # Log goes to the logs directory
-        assert log_path.parent.name == "logs"
+        # Log goes to the analysis logs directory
+        assert log_path.parent.name == "analysis"
         assert "team-analysis-proj-" in log_path.name
 
 

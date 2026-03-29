@@ -67,13 +67,13 @@ def track_usage(response) -> None:
         )
         # Persist to SQLite for lifetime tracking across sessions
         try:
-            from pathlib import Path
-
             from scrum_agent.sessions import SessionStore
 
             provider = get_llm_provider()
             model = get_llm_model() or _PROVIDER_DEFAULTS.get(provider, "")
-            db = Path.home() / ".scrum-agent" / "sessions.db"
+            from scrum_agent.paths import get_db_path
+
+            db = get_db_path()
             with SessionStore(db) as store:
                 store.record_token_usage(inp, out, model=model, provider=provider)
         except Exception:

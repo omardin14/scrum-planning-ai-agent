@@ -1594,11 +1594,10 @@ def _load_team_profile(profile_id: str = "") -> object | None:
         A TeamProfile instance or None. Non-fatal — never raises.
     """
     try:
-        from pathlib import Path
-
+        from scrum_agent.paths import get_db_path
         from scrum_agent.team_profile import TeamProfileStore
 
-        db_path = Path.home() / ".scrum-agent" / "sessions.db"
+        db_path = get_db_path()
         if not db_path.exists():
             return None
 
@@ -1649,11 +1648,10 @@ def _load_team_examples(profile_id: str = "") -> dict | None:
     Otherwise auto-detects from configured Jira/AzDO project keys.
     """
     try:
-        from pathlib import Path
-
+        from scrum_agent.paths import get_db_path
         from scrum_agent.team_profile import TeamProfileStore
 
-        db_path = Path.home() / ".scrum-agent" / "sessions.db"
+        db_path = get_db_path()
         if not db_path.exists():
             return None
 
@@ -1691,11 +1689,10 @@ def _load_team_examples(profile_id: str = "") -> dict | None:
 def _load_profile_by_id(profile_id: str):
     """Load a specific team profile and examples by team_id."""
     try:
-        from pathlib import Path
-
+        from scrum_agent.paths import get_db_path
         from scrum_agent.team_profile import TeamProfileStore
 
-        db_path = Path.home() / ".scrum-agent" / "sessions.db"
+        db_path = get_db_path()
         if not db_path.exists():
             return None, None
 

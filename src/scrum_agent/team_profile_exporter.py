@@ -25,9 +25,13 @@ logger = logging.getLogger(__name__)
 
 
 def _project_export_dir(project_key: str, base_dir: Path | None = None) -> Path:
-    """Return the per-project export directory, creating it if needed."""
-    base = base_dir or Path.home() / ".scrum-agent" / "exports"
-    out_dir = base / project_key.lower()
+    """Return the per-project analysis export directory, creating it if needed."""
+    if base_dir:
+        out_dir = base_dir / project_key.lower()
+    else:
+        from scrum_agent.paths import get_analysis_export_dir
+
+        out_dir = get_analysis_export_dir(project_key)
     out_dir.mkdir(parents=True, exist_ok=True)
     return out_dir
 
@@ -1956,8 +1960,9 @@ def write_analysis_log(
     """
     import json
 
-    log_dir = Path.home() / ".scrum-agent" / "logs"
-    log_dir.mkdir(parents=True, exist_ok=True)
+    from scrum_agent.paths import get_analysis_log_dir
+
+    log_dir = get_analysis_log_dir()
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
     log_path = log_dir / f"team-analysis-{profile.project_key.lower()}-{ts}.log"
 

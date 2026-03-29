@@ -20,6 +20,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from scrum_agent.paths import PLANNING_LOGS_DIR, PROJECTS_FILE, ROOT_DIR, STATES_DIR
 from scrum_agent.ui.mode_select import ProjectSummary
 
 logger = logging.getLogger(__name__)
@@ -28,10 +29,10 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-_CONFIG_DIR = Path.home() / ".scrum-agent"
-_PROJECTS_FILE = _CONFIG_DIR / "projects.json"
-_STATES_DIR = _CONFIG_DIR / "states"
-_LOGS_DIR = _CONFIG_DIR / "logs"
+_CONFIG_DIR = ROOT_DIR
+_PROJECTS_FILE = PROJECTS_FILE
+_STATES_DIR = STATES_DIR
+_LOGS_DIR = PLANNING_LOGS_DIR
 _SCHEMA_VERSION = 1
 
 # Pipeline stages in order — used to compute progress booleans.
