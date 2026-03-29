@@ -33,6 +33,11 @@ class TestTheme:
         assert t.warn == "blue"
         assert t.muted == "rgb(120,120,140)"  # default
 
+    def test_usage_theme_amber(self):
+        from scrum_agent.ui.shared._components import USAGE_THEME
+
+        assert USAGE_THEME.accent == "rgb(220,160,60)"
+
     def test_frozen(self):
         import pytest
 
@@ -89,6 +94,16 @@ class TestBuildScrollbar:
         assert top is not None and bot is not None
         # Thumb should be in different positions
         assert top.plain != bot.plain
+
+    def test_always_show_returns_text_when_fits(self):
+        """always_show=True should return Text even when content fits."""
+        result = build_scrollbar(viewport_h=20, total_lines=10, scroll_offset=0, max_scroll=0, always_show=True)
+        assert isinstance(result, Text)
+
+    def test_always_show_false_returns_none_when_fits(self):
+        """Default always_show=False returns None when content fits."""
+        result = build_scrollbar(viewport_h=20, total_lines=10, scroll_offset=0, max_scroll=0, always_show=False)
+        assert result is None
 
 
 class TestBuildProgressDots:

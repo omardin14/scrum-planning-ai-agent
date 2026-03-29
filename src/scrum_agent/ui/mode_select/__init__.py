@@ -420,6 +420,8 @@ def _run_preview_flow(
         """Run an LLM generation function in a background thread with animation."""
         import threading
 
+        logger.info("Regenerating %s via LLM", label)
+
         result_box: list = [None, None]
 
         def _worker():
@@ -450,6 +452,7 @@ def _run_preview_flow(
         if result_box[1] is not None:
             logger.warning("Regeneration failed: %s", result_box[1])
             return None
+        logger.info("Regeneration complete: %s", label)
         return result_box[0]
 
     _flow_start = time.monotonic()

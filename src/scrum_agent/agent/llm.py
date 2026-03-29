@@ -76,6 +76,9 @@ def get_usage_stats() -> dict:
 
 def reset_usage_stats() -> None:
     """Reset token counters (e.g. at start of a new session)."""
+    logger.info(
+        "Token usage stats reset (was %d tokens, %d calls)", _usage_stats["total_tokens"], _usage_stats["call_count"]
+    )
     for k in _usage_stats:
         _usage_stats[k] = 0
 
