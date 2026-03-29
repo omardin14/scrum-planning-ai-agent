@@ -3194,6 +3194,14 @@ def project_intake(state: ScrumState) -> dict:
             # won't appear as a gap when Jira is absent.
             # Q28 (bank holidays) choices are prepared so the user sees a confirmation.
             # See README: "Scrum Standards" — capacity planning
+            # ── Derive tracker preference from analysis profile if selected ──
+            _ap_id = state.get("analysis_profile_id", "")
+            if _ap_id and not qs._preferred_tracker:
+                _ap_source = _ap_id.split("-", 1)[0]
+                if _ap_source in ("jira", "azdevops"):
+                    qs._preferred_tracker = _ap_source
+                    logger.info("Tracker preference derived from analysis profile: %s", _ap_source)
+
             # ── Tracker choice prompt when both are configured ─────────
             if _is_jira_configured() and _is_azdevops_configured() and not qs._preferred_tracker:
                 qs._awaiting_tracker_choice = True
