@@ -2129,7 +2129,7 @@ def select_mode(
                                     pass
                 except Exception:
                     pass
-            logger.debug(
+            logger.info(
                 "Board config: jira=%s, azdevops=%s, staleness_days=%s",
                 _jira_ok,
                 _azdevops_ok,

@@ -641,12 +641,28 @@ class TeamProfileStore:
             return None
 
     def list_profiles(self) -> list[TeamProfile]:
-        """Return all stored team profiles."""
-        rows = self._conn.execute("SELECT profile_json FROM team_profiles ORDER BY updated_at DESC").fetchall()
+        """Return all stored team profiles.
+
+        Uses the DB's updated_at column (set on save) rather than the JSON field,
+        since the profile object may have been created with updated_at=''.
+        """
+        rows = self._conn.execute(
+            "SELECT profile_json, updated_at FROM team_profiles ORDER BY updated_at DESC"
+        ).fetchall()
         profiles = []
-        for (json_str,) in rows:
+        for json_str, db_updated_at in rows:
             try:
-                profiles.append(_json_to_profile(json_str))
+                p = _json_to_profile(json_str)
+                # Override with the DB timestamp if the JSON field is empty
+                if db_updated_at and not p.updated_at:
+                    # Frozen dataclass — reconstruct with updated_at
+                    p = TeamProfile(
+                        **{
+                            **{f.name: getattr(p, f.name) for f in p.__dataclass_fields__.values()},
+                            "updated_at": db_updated_at,
+                        }
+                    )
+                profiles.append(p)
             except Exception:
                 logger.error("Skipping corrupt team profile row")
         return profiles
