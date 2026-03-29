@@ -793,6 +793,7 @@ def _run_preview_flow(
                     width=w,
                     height=h,
                     action_sel=sel,
+                    stories=_stories,
                 )
             )
 

@@ -2410,6 +2410,7 @@ def _build_sample_tasks_screen(
     width: int = 80,
     height: int = 24,
     action_sel: int = 0,
+    stories: list[dict] | None = None,
 ) -> Panel:
     """Build the sample tasks review screen matching planning mode's task display."""
     c_accent = "#22c55e"
@@ -2454,10 +2455,19 @@ def _build_sample_tasks_screen(
     body_lines.append(Text(""))
 
     # Render tasks grouped by story
+    # Build story title lookup
+    _story_titles: dict[str, str] = {}
+    if stories:
+        for s in stories:
+            _story_titles[s.get("id", "")] = s.get("title", "")
+
     for s_idx, (sid, story_tasks) in enumerate(_by_story.items()):
-        # Story header
+        # Story header with title
         hdr = Text(_PAD + "  ", justify="left")
         hdr.append(sid, style=f"bold {c_id}")
+        story_title = _story_titles.get(sid, "")
+        if story_title:
+            hdr.append(f"  {story_title}", style="bold white")
         hdr.append(f"  ({len(story_tasks)} tasks)", style="dim")
         body_lines.append(hdr)
         body_lines.append(Text(""))
