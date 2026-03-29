@@ -1464,6 +1464,8 @@ def select_mode(
                                     _ana_selected = min(_ana_selected, _ana_n - 1)
                                     _ana_focus = 0
                                     _ana_action_btns = 0.0
+                                    _ana_del_fade = 0.0
+                                    _ana_exp_fade = 0.0
                                     _has_prof = _profiles_for_analysis and _ana_selected < len(_profiles_for_analysis)
                                     _ana_action_btns_target = 2.0 if _has_prof else 0.0
                                 except Exception:
