@@ -901,9 +901,41 @@ def _phase_pipeline(
                     # Cancel — stay on review
                 elif action == "Export":
                     logger.info("Review decision: Export for %s", pending)
-                    _export_checkpoint(console, graph_state, stage=pending)
-                    status_msg = "✓ Exported to scrum-plan.html + scrum-plan.md"
-                    # Force immediate redraw so the confirmation is visible
+                    from scrum_agent.html_exporter import export_plan_html
+                    from scrum_agent.repl._io import _export_plan_markdown
+
+                    html_path = export_plan_html(graph_state, stage=pending)
+                    md_path = _export_plan_markdown(graph_state)
+                    logger.info("Exported: HTML=%s, MD=%s", html_path, md_path)
+
+                    # Show export success screen using shared component
+                    from scrum_agent.ui.mode_select.screens._screens_secondary import (
+                        _build_project_export_success_screen,
+                    )
+
+                    paths = f"HTML  {html_path}\nMD    {md_path}"
+                    w, h = console.size
+                    live.update(
+                        _build_project_export_success_screen(
+                            paths,
+                            width=w,
+                            height=h,
+                            subtitle="Exported (HTML + MD)",
+                            mode="planning",
+                        )
+                    )
+                    import time as _export_time
+
+                    _t0 = _export_time.monotonic()
+                    while True:
+                        try:
+                            _ek = _key(timeout=0.05)
+                        except TypeError:
+                            _ek = _key()
+                        if _export_time.monotonic() - _t0 > 1.0 and _ek:
+                            break
+                    status_msg = ""
+                    # Force immediate redraw
                     w, h = console.size
                     live.update(
                         _build_pipeline_screen(
