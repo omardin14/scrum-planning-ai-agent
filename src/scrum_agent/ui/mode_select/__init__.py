@@ -2242,6 +2242,7 @@ def select_mode(
                     elif sk in ("enter", " "):
                         if _s_sel == 0:
                             # Configure — launch setup wizard
+                            logger.info("Settings: launching setup wizard")
                             live.stop()
                             from scrum_agent.setup_wizard import run_setup_wizard
 
@@ -2251,10 +2252,13 @@ def select_mode(
 
                             load_user_config()
                             _settings_data = _collect_settings_data()
+                            logger.info("Settings: config reloaded after wizard")
                             live.start()
                         else:
-                            break  # Back
+                            logger.info("Settings: user pressed Back")
+                            break
                     elif sk in ("esc", "q"):
+                        logger.info("Settings: user pressed Esc")
                         break
                     w, h = console.size
                     live.update(

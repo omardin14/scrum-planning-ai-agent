@@ -38,6 +38,12 @@ class TestTheme:
 
         assert USAGE_THEME.accent == "rgb(220,160,60)"
 
+    def test_settings_theme_silver(self):
+        from scrum_agent.ui.shared._components import SETTINGS_THEME
+
+        assert SETTINGS_THEME.accent == "rgb(160,160,180)"
+        assert SETTINGS_THEME.muted == "rgb(120,120,140)"  # inherits default
+
     def test_frozen(self):
         import pytest
 
@@ -361,6 +367,40 @@ class TestSettingsScreen:
         r2 = _build_settings_screen({}, scroll_offset=5, width=80, height=20)
         assert isinstance(r1, Panel)
         assert isinstance(r2, Panel)
+
+
+class TestCollectSettingsData:
+    def test_returns_dict(self, monkeypatch):
+        from scrum_agent.ui.mode_select import _collect_settings_data
+
+        monkeypatch.setenv("LLM_PROVIDER", "anthropic")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test123")
+        data = _collect_settings_data()
+        assert isinstance(data, dict)
+        assert data["LLM_PROVIDER"] == "anthropic"
+        assert data["ANTHROPIC_API_KEY"] == "sk-ant-test123"
+
+    def test_includes_config_path(self):
+        from scrum_agent.ui.mode_select import _collect_settings_data
+
+        data = _collect_settings_data()
+        assert "_config_path" in data
+        assert ".scrum-agent" in data["_config_path"]
+
+    def test_empty_env_vars(self, monkeypatch):
+        from scrum_agent.ui.mode_select import _collect_settings_data
+
+        monkeypatch.delenv("JIRA_BASE_URL", raising=False)
+        data = _collect_settings_data()
+        assert data.get("JIRA_BASE_URL") == ""
+
+
+class TestSettingsTitle:
+    def test_returns_text(self):
+        from scrum_agent.ui.shared._components import settings_title
+
+        result = settings_title()
+        assert isinstance(result, Text)
 
 
 class TestCalcViewport:
