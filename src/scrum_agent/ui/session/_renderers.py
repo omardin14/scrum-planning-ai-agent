@@ -711,11 +711,17 @@ _cached_profile_id = ""
 _cached_examples = None
 
 
-def _render_calibration_banner(profile_id: str, width: int = 80) -> Panel | None:
-    """Render a compact calibration summary banner from the selected analysis profile.
+def _render_calibration_banner(profile_id: str, width: int = 80, stage: str = "") -> Panel | None:
+    """Render a stage-specific calibration banner from the selected analysis profile.
+
+    Shows different data depending on the pipeline stage:
+    - project_analyzer: velocity, completion rate, team size
+    - feature_generator: epic sizing, naming convention
+    - story_writer: point definitions, AC patterns, story shapes, DoD
+    - task_decomposer: task patterns, common task types
+    - sprint_planner: velocity, spillover, capacity, completion rate
 
     Caches the loaded profile to avoid repeated DB reads on every frame.
-    Returns None if the profile cannot be loaded.
     """
     global _cached_profile, _cached_profile_id, _cached_examples  # noqa: PLW0603
 
@@ -737,63 +743,157 @@ def _render_calibration_banner(profile_id: str, width: int = 80) -> Panel | None
     c_value = "bold white"
     c_muted = "rgb(120,120,140)"
 
-    # Display name
     display_name = profile_id.split("-", 1)[1] if "-" in profile_id else profile_id
     source = getattr(p, "source", "?")
 
+    def _dot() -> tuple[str, str]:
+        return "  \u00b7  ", "dim"
+
     lines: list[Text] = []
 
-    # Line 1: Velocity · Completion · Team size
-    row1 = Text("  ", justify="left")
-    vel = getattr(p, "velocity_avg", 0.0)
-    if vel > 0:
-        row1.append(f"Velocity: {vel:.0f} pts/sprint", style=c_value)
-        row1.append("  \u00b7  ", style="dim")
-    comp = getattr(p, "sprint_completion_rate", 0.0)
-    if comp > 0:
-        row1.append(f"Completion: {comp:.0f}%", style=c_value)
-        row1.append("  \u00b7  ", style="dim")
-    # Team size from contributors
-    contrib = _ex.get("contributor_stats", {})
-    if isinstance(contrib, dict) and contrib:
-        row1.append(f"Team: {len(contrib)} engineers", style=c_value)
-    lines.append(row1)
+    if stage == "project_analyzer":
+        # Analysis phase: velocity, completion, team, sprints
+        row = Text("  ", justify="left")
+        vel = getattr(p, "velocity_avg", 0.0)
+        if vel > 0:
+            row.append(f"Velocity: {vel:.0f} pts/sprint", style=c_value)
+            row.append(*_dot())
+        comp = getattr(p, "sprint_completion_rate", 0.0)
+        if comp > 0:
+            row.append(f"Completion: {comp:.0f}%", style=c_value)
+            row.append(*_dot())
+        contrib = _ex.get("contributor_stats", {})
+        if isinstance(contrib, dict) and contrib:
+            row.append(f"Team: {len(contrib)}", style=c_value)
+            row.append(*_dot())
+        row.append(f"{getattr(p, 'sample_sprints', 0)} sprints", style=c_muted)
+        lines.append(row)
 
-    # Line 2: Spillover · Sprint length · Points scale
-    row2 = Text("  ", justify="left")
-    spill = getattr(p, "spillover", None)
-    if spill and getattr(spill, "carried_over_pct", 0) > 0:
-        row2.append(f"Spillover: {spill.carried_over_pct:.0f}%", style=c_value)
-        row2.append("  \u00b7  ", style="dim")
-    # Point values from calibrations
-    cals = getattr(p, "point_calibrations", ())
-    pts_with_data = [c.point_value for c in cals if c.sample_count > 0]
-    if pts_with_data:
-        row2.append(f"Points: {'/'.join(str(v) for v in pts_with_data)}", style=c_value)
-        row2.append("  \u00b7  ", style="dim")
-    row2.append(f"{getattr(p, 'sample_sprints', 0)} sprints analysed", style=c_muted)
-    lines.append(row2)
+    elif stage == "feature_generator":
+        # Epic phase: naming convention, epic sizing, template
+        row = Text("  ", justify="left")
+        naming = _ex.get("naming_conventions", {})
+        if isinstance(naming, dict):
+            ns = naming.get("epic_naming_style", "")
+            if ns:
+                row.append(f"Epic naming: {ns}", style=c_value)
+                row.append(*_dot())
+            examples = naming.get("epic_examples", [])
+            if examples:
+                row.append(f'e.g. "{examples[0][:40]}"', style=c_muted)
+        lines.append(row)
+        ep = getattr(p, "epic_pattern", None)
+        if ep and getattr(ep, "sample_count", 0) > 0:
+            row2 = Text("  ", justify="left")
+            row2.append(f"Avg {ep.avg_stories_per_epic:.0f} stories/epic", style=c_value)
+            row2.append(*_dot())
+            row2.append(f"{ep.avg_points_per_epic:.0f} pts/epic", style=c_value)
+            lines.append(row2)
 
-    # Line 3: DoD + naming
-    row3 = Text("  ", justify="left")
-    dod = getattr(p, "dod_signal", None)
-    if dod:
-        dod_items = []
-        if getattr(dod, "stories_with_review_mention_pct", 0) > 30:
-            dod_items.append("code review")
-        if getattr(dod, "stories_with_testing_mention_pct", 0) > 30:
-            dod_items.append("testing")
-        if getattr(dod, "stories_with_deploy_mention_pct", 0) > 30:
-            dod_items.append("deploy")
-        if dod_items:
-            row3.append(f"DoD: {', '.join(dod_items)}", style=c_value)
-            row3.append("  \u00b7  ", style="dim")
-    naming = _ex.get("naming_conventions", {})
-    if isinstance(naming, dict):
-        style = naming.get("epic_naming_style", "")
-        if style:
-            row3.append(f"Naming: {style}", style=c_muted)
-    lines.append(row3)
+    elif stage == "story_writer":
+        # Story phase: point definitions, AC patterns, disciplines, DoD
+        pt_descs = _ex.get("point_descriptions", {})
+        cals = getattr(p, "point_calibrations", ())
+        if pt_descs and isinstance(pt_descs, dict):
+            for pts_key in sorted(pt_descs.keys(), key=lambda x: int(x) if x.isdigit() else 99)[:3]:
+                row = Text("  ", justify="left")
+                row.append(f"{pts_key}pt: ", style=c_value)
+                row.append(pt_descs[pts_key][:60], style=c_muted)
+                lines.append(row)
+        elif cals:
+            for c in cals[:3]:
+                if c.sample_count > 0:
+                    row = Text("  ", justify="left")
+                    row.append(f"{c.point_value}pt: ", style=c_value)
+                    row.append(f"{c.avg_cycle_time_days:.0f}d cycle, ~{c.typical_task_count:.0f} tasks", style=c_muted)
+                    lines.append(row)
+        # AC + DoD
+        wp = getattr(p, "writing_patterns", None)
+        dod = getattr(p, "dod_signal", None)
+        row_extra = Text("  ", justify="left")
+        if wp and getattr(wp, "median_ac_count", 0) > 0:
+            row_extra.append(f"Avg {wp.median_ac_count:.0f} ACs/story", style=c_value)
+            row_extra.append(*_dot())
+        if wp and getattr(wp, "uses_given_when_then", False):
+            row_extra.append("Given/When/Then", style=c_value)
+            row_extra.append(*_dot())
+        if dod:
+            dod_items = []
+            if getattr(dod, "stories_with_review_mention_pct", 0) > 30:
+                dod_items.append("review")
+            if getattr(dod, "stories_with_testing_mention_pct", 0) > 30:
+                dod_items.append("testing")
+            if getattr(dod, "stories_with_deploy_mention_pct", 0) > 30:
+                dod_items.append("deploy")
+            if dod_items:
+                row_extra.append(f"DoD: {', '.join(dod_items)}", style=c_value)
+        if row_extra.plain.strip():
+            lines.append(row_extra)
+
+    elif stage == "task_decomposer":
+        # Task phase: task patterns, type distribution, avg tasks/story
+        td = _ex.get("task_decomposition", {})
+        if isinstance(td, dict):
+            row = Text("  ", justify="left")
+            avg = td.get("avg_tasks_per_story", 0)
+            if avg:
+                row.append(f"Avg {avg:.1f} tasks/story", style=c_value)
+                row.append(*_dot())
+            dist = td.get("type_distribution", {})
+            if dist:
+                top = sorted(dist.items(), key=lambda x: -x[1])[:3]
+                row.append(", ".join(f"{t} {v}%" for t, v in top), style=c_muted)
+            lines.append(row)
+            common = td.get("common_tasks", [])
+            if common:
+                row2 = Text("  ", justify="left")
+                row2.append("Common: ", style=c_value)
+                names = [t[0] if isinstance(t, (list, tuple)) else str(t) for t in common[:3]]
+                row2.append(", ".join(names), style=c_muted)
+                lines.append(row2)
+
+    elif stage == "sprint_planner":
+        # Sprint phase: velocity, spillover, capacity
+        row = Text("  ", justify="left")
+        vel = getattr(p, "velocity_avg", 0.0)
+        if vel > 0:
+            row.append(f"Velocity: {vel:.0f} pts/sprint", style=c_value)
+            row.append(*_dot())
+        comp = getattr(p, "sprint_completion_rate", 0.0)
+        if comp > 0:
+            row.append(f"Completion: {comp:.0f}%", style=c_value)
+            row.append(*_dot())
+        spill = getattr(p, "spillover", None)
+        if spill and getattr(spill, "carried_over_pct", 0) > 0:
+            row.append(f"Spillover: {spill.carried_over_pct:.0f}%", style=c_value)
+        lines.append(row)
+        # Scope changes
+        scope = _ex.get("scope_changes", {})
+        if isinstance(scope, dict):
+            totals = scope.get("totals", {})
+            churn = totals.get("avg_scope_churn_pct", 0)
+            if churn > 0:
+                row2 = Text("  ", justify="left")
+                row2.append(f"Scope churn: {churn:.0f}%", style=c_value)
+                row2.append(*_dot())
+                delivered = totals.get("avg_delivered_velocity", 0)
+                committed = totals.get("avg_committed_velocity", 0)
+                if delivered and committed:
+                    row2.append(f"Committed {committed:.0f} → Delivered {delivered:.0f}", style=c_muted)
+                lines.append(row2)
+
+    else:
+        # Fallback: generic overview
+        row = Text("  ", justify="left")
+        vel = getattr(p, "velocity_avg", 0.0)
+        if vel > 0:
+            row.append(f"Velocity: {vel:.0f} pts/sprint", style=c_value)
+            row.append(*_dot())
+        row.append(f"{getattr(p, 'sample_sprints', 0)} sprints analysed", style=c_muted)
+        lines.append(row)
+
+    if not lines:
+        return None
 
     content = Group(*lines)
     banner_w = min(width - 4, 72)
@@ -882,7 +982,7 @@ def _render_pipeline_artifacts(
     # Prepend calibration banner when an analysis profile is active
     _profile_id = graph_state.get("analysis_profile_id", "")
     if _profile_id:
-        banner = _render_calibration_banner(_profile_id, render_w)
+        banner = _render_calibration_banner(_profile_id, render_w, stage=pending or "")
         if banner:
             renderable = Group(banner, Text(""), renderable)
 
