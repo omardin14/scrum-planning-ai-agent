@@ -3080,7 +3080,7 @@ def _build_usage_screen(
     actual_scroll = min(scroll_offset, max_scroll)
     visible = body_lines[actual_scroll : actual_scroll + viewport_h]
 
-    _sb_text = build_scrollbar(viewport_h, total_lines, actual_scroll, max_scroll)
+    _sb_text = build_scrollbar(viewport_h, total_lines, actual_scroll, max_scroll, always_show=True)
     padded_lines: list = list(visible)
     for _ in range(max(0, viewport_h - len(visible))):
         padded_lines.append(Text(""))

@@ -192,14 +192,23 @@ def build_action_buttons(
     return btn_top, btn_mid, btn_bot
 
 
-def build_scrollbar(viewport_h: int, total_lines: int, scroll_offset: int, max_scroll: int) -> Text | None:
+def build_scrollbar(
+    viewport_h: int, total_lines: int, scroll_offset: int, max_scroll: int, *, always_show: bool = False
+) -> Text | None:
     """Build a scrollbar Text column, or None if content fits.
 
     Returns a Text object with viewport_h rows of thin/thick vertical bars,
     or None if total_lines <= viewport_h (no scrollbar needed).
+    When always_show=True, renders a dim track even when content fits.
     """
-    if total_lines <= viewport_h:
+    if total_lines <= viewport_h and not always_show:
         return None
+    if total_lines <= viewport_h:
+        # Show dim track only (no thumb needed)
+        sb = Text(justify="left")
+        for _ in range(viewport_h):
+            sb.append("\u2502\n", style="rgb(30,30,40)")
+        return sb
 
     thumb_size = max(1, round(viewport_h * viewport_h / max(total_lines, 1)))
     thumb_pos = round(scroll_offset / max(max_scroll, 1) * (viewport_h - thumb_size)) if max_scroll > 0 else 0
