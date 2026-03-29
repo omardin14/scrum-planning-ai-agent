@@ -17,8 +17,16 @@ from scrum_agent.ui.shared._animations import (  # noqa: F401
 )
 from scrum_agent.ui.shared._ascii_font import render_ascii_text  # noqa: F401
 from scrum_agent.ui.shared._components import (  # noqa: F401
+    ANALYSIS_THEME,
     PAD,
+    PLANNING_THEME,
+    Theme,
+    analysis_title,
+    build_action_buttons,
     build_popup,
+    build_progress_dots,
+    build_scrollbar,
+    calc_viewport,
     center_label,
     planning_title,
 )

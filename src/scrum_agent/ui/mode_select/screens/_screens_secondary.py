@@ -15,7 +15,15 @@ from rich.panel import Panel
 from rich.text import Text
 
 from scrum_agent.ui.mode_select.screens._screens import _INTAKE_CARDS, _OFFLINE_CARDS, _build_mode_row
-from scrum_agent.ui.shared._components import PAD, planning_title
+from scrum_agent.ui.shared._components import (
+    ANALYSIS_THEME,
+    PAD,
+    build_action_buttons,
+    build_progress_dots,
+    build_scrollbar,
+    calc_viewport,
+    planning_title,
+)
 
 # ---------------------------------------------------------------------------
 # Shared analysis review screen builder (mirrors planning mode layout)
@@ -37,56 +45,31 @@ def _build_analysis_review_screen(
 ) -> Panel:
     """Shared screen builder for all analysis preview pages.
 
-    Mirrors planning mode's exact layout:
-    - ASCII title (ANALYSIS) at top
-    - Progress dots showing current stage (1-5)
-    - Subtitle for current page
-    - Scrollable content with right-side scrollbar
-    - Fixed action buttons at bottom (Accept/Edit/Regenerate/Export)
+    Uses shared UI primitives (build_action_buttons, build_scrollbar,
+    build_progress_dots, calc_viewport) for visual consistency.
     """
     from scrum_agent.ui.shared._components import analysis_title
 
     _actions = actions or ["Accept", "Edit", "Regenerate", "Export"]
-    c_accent = "rgb(100,180,100)"
-    c_accent_bright = "rgb(80,220,120)"
-
     title = analysis_title()
-
-    # ── Progress bar: ● ● ○ ○ ○ (filled = completed, current = green, future = dim)
-    progress = Text(_PAD, justify="left")
-    for i, stage_name in enumerate(_ANALYSIS_STAGES):
-        if i > 0:
-            progress.append("  ", style="dim")
-        if i < stage_index:
-            progress.append("\u25cf", style=c_accent)  # filled circle = done
-        elif i == stage_index:
-            progress.append("\u25cf", style=c_accent_bright)  # bright = current
-        else:
-            progress.append("\u25cb", style="rgb(60,60,70)")  # hollow = future
-        progress.append(f" {stage_name}", style="dim" if i != stage_index else "bold white")
-
+    progress = build_progress_dots(_ANALYSIS_STAGES, stage_index, theme=ANALYSIS_THEME)
     sub = Text(_PAD + subtitle, style="dim", justify="left")
 
-    # ── Viewport + Scrollbar (height-aware to handle line wrapping)
-    inner_h = height - 4  # panel border + padding
-    header_h = 7  # blank + title(2) + blank + progress + sub + blank
-    action_h = 4  # blank + 3 button lines
-    viewport_h = max(3, inner_h - header_h - action_h)
+    # ── Viewport (height-aware for line wrapping)
+    viewport_h = calc_viewport(height, header_h=7, action_h=4)
 
-    # Estimate rendered height per line (long lines wrap in the terminal)
-    # Content width = panel width - border(2) - padding(4) - scrollbar(1)
+    # Estimate rendered height per line
     _content_w = max(20, width - 7)
     _item_heights: list[int] = []
     _total_rendered = 0
     for bl in body_lines:
         plain = bl.plain if hasattr(bl, "plain") else str(bl)
-        h = max(1, -(-len(plain) // _content_w))  # ceiling division
+        h = max(1, -(-len(plain) // _content_w))
         _item_heights.append(h)
         _total_rendered += h
 
+    # Find max scroll offset
     max_scroll = max(0, len(body_lines) - 1)
-    # Clamp: find the last valid scroll_offset where content fills viewport
-    # Walk backwards to find the true max_scroll (item index)
     _acc = 0
     for _ms in range(len(body_lines) - 1, -1, -1):
         _acc += _item_heights[_ms]
@@ -97,7 +80,7 @@ def _build_analysis_review_screen(
         max_scroll = 0
     actual_scroll = min(scroll_offset, max_scroll)
 
-    # Collect visible items that fit within viewport_h rendered rows
+    # Collect visible items
     visible: list = []
     _vis_h = 0
     for i in range(actual_scroll, len(body_lines)):
@@ -107,69 +90,17 @@ def _build_analysis_review_screen(
         visible.append(body_lines[i])
         _vis_h += ih
 
-    # Build scrollbar column text
-    _show_sb = _total_rendered > viewport_h
-    _sb_text = Text(justify="left")
-    if _show_sb:
-        thumb_size = max(1, round(viewport_h * viewport_h / max(_total_rendered, 1)))
-        thumb_pos = round(actual_scroll / max(max_scroll, 1) * (viewport_h - thumb_size)) if max_scroll > 0 else 0
-        for i in range(viewport_h):
-            is_thumb = thumb_pos <= i < thumb_pos + thumb_size
-            if is_thumb:
-                _sb_text.append("\u2503\n", style="rgb(100,100,120)")
-            else:
-                _sb_text.append("\u2502\n", style="rgb(40,40,50)")
-
-    # Build visible content with padding to fill viewport
+    # Scrollbar + content padding
+    _sb_text = build_scrollbar(viewport_h, _total_rendered, actual_scroll, max_scroll)
     padded_lines: list = list(visible)
-    remaining_h = max(0, viewport_h - _vis_h)
-    for _i in range(remaining_h):
+    for _i in range(max(0, viewport_h - _vis_h)):
         padded_lines.append(Text(""))
 
-    # ── Action buttons (matching planning mode exactly)
-    btn_top = Text(_PAD, justify="left")
-    btn_mid = Text(_PAD, justify="left")
-    btn_bot = Text(_PAD, justify="left")
+    # Action buttons
+    btn_top, btn_mid, btn_bot = build_action_buttons(_actions, action_sel)
 
-    _btn_colors = {
-        "Accept": ("rgb(60,160,80)", "rgb(80,200,100)", "rgb(40,50,40)", "rgb(50,60,50)"),
-        "Done": ("rgb(60,160,80)", "rgb(80,200,100)", "rgb(40,50,40)", "rgb(50,60,50)"),
-        "Edit": ("rgb(100,100,120)", "rgb(140,140,160)", "rgb(40,40,50)", "rgb(50,50,60)"),
-        "Regenerate": ("rgb(100,100,120)", "rgb(140,140,160)", "rgb(40,40,50)", "rgb(50,50,60)"),
-        "Export": ("rgb(70,100,180)", "rgb(100,140,220)", "rgb(40,40,50)", "rgb(50,50,60)"),
-    }
-    _btn_min_w = 12
-    _btn_gap = 2
-
-    for i, label in enumerate(_actions):
-        if i > 0:
-            btn_top.append(" " * _btn_gap)
-            btn_mid.append(" " * _btn_gap)
-            btn_bot.append(" " * _btn_gap)
-
-        inner_w = max(_btn_min_w - 2, len(label) + 2)
-        pad_l = (inner_w - len(label)) // 2
-        pad_r = inner_w - len(label) - pad_l
-        centered = " " * pad_l + label + " " * pad_r
-
-        accent_b, accent_l, grey_b, grey_l = _btn_colors.get(
-            label,
-            ("rgb(100,100,120)", "rgb(140,140,160)", "rgb(40,40,50)", "rgb(50,50,60)"),
-        )
-
-        if i == action_sel:
-            b_style = accent_b
-            l_style = f"bold {accent_l}"
-        else:
-            b_style = grey_b
-            l_style = grey_l
-
-        btn_top.append("\u256d" + "\u2500" * inner_w + "\u256e", style=b_style)
-        btn_mid.append("\u2502" + centered + "\u2502", style=l_style)
-        btn_bot.append("\u2570" + "\u2500" * inner_w + "\u256f", style=b_style)
-
-    # Build viewport with optional scrollbar using a two-column layout
-    if _show_sb:
+    # Build viewport with optional scrollbar
+    if _sb_text is not None:
         from rich.table import Table as _SbTable
 
         _vp_table = _SbTable(
@@ -180,8 +111,8 @@ def _build_analysis_review_screen(
             pad_edge=False,
             expand=True,
         )
-        _vp_table.add_column(ratio=1)  # content
-        _vp_table.add_column(width=1)  # scrollbar
+        _vp_table.add_column(ratio=1)
+        _vp_table.add_column(width=1)
         _vp_table.add_row(Group(*padded_lines), _sb_text)
         viewport_renderable = _vp_table
     else:
@@ -1877,45 +1808,9 @@ def _build_team_analysis_screen(
 
     title = analysis_title()
 
-    # Action buttons using shared color scheme
-    _footer_actions = ["Export", "Continue"]
-    _btn_colors = {
-        "Export": ("rgb(70,100,180)", "rgb(100,140,220)", "rgb(40,40,50)", "rgb(50,50,60)"),
-        "Continue": ("rgb(60,160,80)", "rgb(80,200,100)", "rgb(40,50,40)", "rgb(50,60,50)"),
-    }
-    _btn_min_w = 12
-    _btn_gap = 2
-
-    btn_top = Text(_PAD, justify="left")
-    btn_mid = Text(_PAD, justify="left")
-    btn_bot = Text(_PAD, justify="left")
-
-    for i, label in enumerate(_footer_actions):
-        if i > 0:
-            btn_top.append(" " * _btn_gap)
-            btn_mid.append(" " * _btn_gap)
-            btn_bot.append(" " * _btn_gap)
-        inner_w = max(_btn_min_w - 2, len(label) + 2)
-        pad_l = (inner_w - len(label)) // 2
-        pad_r = inner_w - len(label) - pad_l
-        centered = " " * pad_l + label + " " * pad_r
-        accent_b, accent_l, grey_b, grey_l = _btn_colors.get(
-            label,
-            ("rgb(100,100,120)", "rgb(140,140,160)", "rgb(40,40,50)", "rgb(50,50,60)"),
-        )
-        if i == export_sel:
-            b_style, l_style = accent_b, f"bold {accent_l}"
-        else:
-            b_style, l_style = grey_b, grey_l
-        btn_top.append("\u256d" + "\u2500" * inner_w + "\u256e", style=b_style)
-        btn_mid.append("\u2502" + centered + "\u2502", style=l_style)
-        btn_bot.append("\u2570" + "\u2500" * inner_w + "\u256f", style=b_style)
-
-    # Viewport with per-item height tracking for Rich Tables
-    inner_h = height - 4
-    header_h = 6  # blank + title(2) + blank + sub + blank
-    action_h = 4  # blank + 3 button lines
-    body_h = max(3, inner_h - header_h - action_h)
+    # Action buttons + viewport via shared components
+    btn_top, btn_mid, btn_bot = build_action_buttons(["Export", "Continue"], export_sel)
+    body_h = calc_viewport(height, header_h=6, action_h=4)
 
     max_scroll = max(0, _rendered_lines - body_h)
     actual_scroll = min(scroll_offset, max_scroll)
@@ -1930,23 +1825,11 @@ def _build_team_analysis_screen(
         _vis_h += ih
 
     remaining = max(0, body_h - _vis_h)
-
-    # Build scrollbar
-    _show_sb = _rendered_lines > body_h
-    _sb_text = Text(justify="left")
-    if _show_sb:
-        thumb_size = max(1, round(body_h * body_h / max(_rendered_lines, 1)))
-        thumb_pos = round(actual_scroll / max(max_scroll, 1) * (body_h - thumb_size)) if max_scroll > 0 else 0
-        for i in range(body_h):
-            is_thumb = thumb_pos <= i < thumb_pos + thumb_size
-            if is_thumb:
-                _sb_text.append("\u2503\n", style="rgb(100,100,120)")
-            else:
-                _sb_text.append("\u2502\n", style="rgb(40,40,50)")
+    _sb_text = build_scrollbar(body_h, _rendered_lines, actual_scroll, max_scroll)
 
     # Build viewport with optional scrollbar
     _body_group = Group(*_vis_items, *[Text("") for _ in range(remaining)])
-    if _show_sb:
+    if _sb_text is not None:
         from rich.table import Table as _SbTable
 
         _vp_table = _SbTable(
@@ -1957,8 +1840,8 @@ def _build_team_analysis_screen(
             pad_edge=False,
             expand=True,
         )
-        _vp_table.add_column(ratio=1)  # content
-        _vp_table.add_column(width=1)  # scrollbar
+        _vp_table.add_column(ratio=1)
+        _vp_table.add_column(width=1)
         _vp_table.add_row(_body_group, _sb_text)
         viewport_renderable = _vp_table
     else:
