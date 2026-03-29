@@ -2088,6 +2088,45 @@ def select_mode(
                 _staleness_days,
             )
 
+            # ── Route: Usage mode → single-page dashboard ────────────────
+            if chosen["key"] == "usage":
+                logger.info("Usage mode selected")
+                from scrum_agent.ui.mode_select.screens._screens_secondary import _build_usage_screen
+
+                _usage_data = _collect_usage_data()
+                _u_scroll, _u_sel = 0, 0
+                w, h = console.size
+                live.update(
+                    _build_usage_screen(
+                        _usage_data,
+                        scroll_offset=_u_scroll,
+                        width=w,
+                        height=h,
+                        action_sel=_u_sel,
+                    )
+                )
+                while True:
+                    k = read_key(timeout=_FRAME_TIME) if _supports_timeout else read_key()
+                    if k in ("up", "scroll_up"):
+                        _u_scroll = max(0, _u_scroll - 1)
+                    elif k in ("down", "scroll_down"):
+                        _u_scroll += 1
+                    elif k in ("enter", " ", "esc", "q"):
+                        break
+                    w, h = console.size
+                    live.update(
+                        _build_usage_screen(
+                            _usage_data,
+                            scroll_offset=_u_scroll,
+                            width=w,
+                            height=h,
+                            action_sel=_u_sel,
+                        )
+                    )
+                _restart_mode_select = True
+                _skip_fade_in = True
+                continue
+
             # Staggered vertical reveal — cards pop in one by one, fast.
             _reveal_target = float(proj_n)
             _cards_visible = 0.0
@@ -2110,35 +2149,6 @@ def select_mode(
                     )
                 )
                 time.sleep(_FRAME_TIME)
-
-            # ── Route: Usage mode → single-page dashboard ────────────────
-            if chosen["key"] == "usage":
-                logger.info("Usage mode selected")
-                from scrum_agent.ui.mode_select.screens._screens_secondary import _build_usage_screen
-
-                _usage_data = _collect_usage_data()
-                _u_scroll, _u_sel = 0, 0
-                while True:
-                    k = read_key(timeout=_FRAME_TIME) if _supports_timeout else read_key()
-                    if k in ("up", "scroll_up"):
-                        _u_scroll = max(0, _u_scroll - 1)
-                    elif k in ("down", "scroll_down"):
-                        _u_scroll += 1
-                    elif k in ("enter", " ", "esc", "q"):
-                        break
-                    w, h = console.size
-                    live.update(
-                        _build_usage_screen(
-                            _usage_data,
-                            scroll_offset=_u_scroll,
-                            width=w,
-                            height=h,
-                            action_sel=_u_sel,
-                        )
-                    )
-                _restart_mode_select = True
-                _skip_fade_in = True
-                continue
 
             # ── Phase 3: Project list interaction ─────────────────────────────
             # focus: 0 = project card, 1 = Delete button, 2 = Export button.
