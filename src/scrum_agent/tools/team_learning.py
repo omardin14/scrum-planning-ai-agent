@@ -4177,10 +4177,12 @@ def _enrich_azdo_scope_changes(
                 cur_pts = _safe_float(fields.get("Microsoft.VSTS.Scheduling.StoryPoints"))
                 cur_iter = fields.get("System.IterationPath", "") or ""
 
-                # Track board column transitions
-                cur_col = fields.get("System.BoardColumn", "") or ""
+                # Track board column transitions — prefer State (matches Taskboard columns)
+                # over BoardColumn (which tracks the Kanban board, not the sprint Taskboard)
+                cur_col = fields.get("System.State", "") or ""
                 if not cur_col:
-                    # Try Kanban column field (varies by team config)
+                    cur_col = fields.get("System.BoardColumn", "") or ""
+                if not cur_col:
                     for fk, fv in fields.items():
                         if "Kanban.Column" in fk and isinstance(fv, str) and fv:
                             cur_col = fv
