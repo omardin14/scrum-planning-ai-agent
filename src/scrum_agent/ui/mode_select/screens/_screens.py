@@ -35,7 +35,14 @@ _MODE_CARDS: list[dict[str, Any]] = [
         "title": "Planning",
         "description": "Decompose your project into epics, user stories, tasks, and a sprint plan.",
         "available": True,
-        "color": "rgb(70,100,180)",
+        "color": "rgb(110,140,220)",
+    },
+    {
+        "key": "usage",
+        "title": "Usage",
+        "description": "View API token usage, session history, and cost estimates.",
+        "available": True,
+        "color": "rgb(220,160,60)",
     },
 ]
 

@@ -2972,3 +2972,157 @@ def _build_project_export_success_screen(
         height=height,
         padding=(1, 2),
     )
+
+
+# ---------------------------------------------------------------------------
+# Usage screen
+# ---------------------------------------------------------------------------
+
+
+def _build_usage_screen(
+    usage_data: dict,
+    *,
+    scroll_offset: int = 0,
+    width: int = 80,
+    height: int = 24,
+    action_sel: int = 0,
+) -> Panel:
+    """Build the usage dashboard screen using shared TUI components.
+
+    Shows API token usage, session history, provider info, and cost estimates.
+    Uses USAGE_THEME (amber) with shared buttons, scrollbar, and viewport.
+    """
+    from scrum_agent.ui.shared._components import USAGE_THEME, usage_title
+
+    theme = USAGE_THEME
+    title = usage_title()
+    sub = Text(_PAD + "API usage and session history", style="dim", justify="left")
+
+    body_lines: list = []
+
+    def _heading(text: str) -> None:
+        body_lines.append(Text(""))
+        h = Text(_PAD + "  ", justify="left")
+        h.append(text, style=f"bold {theme.accent}")
+        body_lines.append(h)
+        body_lines.append(Text(_PAD + "  " + "\u2500" * min(len(text), 40), style=theme.sep, justify="left"))
+
+    def _row(label: str, value: str, value_style: str = "") -> None:
+        r = Text(_PAD + "    ", justify="left")
+        r.append(f"{label}:  ", style=theme.muted)
+        r.append(str(value), style=value_style or theme.value)
+        body_lines.append(r)
+
+    # ── Provider Info ──────────────────────────────────────────────
+    _heading("LLM Provider")
+    _row("Provider", usage_data.get("provider", "unknown"))
+    _row("Model", usage_data.get("model", "unknown"))
+    api_status = usage_data.get("api_key_status", "not configured")
+    status_style = theme.good if api_status == "configured" else theme.bad
+    _row("API key", api_status, status_style)
+
+    # ── Token Usage ───────────────────────────────────────────────
+    _heading("Token Usage")
+    tokens = usage_data.get("tokens", {})
+    if tokens:
+        _row("Input tokens", f"{tokens.get('input', 0):,}")
+        _row("Output tokens", f"{tokens.get('output', 0):,}")
+        _row("Total tokens", f"{tokens.get('total', 0):,}")
+        cost = tokens.get("estimated_cost", 0.0)
+        if cost > 0:
+            _row("Estimated cost", f"${cost:.4f}", theme.warn)
+    else:
+        body_lines.append(Text(_PAD + "    No token data available yet.", style=theme.muted, justify="left"))
+        body_lines.append(
+            Text(
+                _PAD + "    Token tracking starts when you run analysis or planning.",
+                style=theme.dim,
+                justify="left",
+            )
+        )
+
+    # ── Session History ───────────────────────────────────────────
+    _heading("Session History")
+    sessions = usage_data.get("sessions", {})
+    _row("Total sessions", str(sessions.get("total", 0)))
+    _row("Planning sessions", str(sessions.get("planning", 0)))
+    _row("Analysis sessions", str(sessions.get("analysis", 0)))
+    last = sessions.get("last_used", "")
+    if last:
+        _row("Last session", last)
+
+    # ── Environment ───────────────────────────────────────────────
+    _heading("Environment")
+    _row("Version", usage_data.get("version", "?"))
+    _row("Python", usage_data.get("python_version", "?"))
+    langsmith = usage_data.get("langsmith", "disabled")
+    ls_style = theme.good if langsmith == "enabled" else theme.dim
+    _row("LangSmith", langsmith, ls_style)
+    _row("Session DB", usage_data.get("db_path", "~/.scrum-agent/sessions.db"))
+
+    # ── Team Profiles ─────────────────────────────────────────────
+    profiles = usage_data.get("profiles", [])
+    if profiles:
+        _heading("Team Profiles")
+        for p in profiles:
+            r = Text(_PAD + "    ", justify="left")
+            r.append(p.get("name", "?"), style=theme.value)
+            r.append(f"  {p.get('source', '')} \u00b7 {p.get('sprints', 0)} sprints", style=theme.muted)
+            age = p.get("age", "")
+            if age:
+                r.append(f"  \u00b7 {age}", style=theme.dim)
+            body_lines.append(r)
+
+    # ── Layout using shared components ────────────────────────────
+    viewport_h = calc_viewport(height, header_h=6, action_h=4)
+    total_lines = len(body_lines)
+    max_scroll = max(0, total_lines - viewport_h)
+    actual_scroll = min(scroll_offset, max_scroll)
+    visible = body_lines[actual_scroll : actual_scroll + viewport_h]
+
+    _sb_text = build_scrollbar(viewport_h, total_lines, actual_scroll, max_scroll)
+    padded_lines: list = list(visible)
+    for _ in range(max(0, viewport_h - len(visible))):
+        padded_lines.append(Text(""))
+
+    btn_top, btn_mid, btn_bot = build_action_buttons(["Back"], action_sel)
+
+    if _sb_text is not None:
+        from rich.table import Table as _SbTable
+
+        _vp_table = _SbTable(
+            show_header=False,
+            show_edge=False,
+            box=None,
+            padding=0,
+            pad_edge=False,
+            expand=True,
+        )
+        _vp_table.add_column(ratio=1)
+        _vp_table.add_column(width=1)
+        _vp_table.add_row(Group(*padded_lines), _sb_text)
+        viewport_renderable = _vp_table
+    else:
+        viewport_renderable = Group(*padded_lines)
+
+    content = Group(
+        Text(""),
+        title,
+        Text(""),
+        sub,
+        Text(""),
+        viewport_renderable,
+        Text(""),
+        btn_top,
+        btn_mid,
+        btn_bot,
+    )
+
+    return Panel(
+        content,
+        border_style="white",
+        box=rich.box.ROUNDED,
+        expand=True,
+        height=height,
+        padding=(1, 2),
+    )

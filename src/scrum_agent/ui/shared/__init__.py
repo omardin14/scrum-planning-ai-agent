@@ -20,6 +20,7 @@ from scrum_agent.ui.shared._components import (  # noqa: F401
     ANALYSIS_THEME,
     PAD,
     PLANNING_THEME,
+    USAGE_THEME,
     Theme,
     analysis_title,
     build_action_buttons,
@@ -29,6 +30,7 @@ from scrum_agent.ui.shared._components import (  # noqa: F401
     calc_viewport,
     center_label,
     planning_title,
+    usage_title,
 )
 from scrum_agent.ui.shared._input import (  # noqa: F401
     disable_bracketed_paste,

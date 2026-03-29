@@ -920,6 +920,89 @@ def _run_sprint_review(
         )
 
 
+def _collect_usage_data() -> dict:
+    """Gather usage statistics for the Usage dashboard page."""
+    import os
+    import sys
+
+    data: dict = {}
+
+    # Provider info
+    provider = os.environ.get("LLM_PROVIDER", "anthropic")
+    model = os.environ.get("LLM_MODEL", "")
+    if not model:
+        _defaults = {
+            "anthropic": "claude-sonnet-4-20250514",
+            "openai": "gpt-4o",
+            "google": "gemini-2.0-flash",
+            "bedrock": "us.anthropic.claude-sonnet-4-20250514-v1:0",
+        }
+        model = _defaults.get(provider, "unknown")
+    data["provider"] = provider
+    data["model"] = model
+
+    # API key status
+    _key_vars = {
+        "anthropic": "ANTHROPIC_API_KEY",
+        "openai": "OPENAI_API_KEY",
+        "google": "GOOGLE_API_KEY",
+        "bedrock": "AWS_REGION",
+    }
+    key_var = _key_vars.get(provider, "ANTHROPIC_API_KEY")
+    data["api_key_status"] = "configured" if os.environ.get(key_var) else "not configured"
+
+    # Session history
+    try:
+        from scrum_agent.sessions import SessionStore
+
+        db_path = _ana_dbp
+        with SessionStore(db_path) as store:
+            all_sessions = store.list_sessions()
+            analysis_sessions = store.list_analysis_sessions()
+            planning_count = len(all_sessions) - len(analysis_sessions)
+            last_used = all_sessions[0].get("last_modified", "") if all_sessions else ""
+            data["sessions"] = {
+                "total": len(all_sessions),
+                "planning": planning_count,
+                "analysis": len(analysis_sessions),
+                "last_used": last_used[:19].replace("T", " ") if last_used else "",
+            }
+    except Exception:
+        data["sessions"] = {"total": 0, "planning": 0, "analysis": 0}
+
+    # Environment
+    from scrum_agent import __version__
+
+    data["version"] = __version__
+    data["python_version"] = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+    from scrum_agent.config import is_langsmith_enabled
+
+    data["langsmith"] = "enabled" if is_langsmith_enabled() else "disabled"
+    data["db_path"] = str(_ana_dbp)
+
+    # Team profiles
+    try:
+        from scrum_agent.team_profile import TeamProfileStore
+
+        with TeamProfileStore(_ana_dbp) as ps:
+            profiles = ps.list_profiles()
+            data["profiles"] = [
+                {
+                    "name": getattr(p, "team_id", "?"),
+                    "source": getattr(p, "source", "?"),
+                    "sprints": getattr(p, "sample_sprints", 0),
+                }
+                for p in profiles
+            ]
+    except Exception:
+        data["profiles"] = []
+
+    # Token usage placeholder (not yet tracked at runtime)
+    data["tokens"] = {}
+
+    return data
+
+
 def select_mode(
     console: Console | None = None, *, dry_run: bool = False, _read_key_fn=None
 ) -> tuple[str, str | None, str | None] | None:
@@ -2027,6 +2110,35 @@ def select_mode(
                     )
                 )
                 time.sleep(_FRAME_TIME)
+
+            # ── Route: Usage mode → single-page dashboard ────────────────
+            if chosen["key"] == "usage":
+                logger.info("Usage mode selected")
+                from scrum_agent.ui.mode_select.screens._screens_secondary import _build_usage_screen
+
+                _usage_data = _collect_usage_data()
+                _u_scroll, _u_sel = 0, 0
+                while True:
+                    k = read_key(timeout=_FRAME_TIME) if _supports_timeout else read_key()
+                    if k in ("up", "scroll_up"):
+                        _u_scroll = max(0, _u_scroll - 1)
+                    elif k in ("down", "scroll_down"):
+                        _u_scroll += 1
+                    elif k in ("enter", " ", "esc", "q"):
+                        break
+                    w, h = console.size
+                    live.update(
+                        _build_usage_screen(
+                            _usage_data,
+                            scroll_offset=_u_scroll,
+                            width=w,
+                            height=h,
+                            action_sel=_u_sel,
+                        )
+                    )
+                _restart_mode_select = True
+                _skip_fade_in = True
+                continue
 
             # ── Phase 3: Project list interaction ─────────────────────────────
             # focus: 0 = project card, 1 = Delete button, 2 = Export button.

@@ -48,6 +48,7 @@ class Theme:
 
 ANALYSIS_THEME = Theme()
 PLANNING_THEME = Theme(accent="rgb(110,140,220)", accent_bright="rgb(140,170,255)")
+USAGE_THEME = Theme(accent="rgb(220,160,60)", accent_bright="rgb(255,200,80)")
 
 # Button color scheme: (accent_border, accent_label, grey_border, grey_label)
 _BTN_COLORS: dict[str, tuple[str, str, str, str]] = {
@@ -99,6 +100,17 @@ def analysis_title() -> Text:
     """Return the Analysis ASCII title styled with the green accent colour."""
     ascii_lines = render_ascii_text("Analysis")
     base_r, base_g, base_b = COLOR_RGB.get("rgb(100,180,100)", (100, 180, 100))
+    title_style = f"bold rgb({base_r},{base_g},{base_b})"
+    title = Text(justify="left")
+    title.append(PAD + ascii_lines[0] + "\n", style=title_style)
+    title.append(PAD + ascii_lines[1], style=title_style)
+    return title
+
+
+def usage_title() -> Text:
+    """Return the Usage ASCII title styled with the amber accent colour."""
+    ascii_lines = render_ascii_text("Usage")
+    base_r, base_g, base_b = COLOR_RGB.get("rgb(220,160,60)", (220, 160, 60))
     title_style = f"bold rgb({base_r},{base_g},{base_b})"
     title = Text(justify="left")
     title.append(PAD + ascii_lines[0] + "\n", style=title_style)

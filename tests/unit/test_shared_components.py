@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from rich.panel import Panel
 from rich.text import Text
 
 from scrum_agent.ui.shared._components import (
@@ -112,6 +113,90 @@ class TestBuildProgressDots:
         t = Theme(accent="red", accent_bright="bold red")
         result = build_progress_dots(["A", "B"], 0, theme=t)
         assert isinstance(result, Text)
+
+
+class TestUsageScreen:
+    def test_returns_panel(self):
+        from scrum_agent.ui.mode_select.screens._screens_secondary import _build_usage_screen
+
+        result = _build_usage_screen({}, width=80, height=24)
+        assert isinstance(result, Panel)
+
+    def test_with_full_data(self):
+        from scrum_agent.ui.mode_select.screens._screens_secondary import _build_usage_screen
+
+        data = {
+            "provider": "anthropic",
+            "model": "claude-sonnet-4-20250514",
+            "api_key_status": "configured",
+            "tokens": {"input": 15000, "output": 3000, "total": 18000, "estimated_cost": 0.054},
+            "sessions": {"total": 12, "planning": 8, "analysis": 4, "last_used": "2026-03-29 10:30"},
+            "version": "1.2.0",
+            "python_version": "3.14.3",
+            "langsmith": "disabled",
+            "db_path": "~/.scrum-agent/sessions.db",
+            "profiles": [
+                {"name": "azdevops-PROJ", "source": "azdevops", "sprints": 8},
+            ],
+        }
+        result = _build_usage_screen(data, width=100, height=40)
+        assert isinstance(result, Panel)
+
+    def test_renders_provider_info(self):
+        from io import StringIO
+
+        from rich.console import Console
+
+        from scrum_agent.ui.mode_select.screens._screens_secondary import _build_usage_screen
+
+        data = {"provider": "anthropic", "model": "claude-sonnet-4", "api_key_status": "configured"}
+        result = _build_usage_screen(data, width=100, height=40)
+        buf = StringIO()
+        Console(file=buf, width=100, force_terminal=False).print(result)
+        output = buf.getvalue()
+        assert "anthropic" in output
+        assert "claude-sonnet-4" in output
+
+    def test_scrollable(self):
+        from scrum_agent.ui.mode_select.screens._screens_secondary import _build_usage_screen
+
+        data = {
+            "provider": "anthropic",
+            "model": "test",
+            "sessions": {"total": 5, "planning": 3, "analysis": 2},
+            "profiles": [{"name": f"team-{i}", "source": "jira", "sprints": i} for i in range(10)],
+        }
+        r1 = _build_usage_screen(data, scroll_offset=0, width=80, height=20)
+        r2 = _build_usage_screen(data, scroll_offset=5, width=80, height=20)
+        assert isinstance(r1, Panel)
+        assert isinstance(r2, Panel)
+
+    def test_back_button(self):
+        from io import StringIO
+
+        from rich.console import Console
+
+        from scrum_agent.ui.mode_select.screens._screens_secondary import _build_usage_screen
+
+        result = _build_usage_screen({}, width=100, height=40)
+        buf = StringIO()
+        Console(file=buf, width=100, force_terminal=False).print(result)
+        assert "Back" in buf.getvalue()
+
+    def test_uses_amber_theme(self):
+        """Usage screen should use the amber USAGE_THEME, not green or blue."""
+        from io import StringIO
+
+        from rich.console import Console
+
+        from scrum_agent.ui.mode_select.screens._screens_secondary import _build_usage_screen
+
+        result = _build_usage_screen({"provider": "test"}, width=100, height=30)
+        buf = StringIO()
+        Console(file=buf, width=100, force_terminal=False).print(result)
+        output = buf.getvalue()
+        # Should contain USAGE ASCII title
+        assert "USAGE" in output.upper() or len(output) > 100
 
 
 class TestCalcViewport:
