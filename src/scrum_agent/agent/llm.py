@@ -42,9 +42,15 @@ def track_usage(response) -> None:
     Works with all providers (Anthropic, OpenAI, Google, Bedrock).
     """
     meta = getattr(response, "response_metadata", None) or {}
+    logger.info("track_usage: response_metadata keys=%s", list(meta.keys()) if meta else "empty")
+
+    # Anthropic: meta has 'usage' dict with input_tokens/output_tokens
+    # OpenAI: meta has 'token_usage' dict with prompt_tokens/completion_tokens
     usage = meta.get("usage", {}) or meta.get("token_usage", {})
     if not usage:
         usage = meta
+    logger.info("track_usage: usage keys=%s, values=%s", list(usage.keys()) if isinstance(usage, dict) else "?", usage)
+
     inp = usage.get("input_tokens", 0) or usage.get("prompt_tokens", 0)
     out = usage.get("output_tokens", 0) or usage.get("completion_tokens", 0)
     if inp or out:
@@ -52,7 +58,15 @@ def track_usage(response) -> None:
         _usage_stats["output_tokens"] += out
         _usage_stats["total_tokens"] += inp + out
         _usage_stats["call_count"] += 1
-        logger.debug("Token usage: +%d in, +%d out (total: %d)", inp, out, _usage_stats["total_tokens"])
+        logger.info(
+            "Token usage: +%d in, +%d out (total: %d, calls: %d)",
+            inp,
+            out,
+            _usage_stats["total_tokens"],
+            _usage_stats["call_count"],
+        )
+    else:
+        logger.warning("track_usage: no token data found in response metadata")
 
 
 def get_usage_stats() -> dict:

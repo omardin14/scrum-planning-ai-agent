@@ -1002,6 +1002,7 @@ def _collect_usage_data() -> dict:
         from scrum_agent.agent.llm import get_usage_stats
 
         stats = get_usage_stats()
+        logger.info("Usage stats: %s", stats)
         if stats.get("call_count", 0) > 0:
             inp = stats.get("input_tokens", 0)
             out = stats.get("output_tokens", 0)
