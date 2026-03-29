@@ -96,6 +96,7 @@ def run_session(
     theme: str = "dark",
     dry_run: bool = False,
     _read_key_fn=None,
+    analysis_profile_id: str = "",
 ) -> None:
     """Drive the full TUI session inside an existing Live context.
 
@@ -152,6 +153,7 @@ def run_session(
             export_only=export_only,
             bell=bell,
             dry_run=dry_run,
+            analysis_profile_id=analysis_profile_id,
         )
     finally:
         remove_session_logger()
@@ -170,6 +172,7 @@ def _run_session_body(
     export_only,
     bell,
     dry_run,
+    analysis_profile_id="",
 ):
     """Session body — extracted so run_session can use try/finally for log cleanup."""
     # Compile graph once for the session (skipped in dry-run — no LLM calls)
@@ -183,6 +186,8 @@ def _run_session_body(
     else:
         graph_state: dict = {"messages": []}
         graph_state["_intake_mode"] = intake_mode
+        if analysis_profile_id:
+            graph_state["analysis_profile_id"] = analysis_profile_id
 
     if questionnaire is not None:
         questionnaire.intake_mode = intake_mode

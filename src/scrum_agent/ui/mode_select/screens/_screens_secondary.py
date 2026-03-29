@@ -3154,3 +3154,127 @@ def _build_usage_screen(
         height=height,
         padding=(1, 2),
     )
+
+
+# ---------------------------------------------------------------------------
+# Profile picker screen (planning mode — select which analysis to use)
+# ---------------------------------------------------------------------------
+
+
+def _build_profile_picker_screen(
+    profiles: list,
+    selected: int,
+    *,
+    width: int = 80,
+    height: int = 24,
+) -> Panel:
+    """Build the analysis profile picker shown before planning intake.
+
+    Lists available team analysis profiles + a Skip option. Uses PLANNING_THEME
+    and shared components for visual consistency.
+    """
+    from scrum_agent.ui.shared._components import PLANNING_THEME, planning_title
+
+    theme = PLANNING_THEME
+    title = planning_title()
+    sub = Text(_PAD + "Select a team analysis to calibrate planning", style="dim", justify="left")
+
+    body_lines: list = []
+
+    for i, p in enumerate(profiles):
+        is_sel = i == selected
+        team_id = getattr(p, "team_id", "?")
+        source = getattr(p, "source", "?")
+        sprints = getattr(p, "sample_sprints", 0)
+        stories = getattr(p, "sample_stories", 0)
+        vel = getattr(p, "velocity_avg", 0.0)
+        updated = getattr(p, "updated_at", "")
+
+        # Compute age
+        age_str = ""
+        stale = False
+        if updated:
+            try:
+                from datetime import UTC, datetime
+
+                _up = datetime.fromisoformat(updated)
+                days = (datetime.now(UTC) - _up).days
+                if days == 0:
+                    age_str = "today"
+                elif days == 1:
+                    age_str = "1 day ago"
+                else:
+                    age_str = f"{days} days ago"
+                stale = days > 30
+            except Exception:
+                pass
+
+        # Selection indicator
+        marker = "\u25cf" if is_sel else "\u25cb"
+        marker_style = theme.accent_bright if is_sel else "rgb(60,60,70)"
+
+        body_lines.append(Text(""))
+        row = Text(_PAD + "  ", justify="left")
+        row.append(marker, style=marker_style)
+        row.append(f"  {team_id}", style="bold white" if is_sel else theme.muted)
+        body_lines.append(row)
+
+        # Details line
+        detail = Text(_PAD + "     ", justify="left")
+        detail.append(f"{source}", style=theme.muted)
+        detail.append(f"  \u00b7  {sprints} sprints  \u00b7  {stories} stories", style=theme.muted)
+        if vel > 0:
+            detail.append(f"  \u00b7  {vel:.0f} pts/sprint", style=theme.muted)
+        body_lines.append(detail)
+
+        if age_str:
+            age_line = Text(_PAD + "     ", justify="left")
+            if stale:
+                age_line.append(f"\u26a0 {age_str}", style=theme.warn)
+                age_line.append(" (stale — consider re-analysing)", style=theme.dim)
+            else:
+                age_line.append(age_str, style=theme.dim)
+            body_lines.append(age_line)
+
+    # Skip option
+    body_lines.append(Text(""))
+    is_skip_sel = selected == len(profiles)
+    skip_marker = "\u25cf" if is_skip_sel else "\u25cb"
+    skip_style = theme.accent_bright if is_skip_sel else "rgb(60,60,70)"
+    skip_row = Text(_PAD + "  ", justify="left")
+    skip_row.append(skip_marker, style=skip_style)
+    skip_row.append("  Skip (plan without analysis)", style="bold white" if is_skip_sel else theme.muted)
+    body_lines.append(skip_row)
+    body_lines.append(Text(_PAD + "     Planning will use generic defaults.", style=theme.dim, justify="left"))
+
+    # Layout
+    viewport_h = calc_viewport(height, header_h=6, action_h=4)
+    visible = body_lines[:viewport_h]
+
+    padded_lines: list = list(visible)
+    for _ in range(max(0, viewport_h - len(visible))):
+        padded_lines.append(Text(""))
+
+    btn_top, btn_mid, btn_bot = build_action_buttons(["Select"], 0)
+
+    content = Group(
+        Text(""),
+        title,
+        Text(""),
+        sub,
+        Text(""),
+        Group(*padded_lines),
+        Text(""),
+        btn_top,
+        btn_mid,
+        btn_bot,
+    )
+
+    return Panel(
+        content,
+        border_style="white",
+        box=rich.box.ROUNDED,
+        expand=True,
+        height=height,
+        padding=(1, 2),
+    )

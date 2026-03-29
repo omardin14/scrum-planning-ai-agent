@@ -1583,16 +1583,15 @@ def _load_user_context(path: str | None = None, docs_dir: str | None = None) -> 
         return None, {"name": "User context", "status": "error", "detail": str(e)[:80]}
 
 
-def _load_team_profile() -> object | None:
-    """Load the team profile from SQLite if one exists for the configured tracker.
+def _load_team_profile(profile_id: str = "") -> object | None:
+    """Load the team profile from SQLite.
 
-    # See README: "Scrum Standards" — team learning, self-calibrating estimates
-    #
-    # Checks both Jira and AzDO project keys against the team_profiles table.
-    # Returns the TeamProfile if found, or None. Non-fatal — never raises.
+    If profile_id is given (from user's profile picker selection), loads that
+    specific profile. Otherwise falls back to auto-detecting from configured
+    Jira/AzDO project keys.
 
     Returns:
-        A TeamProfile instance or None.
+        A TeamProfile instance or None. Non-fatal — never raises.
     """
     try:
         from pathlib import Path
@@ -1604,7 +1603,14 @@ def _load_team_profile() -> object | None:
             return None
 
         with TeamProfileStore(db_path) as store:
-            # Try Jira first
+            # If a specific profile was selected, use it
+            if profile_id:
+                profile = store.load(profile_id)
+                if profile:
+                    logger.debug("Loaded selected team profile: %s", profile_id)
+                    return profile
+
+            # Auto-detect: try Jira first
             try:
                 from scrum_agent.config import get_jira_project_key
 
@@ -1617,7 +1623,7 @@ def _load_team_profile() -> object | None:
             except Exception:
                 pass
 
-            # Try AzDO
+            # Auto-detect: try AzDO
             try:
                 from scrum_agent.config import get_azdevops_project
 
@@ -1636,13 +1642,11 @@ def _load_team_profile() -> object | None:
         return None
 
 
-def _load_team_examples() -> dict | None:
+def _load_team_examples(profile_id: str = "") -> dict | None:
     """Load the examples dict for the team profile from SQLite.
 
-    Companion to ``_load_team_profile()`` — loads the ``examples_json`` column
-    so that ``_format_team_calibration`` can inject analysis data (spillover
-    correlation, discipline calibration, task patterns, scope changes, etc.)
-    that lives in the examples dict rather than the TeamProfile dataclass.
+    If profile_id is given, loads examples for that specific profile.
+    Otherwise auto-detects from configured Jira/AzDO project keys.
     """
     try:
         from pathlib import Path
@@ -1654,6 +1658,10 @@ def _load_team_examples() -> dict | None:
             return None
 
         with TeamProfileStore(db_path) as store:
+            if profile_id:
+                _, ex = store.load_with_examples(profile_id)
+                return ex
+
             try:
                 from scrum_agent.config import get_jira_project_key
 
@@ -1678,6 +1686,73 @@ def _load_team_examples() -> dict | None:
         return None
     except Exception:
         return None
+
+
+def _load_profile_by_id(profile_id: str):
+    """Load a specific team profile and examples by team_id."""
+    try:
+        from pathlib import Path
+
+        from scrum_agent.team_profile import TeamProfileStore
+
+        db_path = Path.home() / ".scrum-agent" / "sessions.db"
+        if not db_path.exists():
+            return None, None
+
+        with TeamProfileStore(db_path) as store:
+            return store.load_with_examples(profile_id)
+    except Exception:
+        logger.debug("Failed to load profile %s", profile_id, exc_info=True)
+        return None, None
+
+
+def _extract_answers_from_profile(profile, examples: dict | None = None) -> dict[int, str]:
+    """Extract intake questionnaire answers from a team analysis profile.
+
+    Returns a dict mapping question numbers to answer strings.
+    Used to auto-fill Q6 (team size), Q8 (sprint length), Q9 (velocity)
+    when the user selects an analysis profile in planning mode.
+    """
+    answers: dict[int, str] = {}
+    _ex = examples or {}
+
+    # Q6: Team size — from contributor stats
+    contrib = _ex.get("contributor_stats", {})
+    if isinstance(contrib, dict) and contrib:
+        answers[6] = str(len(contrib))
+        logger.info("Analysis auto-fill: Q6 (team size) = %s from %d contributors", answers[6], len(contrib))
+
+    # Q8: Sprint length — derive from sprint date ranges
+    sprint_details = _ex.get("sprint_details", [])
+    if sprint_details:
+        try:
+            durations = []
+            for sd in sprint_details:
+                start = sd.get("start", "")
+                end = sd.get("end", "")
+                if start and end:
+                    from datetime import datetime
+
+                    s_dt = datetime.fromisoformat(start.replace("Z", "+00:00"))
+                    e_dt = datetime.fromisoformat(end.replace("Z", "+00:00"))
+                    days = (e_dt - s_dt).days
+                    durations.append(days)
+            if durations:
+                avg_days = sum(durations) / len(durations)
+                weeks = round(avg_days / 7)
+                weeks = max(1, min(4, weeks))
+                answers[8] = f"{weeks} week{'s' if weeks > 1 else ''}"
+                logger.info("Analysis auto-fill: Q8 (sprint length) = %s from %d sprints", answers[8], len(durations))
+        except Exception:
+            pass
+
+    # Q9: Velocity — direct from profile
+    vel = getattr(profile, "velocity_avg", 0.0)
+    if vel > 0:
+        answers[9] = f"{vel:.0f} points per sprint (from team analysis)"
+        logger.info("Analysis auto-fill: Q9 (velocity) = %.0f pts/sprint", vel)
+
+    return answers
 
 
 def _extract_confluence_page_ids(text: str) -> list[str]:
@@ -3055,6 +3130,25 @@ def project_intake(state: ScrumState) -> dict:
                     len(_scrum_md_contributed),
                 )
 
+        # ── Analysis profile auto-fill ────────────────────────────────
+        # If the user selected an analysis profile in the profile picker,
+        # extract Q6/Q8/Q9 from it. Priority: description > SCRUM.md > analysis.
+        _analysis_profile_id = state.get("analysis_profile_id", "")
+        if _analysis_profile_id:
+            _ap, _ap_ex = _load_profile_by_id(_analysis_profile_id)
+            if _ap:
+                _analysis_answers = _extract_answers_from_profile(_ap, _ap_ex)
+                for q_num, answer in _analysis_answers.items():
+                    if q_num not in extracted:
+                        extracted[q_num] = answer
+                        _scrum_md_contributed.add(q_num)  # track as auto-filled
+                logger.info(
+                    "Analysis profile %s auto-filled %d answers: %s",
+                    _analysis_profile_id,
+                    len(_analysis_answers),
+                    sorted(_analysis_answers.keys()),
+                )
+
         # ── Smart / quick mode first-invocation ──────────────────────
         # See README: "Project Intake Questionnaire" — smart intake
         #
@@ -3073,6 +3167,9 @@ def project_intake(state: ScrumState) -> dict:
 
             # Pick essential set based on mode (needed before extraction split)
             essential_set = QUICK_ESSENTIALS if intake_mode == "quick" else SMART_ESSENTIALS
+            # If analysis provides velocity, skip Q9 from essentials
+            if _analysis_profile_id and 9 in extracted:
+                essential_set = essential_set - {9}
 
             # Split extractions: essential questions go to suggested_answers
             # (user confirms or overrides), non-essential go to answers (auto-accepted).
@@ -4742,8 +4839,10 @@ def project_analyzer(state: ScrumState) -> dict:
     # Load team profile for calibration-aware analysis.
     # Non-fatal — if no profile exists, the prompt runs without calibration context.
     # See README: "Scrum Standards" — team learning, self-calibrating estimates
-    team_profile = _load_team_profile()
-    team_calibration_text = _format_team_calibration(team_profile, examples=_load_team_examples())
+    team_profile = _load_team_profile(state.get("analysis_profile_id", ""))
+    team_calibration_text = _format_team_calibration(
+        team_profile, examples=_load_team_examples(state.get("analysis_profile_id", ""))
+    )
     team_profile_summary = team_calibration_text.strip()
 
     # Build the formatted answers block for the prompt
@@ -6088,8 +6187,10 @@ def story_writer(state: ScrumState) -> dict:
 
     # Load team calibration for team-specific estimation rules.
     # See README: "Scrum Standards" — team learning, self-calibrating estimates
-    team_profile = _load_team_profile()
-    team_calibration_text = _format_team_calibration(team_profile, examples=_load_team_examples())
+    team_profile = _load_team_profile(state.get("analysis_profile_id", ""))
+    team_calibration_text = _format_team_calibration(
+        team_profile, examples=_load_team_examples(state.get("analysis_profile_id", ""))
+    )
 
     prompt = get_story_writer_prompt(
         project_name=analysis.project_name,
@@ -6588,8 +6689,10 @@ def task_decomposer(state: ScrumState) -> dict:
 
     # Load team calibration for team-specific task patterns.
     # See README: "Scrum Standards" — team learning, self-calibrating estimates
-    team_profile = _load_team_profile()
-    team_calibration_text = _format_team_calibration(team_profile, examples=_load_team_examples())
+    team_profile = _load_team_profile(state.get("analysis_profile_id", ""))
+    team_calibration_text = _format_team_calibration(
+        team_profile, examples=_load_team_examples(state.get("analysis_profile_id", ""))
+    )
 
     # ── Parallel task decomposition by feature ────────────────────────────
     # Split stories into per-feature groups and decompose concurrently.
@@ -7367,8 +7470,10 @@ def sprint_planner(state: ScrumState) -> dict:
 
     # Load team calibration for velocity-aware sprint planning.
     # See README: "Scrum Standards" — team learning, self-calibrating estimates
-    team_profile = _load_team_profile()
-    team_calibration_text = _format_team_calibration(team_profile, examples=_load_team_examples())
+    team_profile = _load_team_profile(state.get("analysis_profile_id", ""))
+    team_calibration_text = _format_team_calibration(
+        team_profile, examples=_load_team_examples(state.get("analysis_profile_id", ""))
+    )
 
     prompt = get_sprint_planner_prompt(
         project_name=analysis.project_name,

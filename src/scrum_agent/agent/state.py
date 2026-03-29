@@ -508,6 +508,10 @@ class ScrumState(_RequiredState, total=False):
     sprint_length_weeks: int
     velocity_per_sprint: int
     target_sprints: int
+    # Analysis profile selected by user in planning mode profile picker.
+    # When set, intake auto-fills Q6/Q8/Q9 from the profile and nodes
+    # use this profile for team calibration. Empty string = no profile selected.
+    analysis_profile_id: str
     # Starting sprint number — set by the sprint_selector node after fetching
     # the active Jira sprint and asking the user which sprint to plan for.
     # e.g. if active sprint is "Sprint 104" and user picks next → 105.

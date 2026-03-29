@@ -3174,10 +3174,62 @@ def select_mode(
                     elif key == "enter":
                         chosen_intake = _INTAKE_CARDS[intake_selected]["key"]
                         if chosen_intake != "offline":
-                            # Launch the full TUI session inside this Live context
-                            # so there's no screen-clearing gap between mode selection
-                            # and the first intake question.
-                            # See README: "Architecture" — session replaces run_repl()
+                            # ── Profile picker: let user select analysis profile ──
+                            _selected_profile_id = ""
+                            if _board_configured:
+                                try:
+                                    from scrum_agent.team_profile import TeamProfileStore
+
+                                    _pp_db = Path.home() / ".scrum-agent" / "sessions.db"
+                                    if _pp_db.exists():
+                                        with TeamProfileStore(_pp_db) as _pp_store:
+                                            _pp_profiles = _pp_store.list_profiles()
+                                        if _pp_profiles:
+                                            from scrum_agent.ui.mode_select.screens._screens_secondary import (
+                                                _build_profile_picker_screen,
+                                            )
+
+                                            _pp_sel = 0
+                                            _pp_n = len(_pp_profiles) + 1  # profiles + Skip
+                                            w, h = console.size
+                                            live.update(
+                                                _build_profile_picker_screen(
+                                                    _pp_profiles,
+                                                    _pp_sel,
+                                                    width=w,
+                                                    height=h,
+                                                )
+                                            )
+                                            while True:
+                                                pk = read_key(timeout=_FRAME_TIME) if _supports_timeout else read_key()
+                                                if pk in ("up", "scroll_up"):
+                                                    _pp_sel = (_pp_sel - 1) % _pp_n
+                                                elif pk in ("down", "scroll_down"):
+                                                    _pp_sel = (_pp_sel + 1) % _pp_n
+                                                elif pk == "enter":
+                                                    if _pp_sel < len(_pp_profiles):
+                                                        _selected_profile_id = _pp_profiles[_pp_sel].team_id
+                                                        logger.info(
+                                                            "Profile selected: %s",
+                                                            _selected_profile_id,
+                                                        )
+                                                    else:
+                                                        logger.info("Profile picker: Skip selected")
+                                                    break
+                                                elif pk in ("esc", "q"):
+                                                    break
+                                                w, h = console.size
+                                                live.update(
+                                                    _build_profile_picker_screen(
+                                                        _pp_profiles,
+                                                        _pp_sel,
+                                                        width=w,
+                                                        height=h,
+                                                    )
+                                                )
+                                except Exception:
+                                    logger.debug("Profile picker failed", exc_info=True)
+
                             from scrum_agent.ui.session import run_session
 
                             run_session(
@@ -3186,6 +3238,7 @@ def select_mode(
                                 intake_mode=chosen_intake,
                                 dry_run=dry_run,
                                 _read_key_fn=_read_key_fn,
+                                analysis_profile_id=_selected_profile_id,
                             )
                             # Session ended (Esc or completed) — return to project list
                             projects = _load_projects()

@@ -214,6 +214,94 @@ class TestUsageScreen:
         assert "USAGE" in output.upper() or len(output) > 100
 
 
+class TestProfilePickerScreen:
+    def test_returns_panel(self):
+        from scrum_agent.ui.mode_select.screens._screens_secondary import _build_profile_picker_screen
+
+        result = _build_profile_picker_screen([], 0, width=80, height=24)
+        assert isinstance(result, Panel)
+
+    def test_with_profiles(self):
+        from scrum_agent.team_profile import TeamProfile
+        from scrum_agent.ui.mode_select.screens._screens_secondary import _build_profile_picker_screen
+
+        profiles = [
+            TeamProfile(team_id="jira-PROJ", source="jira", project_key="PROJ", sample_sprints=5, sample_stories=30),
+            TeamProfile(
+                team_id="azdevops-INFRA", source="azdevops", project_key="INFRA", sample_sprints=8, sample_stories=64
+            ),
+        ]
+        result = _build_profile_picker_screen(profiles, 0, width=100, height=30)
+        assert isinstance(result, Panel)
+
+    def test_skip_option(self):
+        from io import StringIO
+
+        from rich.console import Console
+
+        from scrum_agent.team_profile import TeamProfile
+        from scrum_agent.ui.mode_select.screens._screens_secondary import _build_profile_picker_screen
+
+        profiles = [TeamProfile(team_id="jira-X", source="jira", project_key="X")]
+        result = _build_profile_picker_screen(profiles, 1, width=100, height=30)  # Skip selected
+        buf = StringIO()
+        Console(file=buf, width=100, force_terminal=False).print(result)
+        assert "Skip" in buf.getvalue()
+
+    def test_select_button(self):
+        from io import StringIO
+
+        from rich.console import Console
+
+        from scrum_agent.ui.mode_select.screens._screens_secondary import _build_profile_picker_screen
+
+        result = _build_profile_picker_screen([], 0, width=100, height=30)
+        buf = StringIO()
+        Console(file=buf, width=100, force_terminal=False).print(result)
+        assert "Select" in buf.getvalue()
+
+
+class TestExtractAnswersFromProfile:
+    def test_extracts_velocity(self):
+        from scrum_agent.agent.nodes import _extract_answers_from_profile
+        from scrum_agent.team_profile import TeamProfile
+
+        p = TeamProfile(team_id="t", source="jira", project_key="P", velocity_avg=23.5)
+        answers = _extract_answers_from_profile(p)
+        assert 9 in answers
+        assert "23" in answers[9] or "24" in answers[9]
+
+    def test_extracts_team_size(self):
+        from scrum_agent.agent.nodes import _extract_answers_from_profile
+
+        p = type("P", (), {"velocity_avg": 0})()
+        examples = {"contributor_stats": {"alice": {}, "bob": {}, "charlie": {}}}
+        answers = _extract_answers_from_profile(p, examples)
+        assert 6 in answers
+        assert answers[6] == "3"
+
+    def test_empty_profile(self):
+        from scrum_agent.agent.nodes import _extract_answers_from_profile
+
+        p = type("P", (), {"velocity_avg": 0})()
+        answers = _extract_answers_from_profile(p, {})
+        assert len(answers) == 0
+
+    def test_extracts_sprint_length(self):
+        from scrum_agent.agent.nodes import _extract_answers_from_profile
+
+        p = type("P", (), {"velocity_avg": 0})()
+        examples = {
+            "sprint_details": [
+                {"start": "2026-03-01T00:00:00+00:00", "end": "2026-03-15T00:00:00+00:00"},
+                {"start": "2026-03-15T00:00:00+00:00", "end": "2026-03-29T00:00:00+00:00"},
+            ]
+        }
+        answers = _extract_answers_from_profile(p, examples)
+        assert 8 in answers
+        assert "2 week" in answers[8]
+
+
 class TestCalcViewport:
     def test_standard_height(self):
         vp = calc_viewport(30, header_h=7, action_h=4)
