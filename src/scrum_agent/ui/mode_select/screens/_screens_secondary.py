@@ -1042,7 +1042,10 @@ def _build_team_analysis_screen(
     # ── Board Workflow ─────────────────────────────────────────────────
     _wf = _ex.get("workflow_style", {})
     if isinstance(_wf, dict) and _wf.get("workflow"):
-        _heading("Board Workflow")
+        if src == "azdevops":
+            _heading("Work Item State Flow")
+        else:
+            _heading("Board Workflow")
 
         # Workflow sequence
         wf_seq = _wf.get("workflow", [])
@@ -1050,6 +1053,15 @@ def _build_team_analysis_screen(
             row = Text(_PAD + "  ", justify="left")
             row.append(" \u2192 ".join(wf_seq), style=c_value)
             _add(row)
+
+        if src == "azdevops":
+            _add(
+                Text(
+                    _PAD + "    Taskboard columns (Documentation, PR, etc.) are board-level config not tracked here.",
+                    style=c_dim,
+                    justify="left",
+                )
+            )
 
         # Style
         wf_style = _wf.get("style", "minimal")
