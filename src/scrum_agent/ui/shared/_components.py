@@ -207,7 +207,7 @@ def build_scrollbar(
         # Show dim track only (no thumb needed)
         sb = Text(justify="left")
         for _ in range(viewport_h):
-            sb.append("\u2502\n", style="rgb(30,30,40)")
+            sb.append("\u2502\n", style="rgb(50,50,60)")
         return sb
 
     thumb_size = max(1, round(viewport_h * viewport_h / max(total_lines, 1)))
@@ -219,7 +219,7 @@ def build_scrollbar(
         if is_thumb:
             sb.append("\u2503\n", style="rgb(100,100,120)")
         else:
-            sb.append("\u2502\n", style="rgb(40,40,50)")
+            sb.append("\u2502\n", style="rgb(50,50,60)")
     return sb
 
 
