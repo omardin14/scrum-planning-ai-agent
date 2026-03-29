@@ -1308,24 +1308,25 @@ def _build_team_analysis_screen(
             monthly = seas["monthly_avg"]
             low = seas.get("low_months", {})
             high = seas.get("high_months", {})
-            if low or high:
-                _heading("Seasonal Patterns")
-                row = Text(_PAD + "  ", justify="left")
-                m_parts = [f"{m} {v:g}" for m, v in monthly.items()]
-                row.append(" \u00b7 ".join(m_parts), style=c_muted)
-                _add(row)
-                if low:
-                    for m, v in low.items():
-                        row = Text(_PAD + "  ", justify="left")
-                        row.append(f"\u2193 {m}: {v:g} pts", style=c_bad)
-                        row.append(f" (avg {seas.get('overall_avg', 0):g})", style=c_dim)
-                        _add(row)
-                if high:
-                    for m, v in high.items():
-                        row = Text(_PAD + "  ", justify="left")
-                        row.append(f"\u2191 {m}: {v:g} pts", style=c_good)
-                        row.append(f" (avg {seas.get('overall_avg', 0):g})", style=c_dim)
-                        _add(row)
+            _heading("Seasonal Patterns")
+            row = Text(_PAD + "  ", justify="left")
+            m_parts = [f"{m} {v:g}" for m, v in monthly.items()]
+            row.append(" \u00b7 ".join(m_parts), style=c_muted)
+            _add(row)
+            if low:
+                for m, v in low.items():
+                    row = Text(_PAD + "  ", justify="left")
+                    row.append(f"\u2193 {m}: {v:g} pts", style=c_bad)
+                    row.append(f" (avg {seas.get('overall_avg', 0):g})", style=c_dim)
+                    _add(row)
+            if high:
+                for m, v in high.items():
+                    row = Text(_PAD + "  ", justify="left")
+                    row.append(f"\u2191 {m}: {v:g} pts", style=c_good)
+                    row.append(f" (avg {seas.get('overall_avg', 0):g})", style=c_dim)
+                    _add(row)
+            if not low and not high:
+                _add(Text(_PAD + "    No significant seasonal variation detected.", style=c_dim))
 
         # Bug rate
         bugs = _addl.get("bug_rate", {})
