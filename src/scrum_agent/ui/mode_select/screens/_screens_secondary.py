@@ -3170,16 +3170,18 @@ def _build_profile_picker_screen(
 ) -> Panel:
     """Build the analysis profile picker shown before planning intake.
 
-    Lists available team analysis profiles + a Skip option. Uses PLANNING_THEME
-    and shared components for visual consistency.
+    Lists available team analysis profiles as styled cards + a Skip option.
+    Uses PLANNING_THEME and shared components for visual consistency.
     """
     from scrum_agent.ui.shared._components import PLANNING_THEME, planning_title
 
     theme = PLANNING_THEME
     title = planning_title()
-    sub = Text(_PAD + "Select a team analysis to calibrate planning", style="dim", justify="left")
+    sub = Text(_PAD + "Use a team analysis to calibrate planning?", style="dim", justify="left")
 
     body_lines: list = []
+    _source_icons = {"jira": "\U0001f4cb", "azdevops": "\u2601"}  # 📋 for Jira, ☁ for AzDO
+    card_w = min(60, width - len(_PAD) - 10)
 
     for i, p in enumerate(profiles):
         is_sel = i == selected
@@ -3189,6 +3191,7 @@ def _build_profile_picker_screen(
         stories = getattr(p, "sample_stories", 0)
         vel = getattr(p, "velocity_avg", 0.0)
         updated = getattr(p, "updated_at", "")
+        completion = getattr(p, "sprint_completion_rate", 0.0)
 
         # Compute age
         age_str = ""
@@ -3199,53 +3202,82 @@ def _build_profile_picker_screen(
 
                 _up = datetime.fromisoformat(updated)
                 days = (datetime.now(UTC) - _up).days
-                if days == 0:
-                    age_str = "today"
-                elif days == 1:
-                    age_str = "1 day ago"
-                else:
-                    age_str = f"{days} days ago"
+                age_str = "today" if days == 0 else (f"{days}d ago")
                 stale = days > 30
             except Exception:
                 pass
 
-        # Selection indicator
-        marker = "\u25cf" if is_sel else "\u25cb"
-        marker_style = theme.accent_bright if is_sel else "rgb(60,60,70)"
+        # Card border
+        sel_border = theme.accent if is_sel else "rgb(50,50,60)"
+        icon = _source_icons.get(source, "\u25cb")
 
         body_lines.append(Text(""))
-        row = Text(_PAD + "  ", justify="left")
-        row.append(marker, style=marker_style)
-        row.append(f"  {team_id}", style="bold white" if is_sel else theme.muted)
-        body_lines.append(row)
 
-        # Details line
-        detail = Text(_PAD + "     ", justify="left")
-        detail.append(f"{source}", style=theme.muted)
-        detail.append(f"  \u00b7  {sprints} sprints  \u00b7  {stories} stories", style=theme.muted)
+        # Top border
+        body_lines.append(Text(_PAD + "  \u256d" + "\u2500" * card_w + "\u256e", style=sel_border, justify="left"))
+
+        # Title row
+        title_row = Text(_PAD + "  \u2502 ", justify="left")
+        title_row.append(f" {icon} ", style=sel_border)
+        # Display name: strip source prefix for cleaner look
+        display_name = team_id.split("-", 1)[1] if "-" in team_id else team_id
+        title_row.append(display_name, style="bold white" if is_sel else theme.muted)
+        # Pad to card width
+        used = len(title_row.plain) - len(_PAD) - 4
+        title_row.append(" " * max(1, card_w - used), style="")
+        title_row.append("\u2502", style=sel_border)
+        body_lines.append(title_row)
+
+        # Stats row
+        stats_row = Text(_PAD + "  \u2502  ", justify="left")
+        stat_parts = [f"{sprints} sprints", f"{stories} stories"]
         if vel > 0:
-            detail.append(f"  \u00b7  {vel:.0f} pts/sprint", style=theme.muted)
-        body_lines.append(detail)
+            stat_parts.append(f"{vel:.0f} pts/sprint")
+        if completion > 0:
+            stat_parts.append(f"{completion:.0f}% completion")
+        stats_str = "  \u00b7  ".join(stat_parts)
+        stats_row.append(f"  {stats_str}", style=theme.muted)
+        used = len(stats_row.plain) - len(_PAD) - 4
+        stats_row.append(" " * max(1, card_w - used), style="")
+        stats_row.append("\u2502", style=sel_border)
+        body_lines.append(stats_row)
 
+        # Source + age row
+        meta_row = Text(_PAD + "  \u2502  ", justify="left")
+        meta_row.append(f"  {source}", style=theme.dim)
         if age_str:
-            age_line = Text(_PAD + "     ", justify="left")
+            meta_row.append("  \u00b7  ", style=theme.dim)
             if stale:
-                age_line.append(f"\u26a0 {age_str}", style=theme.warn)
-                age_line.append(" (stale — consider re-analysing)", style=theme.dim)
+                meta_row.append(f"\u26a0 {age_str}", style=theme.warn)
             else:
-                age_line.append(age_str, style=theme.dim)
-            body_lines.append(age_line)
+                meta_row.append(f"\u2713 {age_str}", style="rgb(80,180,80)")
+        used = len(meta_row.plain) - len(_PAD) - 4
+        meta_row.append(" " * max(1, card_w - used), style="")
+        meta_row.append("\u2502", style=sel_border)
+        body_lines.append(meta_row)
 
-    # Skip option
+        # Bottom border
+        body_lines.append(Text(_PAD + "  \u2570" + "\u2500" * card_w + "\u256f", style=sel_border, justify="left"))
+
+    # Skip option — simple row, no card
     body_lines.append(Text(""))
     is_skip_sel = selected == len(profiles)
-    skip_marker = "\u25cf" if is_skip_sel else "\u25cb"
-    skip_style = theme.accent_bright if is_skip_sel else "rgb(60,60,70)"
-    skip_row = Text(_PAD + "  ", justify="left")
-    skip_row.append(skip_marker, style=skip_style)
-    skip_row.append("  Skip (plan without analysis)", style="bold white" if is_skip_sel else theme.muted)
+    skip_border = theme.accent if is_skip_sel else "rgb(50,50,60)"
+    body_lines.append(Text(_PAD + "  \u256d" + "\u2500" * card_w + "\u256e", style=skip_border, justify="left"))
+    skip_row = Text(_PAD + "  \u2502 ", justify="left")
+    skip_row.append(" \u2192 ", style=skip_border)
+    skip_row.append("Skip — plan without analysis", style="bold white" if is_skip_sel else theme.muted)
+    used = len(skip_row.plain) - len(_PAD) - 4
+    skip_row.append(" " * max(1, card_w - used), style="")
+    skip_row.append("\u2502", style=skip_border)
     body_lines.append(skip_row)
-    body_lines.append(Text(_PAD + "     Planning will use generic defaults.", style=theme.dim, justify="left"))
+    skip_detail = Text(_PAD + "  \u2502  ", justify="left")
+    skip_detail.append("  Planning will use generic Fibonacci defaults", style=theme.dim)
+    used = len(skip_detail.plain) - len(_PAD) - 4
+    skip_detail.append(" " * max(1, card_w - used), style="")
+    skip_detail.append("\u2502", style=skip_border)
+    body_lines.append(skip_detail)
+    body_lines.append(Text(_PAD + "  \u2570" + "\u2500" * card_w + "\u256f", style=skip_border, justify="left"))
 
     # Layout
     viewport_h = calc_viewport(height, header_h=6, action_h=4)
