@@ -3023,9 +3023,10 @@ def _build_usage_screen(
     _row("API key", api_status, status_style)
 
     # ── Token Usage ───────────────────────────────────────────────
-    _heading("Token Usage")
+    _heading("Token Usage (this session)")
     tokens = usage_data.get("tokens", {})
     if tokens:
+        _row("LLM calls", f"{tokens.get('calls', 0):,}")
         _row("Input tokens", f"{tokens.get('input', 0):,}")
         _row("Output tokens", f"{tokens.get('output', 0):,}")
         _row("Total tokens", f"{tokens.get('total', 0):,}")

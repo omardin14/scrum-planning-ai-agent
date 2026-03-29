@@ -23,6 +23,49 @@ from scrum_agent.config import get_llm_model, get_llm_provider
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Token usage tracking — accumulates across all LLM calls in this process
+# ---------------------------------------------------------------------------
+
+_usage_stats: dict[str, int] = {
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "total_tokens": 0,
+    "call_count": 0,
+}
+
+
+def track_usage(response) -> None:
+    """Extract token usage from an LLM response and accumulate it.
+
+    Call this after every LLM invoke() to track token consumption.
+    Works with all providers (Anthropic, OpenAI, Google, Bedrock).
+    """
+    meta = getattr(response, "response_metadata", None) or {}
+    usage = meta.get("usage", {}) or meta.get("token_usage", {})
+    if not usage:
+        usage = meta
+    inp = usage.get("input_tokens", 0) or usage.get("prompt_tokens", 0)
+    out = usage.get("output_tokens", 0) or usage.get("completion_tokens", 0)
+    if inp or out:
+        _usage_stats["input_tokens"] += inp
+        _usage_stats["output_tokens"] += out
+        _usage_stats["total_tokens"] += inp + out
+        _usage_stats["call_count"] += 1
+        logger.debug("Token usage: +%d in, +%d out (total: %d)", inp, out, _usage_stats["total_tokens"])
+
+
+def get_usage_stats() -> dict:
+    """Return accumulated token usage stats for display on the Usage page."""
+    return dict(_usage_stats)
+
+
+def reset_usage_stats() -> None:
+    """Reset token counters (e.g. at start of a new session)."""
+    for k in _usage_stats:
+        _usage_stats[k] = 0
+
+
 # Default models per provider — chosen for best quality/cost balance.
 # Override any of these with the LLM_MODEL env var.
 _PROVIDER_DEFAULTS: dict[str, str] = {

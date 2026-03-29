@@ -44,6 +44,17 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
+def _llm_invoke(prompt: str, *, temperature: float = 0.0):
+    """Invoke the LLM with a prompt and track token usage."""
+    from langchain_core.messages import HumanMessage
+
+    from scrum_agent.agent.llm import get_llm, track_usage
+
+    response = get_llm(temperature=temperature).invoke([HumanMessage(content=prompt)])
+    track_usage(response)
+    return response
+
+
 def _safe_float(val: object) -> float:
     """Convert a value to float, returning 0.0 on failure."""
     try:
@@ -707,9 +718,7 @@ def _parse_tickets_with_llm(
         return {}
 
     try:
-        from langchain_core.messages import HumanMessage
-
-        from scrum_agent.agent.llm import get_llm
+        pass
     except Exception:
         logger.debug("LLM not available for ticket parsing, using regex fallback")
         return {}
@@ -742,7 +751,7 @@ def _parse_tickets_with_llm(
         prompt = _TICKET_PARSE_PROMPT.format(schema=_TICKET_PARSE_SCHEMA, items=items_block)
 
         try:
-            response = get_llm(temperature=0.0).invoke([HumanMessage(content=prompt)])
+            response = _llm_invoke(prompt, temperature=0.0)
             text = response.content if hasattr(response, "content") else str(response)
             # Extract JSON from response (handle markdown fences)
             text = text.strip()
@@ -1298,11 +1307,7 @@ def _generate_point_descriptions(
     prompt += "Do not include point values that have no data."
 
     try:
-        from langchain_core.messages import HumanMessage
-
-        from scrum_agent.agent.llm import get_llm
-
-        response = get_llm(temperature=0.0).invoke([HumanMessage(content=prompt)])
+        response = _llm_invoke(prompt, temperature=0.0)
         text = response.content if hasattr(response, "content") else str(response)
         text = text.strip()
         if text.startswith("```"):
@@ -2632,11 +2637,7 @@ Rules:
 - Return ONLY the JSON object, no other text."""
 
     try:
-        from langchain_core.messages import HumanMessage
-
-        from scrum_agent.agent.llm import get_llm
-
-        response = get_llm(temperature=0.3).invoke([HumanMessage(content=prompt)])
+        response = _llm_invoke(prompt, temperature=0.3)
         text = response.content if hasattr(response, "content") else str(response)
         text = text.strip()
         if text.startswith("```"):
@@ -2736,11 +2737,7 @@ Rules:
 - Return ONLY the JSON array"""
 
     try:
-        from langchain_core.messages import HumanMessage
-
-        from scrum_agent.agent.llm import get_llm
-
-        response = get_llm(temperature=0.3).invoke([HumanMessage(content=prompt)])
+        response = _llm_invoke(prompt, temperature=0.3)
         text = response.content if hasattr(response, "content") else str(response)
         text = text.strip()
         if text.startswith("```"):
@@ -2823,11 +2820,7 @@ def generate_sample_tasks(
     )
 
     try:
-        from langchain_core.messages import HumanMessage
-
-        from scrum_agent.agent.llm import get_llm
-
-        response = get_llm(temperature=0.3).invoke([HumanMessage(content=prompt)])
+        response = _llm_invoke(prompt, temperature=0.3)
         text = response.content if hasattr(response, "content") else str(response)
         text = text.strip()
         if text.startswith("```"):
@@ -2896,11 +2889,7 @@ def generate_sample_sprint(
     )
 
     try:
-        from langchain_core.messages import HumanMessage
-
-        from scrum_agent.agent.llm import get_llm
-
-        response = get_llm(temperature=0.3).invoke([HumanMessage(content=prompt)])
+        response = _llm_invoke(prompt, temperature=0.3)
         text = response.content if hasattr(response, "content") else str(response)
         text = text.strip()
         if text.startswith("```"):

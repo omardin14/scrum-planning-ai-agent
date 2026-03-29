@@ -997,8 +997,27 @@ def _collect_usage_data() -> dict:
     except Exception:
         data["profiles"] = []
 
-    # Token usage placeholder (not yet tracked at runtime)
-    data["tokens"] = {}
+    # Token usage from LLM calls in this process
+    try:
+        from scrum_agent.agent.llm import get_usage_stats
+
+        stats = get_usage_stats()
+        if stats.get("call_count", 0) > 0:
+            inp = stats.get("input_tokens", 0)
+            out = stats.get("output_tokens", 0)
+            # Estimate cost (Claude Sonnet 4: $3/MTok input, $15/MTok output)
+            cost = (inp * 3.0 + out * 15.0) / 1_000_000
+            data["tokens"] = {
+                "input": inp,
+                "output": out,
+                "total": inp + out,
+                "calls": stats.get("call_count", 0),
+                "estimated_cost": round(cost, 4),
+            }
+        else:
+            data["tokens"] = {}
+    except Exception:
+        data["tokens"] = {}
 
     return data
 
