@@ -1050,6 +1050,42 @@ def _collect_usage_data() -> dict:
     return data
 
 
+def _collect_settings_data() -> dict:
+    """Gather current configuration values for the Settings page."""
+    import os
+
+    from scrum_agent.config import get_config_file
+
+    data: dict[str, str] = {}
+    # Read all known env vars
+    _keys = [
+        "LLM_PROVIDER",
+        "LLM_MODEL",
+        "ANTHROPIC_API_KEY",
+        "OPENAI_API_KEY",
+        "GOOGLE_API_KEY",
+        "JIRA_BASE_URL",
+        "JIRA_EMAIL",
+        "JIRA_API_TOKEN",
+        "JIRA_PROJECT_KEY",
+        "CONFLUENCE_SPACE_KEY",
+        "AZURE_DEVOPS_ORG_URL",
+        "AZURE_DEVOPS_PROJECT",
+        "AZURE_DEVOPS_TOKEN",
+        "AZURE_DEVOPS_TEAM",
+        "GITHUB_TOKEN",
+        "AWS_REGION",
+        "AWS_PROFILE",
+        "LOG_LEVEL",
+        "SESSION_PRUNE_DAYS",
+        "LANGSMITH_TRACING",
+    ]
+    for k in _keys:
+        data[k] = os.environ.get(k, "")
+    data["_config_path"] = str(get_config_file())
+    return data
+
+
 def select_mode(
     console: Console | None = None, *, dry_run: bool = False, _read_key_fn=None
 ) -> tuple[str, str | None, str | None] | None:
@@ -2170,6 +2206,64 @@ def select_mode(
                             width=w,
                             height=h,
                             action_sel=_u_sel,
+                        )
+                    )
+                _restart_mode_select = True
+                _skip_fade_in = True
+                continue
+
+            # ── Route: Settings mode → config viewer + setup wizard ────────
+            if chosen["key"] == "settings":
+                logger.info("Settings mode selected")
+                from scrum_agent.ui.mode_select.screens._screens_secondary import _build_settings_screen
+
+                _settings_data = _collect_settings_data()
+                _s_scroll, _s_sel = 0, 0
+                w, h = console.size
+                live.update(
+                    _build_settings_screen(
+                        _settings_data,
+                        scroll_offset=_s_scroll,
+                        width=w,
+                        height=h,
+                        action_sel=_s_sel,
+                    )
+                )
+                while True:
+                    sk = read_key(timeout=_FRAME_TIME) if _supports_timeout else read_key()
+                    if sk in ("up", "scroll_up"):
+                        _s_scroll = max(0, _s_scroll - 1)
+                    elif sk in ("down", "scroll_down"):
+                        _s_scroll += 1
+                    elif sk == "left":
+                        _s_sel = max(0, _s_sel - 1)
+                    elif sk == "right":
+                        _s_sel = min(1, _s_sel + 1)
+                    elif sk in ("enter", " "):
+                        if _s_sel == 0:
+                            # Configure — launch setup wizard
+                            live.stop()
+                            from scrum_agent.setup_wizard import run_setup_wizard
+
+                            run_setup_wizard(console)
+                            # Reload config after wizard completes
+                            from scrum_agent.config import load_user_config
+
+                            load_user_config()
+                            _settings_data = _collect_settings_data()
+                            live.start()
+                        else:
+                            break  # Back
+                    elif sk in ("esc", "q"):
+                        break
+                    w, h = console.size
+                    live.update(
+                        _build_settings_screen(
+                            _settings_data,
+                            scroll_offset=_s_scroll,
+                            width=w,
+                            height=h,
+                            action_sel=_s_sel,
                         )
                     )
                 _restart_mode_select = True

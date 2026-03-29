@@ -302,6 +302,67 @@ class TestExtractAnswersFromProfile:
         assert "2 week" in answers[8]
 
 
+class TestSettingsScreen:
+    def test_returns_panel(self):
+        from scrum_agent.ui.mode_select.screens._screens_secondary import _build_settings_screen
+
+        result = _build_settings_screen({}, width=80, height=24)
+        assert isinstance(result, Panel)
+
+    def test_with_config_data(self):
+        from scrum_agent.ui.mode_select.screens._screens_secondary import _build_settings_screen
+
+        data = {
+            "LLM_PROVIDER": "anthropic",
+            "LLM_MODEL": "claude-sonnet-4",
+            "ANTHROPIC_API_KEY": "sk-ant-secret123456",
+            "JIRA_BASE_URL": "https://org.atlassian.net",
+            "JIRA_API_TOKEN": "token123",
+            "AZURE_DEVOPS_ORG_URL": "https://dev.azure.com/myorg",
+        }
+        result = _build_settings_screen(data, width=100, height=40)
+        assert isinstance(result, Panel)
+
+    def test_masks_secrets(self):
+        from io import StringIO
+
+        from rich.console import Console
+
+        from scrum_agent.ui.mode_select.screens._screens_secondary import _build_settings_screen
+
+        data = {"ANTHROPIC_API_KEY": "sk-ant-verylongsecretkey123"}
+        result = _build_settings_screen(data, width=100, height=40)
+        buf = StringIO()
+        Console(file=buf, width=100, force_terminal=False).print(result)
+        output = buf.getvalue()
+        # Should NOT show the full key
+        assert "verylongsecretkey123" not in output
+        # Should show partial mask
+        assert "\u2022" in output  # bullet mask chars
+
+    def test_configure_and_back_buttons(self):
+        from io import StringIO
+
+        from rich.console import Console
+
+        from scrum_agent.ui.mode_select.screens._screens_secondary import _build_settings_screen
+
+        result = _build_settings_screen({}, width=100, height=40)
+        buf = StringIO()
+        Console(file=buf, width=100, force_terminal=False).print(result)
+        output = buf.getvalue()
+        assert "Configure" in output
+        assert "Back" in output
+
+    def test_scrollable(self):
+        from scrum_agent.ui.mode_select.screens._screens_secondary import _build_settings_screen
+
+        r1 = _build_settings_screen({}, scroll_offset=0, width=80, height=20)
+        r2 = _build_settings_screen({}, scroll_offset=5, width=80, height=20)
+        assert isinstance(r1, Panel)
+        assert isinstance(r2, Panel)
+
+
 class TestCalcViewport:
     def test_standard_height(self):
         vp = calc_viewport(30, header_h=7, action_h=4)

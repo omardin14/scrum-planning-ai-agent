@@ -44,6 +44,13 @@ _MODE_CARDS: list[dict[str, Any]] = [
         "available": True,
         "color": "rgb(220,160,60)",
     },
+    {
+        "key": "settings",
+        "title": "Settings",
+        "description": "Manage API keys, LLM provider, and board configuration.",
+        "available": True,
+        "color": "rgb(160,160,180)",
+    },
 ]
 
 # ---------------------------------------------------------------------------

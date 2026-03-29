@@ -49,6 +49,7 @@ class Theme:
 ANALYSIS_THEME = Theme()
 PLANNING_THEME = Theme(accent="rgb(110,140,220)", accent_bright="rgb(140,170,255)")
 USAGE_THEME = Theme(accent="rgb(220,160,60)", accent_bright="rgb(255,200,80)")
+SETTINGS_THEME = Theme(accent="rgb(160,160,180)", accent_bright="rgb(200,200,220)")
 
 # Button color scheme: (accent_border, accent_label, grey_border, grey_label)
 _BTN_COLORS: dict[str, tuple[str, str, str, str]] = {
@@ -60,6 +61,7 @@ _BTN_COLORS: dict[str, tuple[str, str, str, str]] = {
     "Export": ("rgb(70,100,180)", "rgb(100,140,220)", "rgb(40,40,50)", "rgb(50,50,60)"),
     "Jira": ("rgb(70,100,180)", "rgb(100,140,220)", "rgb(40,40,50)", "rgb(50,50,60)"),
     "Azure DevOps": ("rgb(70,100,180)", "rgb(100,140,220)", "rgb(40,40,50)", "rgb(50,50,60)"),
+    "Configure": ("rgb(160,160,180)", "rgb(200,200,220)", "rgb(40,40,50)", "rgb(50,50,60)"),
 }
 _BTN_DEFAULT = ("rgb(100,100,120)", "rgb(140,140,160)", "rgb(40,40,50)", "rgb(50,50,60)")
 _BTN_MIN_W = 12
@@ -111,6 +113,17 @@ def usage_title() -> Text:
     """Return the Usage ASCII title styled with the amber accent colour."""
     ascii_lines = render_ascii_text("Usage")
     base_r, base_g, base_b = COLOR_RGB.get("rgb(220,160,60)", (220, 160, 60))
+    title_style = f"bold rgb({base_r},{base_g},{base_b})"
+    title = Text(justify="left")
+    title.append(PAD + ascii_lines[0] + "\n", style=title_style)
+    title.append(PAD + ascii_lines[1], style=title_style)
+    return title
+
+
+def settings_title() -> Text:
+    """Return the Settings ASCII title styled with the silver accent colour."""
+    ascii_lines = render_ascii_text("Settings")
+    base_r, base_g, base_b = COLOR_RGB.get("rgb(160,160,180)", (160, 160, 180))
     title_style = f"bold rgb({base_r},{base_g},{base_b})"
     title = Text(justify="left")
     title.append(PAD + ascii_lines[0] + "\n", style=title_style)

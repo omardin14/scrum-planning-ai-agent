@@ -3310,3 +3310,146 @@ def _build_profile_picker_screen(
         height=height,
         padding=(1, 2),
     )
+
+
+# ---------------------------------------------------------------------------
+# Settings screen
+# ---------------------------------------------------------------------------
+
+
+def _build_settings_screen(
+    config_data: dict,
+    *,
+    scroll_offset: int = 0,
+    width: int = 80,
+    height: int = 24,
+    action_sel: int = 0,
+) -> Panel:
+    """Build the settings dashboard showing current configuration.
+
+    Displays all config values grouped by category with secrets masked.
+    Uses SETTINGS_THEME (silver) with shared components.
+    """
+    from scrum_agent.ui.shared._components import SETTINGS_THEME, settings_title
+
+    theme = SETTINGS_THEME
+    title = settings_title()
+    sub = Text(_PAD + "Current configuration", style="dim", justify="left")
+
+    body_lines: list = []
+
+    def _heading(text: str) -> None:
+        body_lines.append(Text(""))
+        h = Text(_PAD + "  ", justify="left")
+        h.append(text, style=f"bold {theme.accent}")
+        body_lines.append(h)
+        body_lines.append(Text(_PAD + "  " + "\u2500" * min(len(text), 40), style=theme.sep, justify="left"))
+
+    def _row(label: str, value: str, value_style: str = "", masked: bool = False) -> None:
+        r = Text(_PAD + "    ", justify="left")
+        r.append(f"{label}:  ", style=theme.muted)
+        if masked and value:
+            display = value[:4] + "\u2022" * min(12, len(value) - 4) if len(value) > 4 else "\u2022" * len(value)
+            r.append(display, style=value_style or theme.dim)
+        elif value:
+            r.append(str(value), style=value_style or theme.value)
+        else:
+            r.append("not set", style=theme.dim)
+        body_lines.append(r)
+
+    # ── LLM Provider ──────────────────────────────────────────────
+    _heading("LLM Provider")
+    _row("Provider", config_data.get("LLM_PROVIDER", "anthropic"))
+    _row("Model", config_data.get("LLM_MODEL", "(default)"))
+    _row("Anthropic Key", config_data.get("ANTHROPIC_API_KEY", ""), masked=True)
+    _row("OpenAI Key", config_data.get("OPENAI_API_KEY", ""), masked=True)
+    _row("Google Key", config_data.get("GOOGLE_API_KEY", ""), masked=True)
+
+    # ── Jira ──────────────────────────────────────────────────────
+    _heading("Jira")
+    _row("Base URL", config_data.get("JIRA_BASE_URL", ""))
+    _row("Email", config_data.get("JIRA_EMAIL", ""))
+    _row("API Token", config_data.get("JIRA_API_TOKEN", ""), masked=True)
+    _row("Project Key", config_data.get("JIRA_PROJECT_KEY", ""))
+    _row("Confluence Space", config_data.get("CONFLUENCE_SPACE_KEY", ""))
+
+    # ── Azure DevOps ──────────────────────────────────────────────
+    _heading("Azure DevOps")
+    _row("Org URL", config_data.get("AZURE_DEVOPS_ORG_URL", ""))
+    _row("Project", config_data.get("AZURE_DEVOPS_PROJECT", ""))
+    _row("PAT", config_data.get("AZURE_DEVOPS_TOKEN", ""), masked=True)
+    _row("Team", config_data.get("AZURE_DEVOPS_TEAM", ""))
+
+    # ── GitHub ────────────────────────────────────────────────────
+    _heading("GitHub")
+    _row("Token", config_data.get("GITHUB_TOKEN", ""), masked=True)
+
+    # ── AWS Bedrock ───────────────────────────────────────────────
+    aws_region = config_data.get("AWS_REGION", "")
+    aws_profile = config_data.get("AWS_PROFILE", "")
+    if aws_region or aws_profile:
+        _heading("AWS Bedrock")
+        _row("Region", aws_region)
+        _row("Profile", aws_profile)
+
+    # ── Advanced ──────────────────────────────────────────────────
+    _heading("Advanced")
+    _row("Log Level", config_data.get("LOG_LEVEL", "WARNING"))
+    _row("Session Prune Days", config_data.get("SESSION_PRUNE_DAYS", "30"))
+    langsmith = "enabled" if config_data.get("LANGSMITH_TRACING") == "true" else "disabled"
+    _row("LangSmith", langsmith)
+    _row("Config File", config_data.get("_config_path", ""))
+
+    # ── Layout ────────────────────────────────────────────────────
+    viewport_h = calc_viewport(height, header_h=6, action_h=4)
+    total_lines = len(body_lines)
+    max_scroll = max(0, total_lines - viewport_h)
+    actual_scroll = min(scroll_offset, max_scroll)
+    visible = body_lines[actual_scroll : actual_scroll + viewport_h]
+
+    _sb_text = build_scrollbar(viewport_h, total_lines, actual_scroll, max_scroll, always_show=True)
+    padded_lines: list = list(visible)
+    for _ in range(max(0, viewport_h - len(visible))):
+        padded_lines.append(Text(""))
+
+    btn_top, btn_mid, btn_bot = build_action_buttons(["Configure", "Back"], action_sel)
+
+    if _sb_text is not None:
+        from rich.table import Table as _SbTable
+
+        _vp_table = _SbTable(
+            show_header=False,
+            show_edge=False,
+            box=None,
+            padding=0,
+            pad_edge=False,
+            expand=True,
+        )
+        _vp_table.add_column(ratio=1)
+        _vp_table.add_column(width=1)
+        _vp_table.add_row(Group(*padded_lines), _sb_text)
+        viewport_renderable = _vp_table
+    else:
+        viewport_renderable = Group(*padded_lines)
+
+    content = Group(
+        Text(""),
+        title,
+        Text(""),
+        sub,
+        Text(""),
+        viewport_renderable,
+        Text(""),
+        btn_top,
+        btn_mid,
+        btn_bot,
+    )
+
+    return Panel(
+        content,
+        border_style="white",
+        box=rich.box.ROUNDED,
+        expand=True,
+        height=height,
+        padding=(1, 2),
+    )
