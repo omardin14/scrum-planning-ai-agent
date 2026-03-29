@@ -372,6 +372,77 @@ def _render_tui_stories(stories, features, *, selected_index: int | None = None)
 
 
 # ---------------------------------------------------------------------------
+# Epic renderer (project-level epic from ProjectAnalysis)
+# ---------------------------------------------------------------------------
+
+
+def _render_tui_epic(analysis, *, render_w: int = 80) -> Group:
+    """Render the project-level epic for review.
+
+    The epic uses project_name as title and project_description as description,
+    matching what gets created in Jira/AzDO during sync.
+    """
+    parts: list = []
+
+    # Header
+    hdr = Text()
+    hdr.append("Epic: ", style="bold cyan")
+    hdr.append(getattr(analysis, "project_name", "Untitled"), style="bold white")
+    hdr.append("  \u00b7  ", style="dim")
+    hdr.append("high", style="yellow")
+    parts.append(hdr)
+    parts.append(Text(""))
+
+    # Description
+    desc = getattr(analysis, "project_description", "")
+    if desc:
+        parts.append(Text("Description", style="bold rgb(140,140,160)"))
+        # Word-wrap
+        wrap_w = max(40, render_w - 4)
+        words = desc.split()
+        buf = ""
+        for word in words:
+            if buf and len(buf) + len(word) + 1 > wrap_w:
+                parts.append(Text(f"  {buf}", style="rgb(180,180,200)"))
+                buf = word
+            else:
+                buf = (buf + " " + word).strip()
+        if buf:
+            parts.append(Text(f"  {buf}", style="rgb(180,180,200)"))
+        parts.append(Text(""))
+
+    # Target state
+    target = getattr(analysis, "target_state", "")
+    if target:
+        row = Text()
+        row.append("Target State: ", style="bold rgb(140,140,160)")
+        row.append(target, style="rgb(180,180,200)")
+        parts.append(row)
+        parts.append(Text(""))
+
+    # Sprint planning summary
+    sprint_weeks = getattr(analysis, "sprint_length_weeks", 0)
+    target_sprints = getattr(analysis, "target_sprints", 0)
+    if sprint_weeks or target_sprints:
+        row = Text()
+        row.append("Sprint Planning: ", style="bold rgb(140,140,160)")
+        row.append(f"{sprint_weeks}-week sprints \u00d7 {target_sprints} sprints", style="rgb(180,180,200)")
+        parts.append(row)
+        parts.append(Text(""))
+
+    # Info note
+    parts.append(Text(""))
+    parts.append(
+        Text(
+            "This epic will be created in Jira/Azure DevOps during sync. All stories will be linked to it.",
+            style="dim",
+        )
+    )
+
+    return Group(*parts)
+
+
+# ---------------------------------------------------------------------------
 # Features renderer
 # ---------------------------------------------------------------------------
 
