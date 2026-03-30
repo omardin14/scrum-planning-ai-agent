@@ -50,6 +50,7 @@ class ProfileSummary:
     sample_stories: int = 0
     updated: str = ""  # relative time "2 days ago"
     staleness_days: int = 0
+    preview_complete: bool = False  # True when preview flow finished
 
 
 # ---------------------------------------------------------------------------
@@ -358,6 +359,12 @@ def _build_profile_card(
     if profile.updated:
         parts.append(profile.updated)
     meta_text.append(sep.join(parts), style=meta_style)
+    if profile.preview_complete:
+        meta_text.append("  ")
+        meta_text.append(
+            "\u2713 Preview complete",
+            style=lerp_color(opacity, BLACK_RGB, (80, 200, 100)),
+        )
 
     # Staleness hint (amber line if >30 days old)
     if profile.staleness_days > 30:

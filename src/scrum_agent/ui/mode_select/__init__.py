@@ -95,7 +95,7 @@ def _load_ana_session(project_key: str) -> dict | None:
             for sess in sessions:
                 if project_key in sess.get("project_name", ""):
                     state = store.load_state(sess["session_id"])
-                    if state and state.get("last_page"):
+                    if state and state.get("last_page") and state["last_page"] != "complete":
                         global _ana_sid  # noqa: PLW0603
                         _ana_sid = sess["session_id"]
                         logger.info(
@@ -497,6 +497,23 @@ def _run_preview_flow(
             if _t.monotonic() - _t0 > 1.5 and _ek:
                 break
 
+    # Ensure we have a session ID for saving progress
+    global _ana_sid  # noqa: PLW0603
+    if not _ana_sid:
+        try:
+            from scrum_agent.sessions import SessionStore, make_session_id
+
+            _ana_sid = make_session_id()
+            with SessionStore(_ana_dbp) as _s:
+                _s.create_session(
+                    _ana_sid,
+                    project_name=getattr(ta_profile, "project_key", "") if ta_profile else "",
+                    mode="analysis",
+                )
+            logger.info("Created analysis session for preview: %s", _ana_sid)
+        except Exception:
+            logger.debug("Failed to create analysis session", exc_info=True)
+
     # Determine starting point and load saved artifacts
     last_page = (resume_state or {}).get("last_page", "")
     _instr = (resume_state or {}).get("instructions", "") or instr_text
@@ -818,7 +835,7 @@ def _run_preview_flow(
         ta_examples,
     )
     # Clear session so next run starts fresh (not resuming from sprint)
-    _save_ana({"last_page": ""}, "done")
+    _save_ana({"last_page": "complete"}, "complete")
     logger.info(
         "Preview flow completed in %.1fs",
         time.monotonic() - _flow_start,
@@ -1318,6 +1335,19 @@ def select_mode(
                                     days = (datetime.now(UTC) - _up).days
                                 except Exception:
                                     pass
+                            # Check if preview flow was completed for this profile
+                            _is_complete = False
+                            try:
+                                _a_sessions = _tp_store._conn.execute(
+                                    "SELECT last_node_completed FROM sessions_meta "
+                                    "WHERE session_mode = 'analysis' AND project_name LIKE ? "
+                                    "ORDER BY last_modified DESC LIMIT 1",
+                                    (f"%{_rp.project_key}%",),
+                                ).fetchone()
+                                if _a_sessions and _a_sessions[0] == "complete":
+                                    _is_complete = True
+                            except Exception:
+                                pass
                             _profiles_for_analysis.append(
                                 ProfileSummary(
                                     team_id=_rp.team_id,
@@ -1328,6 +1358,7 @@ def select_mode(
                                     sample_stories=_rp.sample_stories,
                                     updated="today" if days == 0 else (f"{days} day{'s' if days != 1 else ''} ago"),
                                     staleness_days=days,
+                                    preview_complete=_is_complete,
                                 )
                             )
                 except Exception:
