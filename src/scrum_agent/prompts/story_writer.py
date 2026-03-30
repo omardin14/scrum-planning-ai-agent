@@ -36,6 +36,48 @@ _ALLOWED_PRIORITIES = ("critical", "high", "medium", "low")
 _ALLOWED_DISCIPLINES = ("frontend", "backend", "fullstack", "infrastructure", "design", "testing")
 
 # ---------------------------------------------------------------------------
+# Team-aware rule helpers — override defaults when calibration data is present
+# ---------------------------------------------------------------------------
+
+
+def _ac_count_rule(team_calibration: str) -> str:
+    """Build the AC count rule, using team's median if available."""
+    import re
+
+    # Extract "Median acceptance criteria per story: N" from calibration text
+    m = re.search(r"[Mm]edian acceptance criteria per story:\s*(\d+)", team_calibration)
+    if m:
+        median = int(m.group(1))
+        return (
+            f"7. Each story should have approximately {median} acceptance criteria "
+            f"(matching team's median of {median}). Include at least 1 happy-path "
+            "and 1 error-path scenario.\n"
+        )
+    return (
+        "7. Each story must have at least 3 acceptance criteria:\n"
+        "   - At least 1 happy-path scenario\n"
+        "   - At least 1 negative/error-path scenario\n"
+        "   - At least 1 edge case\n"
+    )
+
+
+def _ac_format_rule(team_calibration: str) -> str:
+    """Build the AC format rule, respecting team's actual style."""
+    # Check if team uses Given/When/Then
+    if "Given/When/Then" in team_calibration or "uses_given_when_then" in team_calibration:
+        return "8. Acceptance criteria must use Given/When/Then format (matching team style).\n"
+    if "Writing patterns" in team_calibration:
+        # Team has data but doesn't use GWT — use a flexible format
+        return (
+            "8. Write acceptance criteria as clear, testable statements. "
+            "Use bullet points with specific expected outcomes. "
+            "Do NOT use Given/When/Then format unless the team's analysis shows they use it.\n"
+        )
+    # Default: Given/When/Then
+    return "8. Acceptance criteria must use Given/When/Then format.\n"
+
+
+# ---------------------------------------------------------------------------
 # JSON schema description embedded in the prompt so the LLM knows exactly
 # what structure to produce. Returns a JSON *array* of story objects with
 # nested acceptance_criteria arrays.
@@ -155,11 +197,8 @@ def get_story_writer_prompt(
         f"4. Story points must be Fibonacci: {', '.join(str(v) for v in _ALLOWED_STORY_POINTS)}.\n"
         f"5. No story may exceed {MAX_STORY_POINTS} points — split larger stories.\n"
         f"6. Priority must be one of: {', '.join(_ALLOWED_PRIORITIES)}.\n"
-        "7. Each story must have at least 3 acceptance criteria:\n"
-        "   - At least 1 happy-path scenario\n"
-        "   - At least 1 negative/error-path scenario\n"
-        "   - At least 1 edge case\n"
-        "8. Acceptance criteria must use Given/When/Then format.\n"
+        f"{_ac_count_rule(team_calibration)}"
+        f"{_ac_format_rule(team_calibration)}"
         "9. Stories within a feature should not overlap — each covers a distinct slice.\n"
         "10. Give each story a short title (3-7 words) summarising the core deliverable.\n"
         "11. Inherit priority from the parent feature unless there's a reason to differ.\n"
