@@ -100,7 +100,8 @@ _JSON_SCHEMA = """\
       }
     ],
     "story_points": "integer — Fibonacci value: 1, 2, 3, 5, or 8",
-    "points_rationale": "string — 1-2 sentences explaining the point value. Describe complexity, unknowns, or effort.",
+    "points_rationale": "string — 2-3 sentences: why this size, confidence vs team data, similar stories",
+    "points_confidence": "string — high, medium, or low based on team's sample count at this size",
     "priority": "string — one of: critical, high, medium, low",
     "discipline": "string — one of: frontend, backend, fullstack, infrastructure, design, testing",
     "dod_applicable": [true, true, true, true, true, true, true]
@@ -218,7 +219,13 @@ def get_story_writer_prompt(
         "    - Triggering a job and monitoring its result → one story (they're the same workflow)\n"
         "    - Generating content and formatting it → one story (formatting is not standalone)\n"
         "    - Success notifications and failure escalation → one 'Implement Notification & Escalation' story\n"
-        "    Only split when the work is genuinely independent and would be reviewed/deployed separately.\n\n"
+        "    Only split when the work is genuinely independent and would be reviewed/deployed separately.\n"
+        "16. **points_rationale** must include: (a) why this point value fits the complexity, "
+        "(b) confidence level (high/medium/low) based on how well it matches the team's "
+        "historical data for this size, (c) reference similar completed stories from the "
+        "team's calibration data if provided (cite by ID like PROJ-123).\n"
+        "17. **points_confidence** must be 'high' if the team has ≥15 samples at this point "
+        "value, 'medium' if ≥5 samples, 'low' if fewer.\n\n"
         "## Story Splitting Strategies\n\n"
         "When a story feels too large (> 8 points), split by:\n"
         "- **Workflow step:** separate creation, editing, deletion, viewing\n"

@@ -358,12 +358,16 @@ def _render_tui_stories(stories, features, *, selected_index: int | None = None)
                         dod.append(f"{sep}✗ {short}", style="dim strike")
                 body_parts.append(dod)
 
-            # Points rationale — shows LLM's reasoning for the estimate
-            if story.points_rationale:
+            # Points rationale + confidence — shows LLM's reasoning for the estimate
+            if story.points_rationale or getattr(story, "points_confidence", ""):
                 body_parts.append(Text(""))
                 rationale = Text()
-                rationale.append("Estimate: ", style="bold rgb(140,140,160)")
-                rationale.append(story.points_rationale, style="dim italic")
+                conf = getattr(story, "points_confidence", "")
+                if conf:
+                    _conf_colors = {"high": "green", "medium": "yellow", "low": "red"}
+                    rationale.append(f"[{conf}] ", style=f"bold {_conf_colors.get(conf, 'dim')}")
+                if story.points_rationale:
+                    rationale.append(story.points_rationale, style="dim italic")
                 body_parts.append(rationale)
 
             card_parts.append(Padding(Group(*body_parts), (0, 0, 0, 1)))

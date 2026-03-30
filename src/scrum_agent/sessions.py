@@ -327,6 +327,8 @@ def _dict_to_story(d: dict) -> UserStory:
         priority=Priority(d["priority"]),
         discipline=Discipline(d.get("discipline", "fullstack")),
         dod_applicable=tuple(d.get("dod_applicable", (True,) * 7)),
+        points_rationale=d.get("points_rationale", ""),
+        points_confidence=d.get("points_confidence", ""),
     )
 
 

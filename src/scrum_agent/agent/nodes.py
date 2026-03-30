@@ -5306,6 +5306,24 @@ def _format_team_calibration(profile: object, *, examples: dict | None = None) -
                     )
         lines.append("")
 
+    # Example stories per point value — for LLM to reference in points_rationale
+    _has_examples = False
+    for pts in (1, 2, 3, 5, 8):
+        ex_key = f"calibration_{pts}pt"
+        ex_items = _ex.get(ex_key, [])
+        if ex_items:
+            if not _has_examples:
+                lines.append("### Similar completed stories (reference these in points_rationale):\n")
+                _has_examples = True
+            lines.append(f"**{pts} pt examples:**")
+            for ex in ex_items[:3]:
+                ek = ex.get("issue_key", "")
+                sm = ex.get("summary", "")
+                detail = ex.get("detail", "")
+                lines.append(f"  - {ek}: {sm}" + (f" ({detail})" if detail else ""))
+    if _has_examples:
+        lines.append("")
+
     # Story shapes with discipline-specific guidance
     shapes = getattr(profile, "story_shapes", ())
     if shapes:
@@ -5975,6 +5993,9 @@ def _parse_stories_response(raw: str, features: list[Feature], analysis: Project
                 dod_applicable = (True,) * len(DOD_ITEMS)
 
             points_rationale = str(item.get("points_rationale", ""))
+            points_confidence = str(item.get("points_confidence", ""))
+            if points_confidence not in ("high", "medium", "low"):
+                points_confidence = ""
 
             story = UserStory(
                 id=story_id,
@@ -5989,6 +6010,7 @@ def _parse_stories_response(raw: str, features: list[Feature], analysis: Project
                 discipline=discipline if discipline is not None else Discipline.FULLSTACK,
                 dod_applicable=dod_applicable,
                 points_rationale=points_rationale,
+                points_confidence=points_confidence,
             )
             # Infer discipline from text when the LLM didn't provide a valid one
             if discipline is None:

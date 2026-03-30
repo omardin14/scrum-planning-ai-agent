@@ -187,6 +187,9 @@ class UserStory:
     # uncertainty, or effort factors led to the assigned value. Used to calibrate
     # the AI's estimation against engineer expectations over time.
     points_rationale: str = ""
+    # Confidence that the point estimate matches the team's historical data.
+    # "high" (≥15 samples), "medium" (≥5), "low" (<5), "" (no data).
+    points_confidence: str = ""
 
     @property
     def text(self) -> str:
