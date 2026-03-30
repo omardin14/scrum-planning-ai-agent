@@ -494,6 +494,160 @@ def _phase_pipeline(
         progress = f"[{step}/{total}]"
         stage_label = _SPINNER_MESSAGES.get(next_node, "Working")
 
+        # ── Epic review intercept (before feature_generator invocation) ──
+        if (
+            next_node in ("feature_generator", "feature_skip")
+            and not graph_state.get("_epic_reviewed", False)
+            and not export_only
+        ):
+            _ep_analysis = graph_state.get("project_analysis")
+            if _ep_analysis:
+                graph_state["_epic_reviewed"] = True
+                from scrum_agent.ui.session._renderers import _render_tui_epic
+                from scrum_agent.ui.session._utils import _render_to_lines
+
+                _rw = max(40, console.size[0] - 20)
+                _ep_renderable = _render_tui_epic(_ep_analysis, render_w=_rw)
+
+                _ep_profile_id = graph_state.get("analysis_profile_id", "")
+                if _ep_profile_id:
+                    from rich.console import Group as _EpGroup
+                    from rich.text import Text as _EpText
+
+                    from scrum_agent.ui.session._renderers import _render_calibration_banner
+
+                    _ep_banner = _render_calibration_banner(_ep_profile_id, _rw, stage="feature_generator")
+                    if _ep_banner:
+                        _ep_renderable = _EpGroup(_ep_banner, _EpText(""), _ep_renderable)
+
+                _ep_lines = _render_to_lines(console, _ep_renderable, _rw)
+                _ep_scroll, _ep_sel = 0, 0
+                _ep_actions = ["Accept", "Edit", "Export"]
+                logger.info("Epic review: showing project-level epic")
+
+                while True:
+                    w, h = console.size
+                    live.update(
+                        _build_pipeline_screen(
+                            "Reviewing epic",
+                            "[2/6]",
+                            _ep_lines,
+                            _ep_scroll,
+                            _ep_sel,
+                            status="complete",
+                            width=w,
+                            height=h,
+                            actions=_ep_actions,
+                            step=1,
+                            total=6,
+                        )
+                    )
+                    key = _key()
+                    if key in ("up", "scroll_up"):
+                        _ep_scroll = max(0, _ep_scroll - 1)
+                    elif key in ("down", "scroll_down"):
+                        _ep_scroll += 1
+                    elif key == "left":
+                        _ep_sel = max(0, _ep_sel - 1)
+                    elif key == "right":
+                        _ep_sel = min(len(_ep_actions) - 1, _ep_sel + 1)
+                    elif key in ("enter", " "):
+                        _ep_act = _ep_actions[_ep_sel]
+                        if _ep_act == "Accept":
+                            logger.info("Epic review: accepted")
+                            break
+                        elif _ep_act == "Edit":
+                            logger.info("Epic review: editing")
+                            from dataclasses import fields as _dc_fields
+
+                            from scrum_agent.agent.state import Feature, Priority
+                            from scrum_agent.ui.session.editor._editor_artifacts import (
+                                _feature_editable_start,
+                                _features_to_text,
+                                _find_first_editable,
+                                _parse_edited_features,
+                            )
+                            from scrum_agent.ui.session.editor._editor_core import (
+                                edit_buffer_loop,
+                                render_editor_panel,
+                            )
+
+                            _ep_feat = Feature(
+                                id="EPIC",
+                                title=_ep_analysis.project_name,
+                                description=_ep_analysis.project_description,
+                                priority=Priority.HIGH,
+                            )
+                            _ep_buf = _features_to_text([_ep_feat]).split("\n")
+                            _ep_cr, _ep_cc = _find_first_editable(_ep_buf, _feature_editable_start)
+
+                            def _ep_render(buf, cr, cc, so, rw, rh):
+                                return render_editor_panel(
+                                    buf,
+                                    cr,
+                                    cc,
+                                    so,
+                                    width=rw,
+                                    height=rh,
+                                    editor_label="epic",
+                                )
+
+                            _ep_edited = edit_buffer_loop(
+                                live,
+                                console,
+                                _ep_buf,
+                                _ep_cr,
+                                _ep_cc,
+                                _key,
+                                editable_start_fn=_feature_editable_start,
+                                render_fn=_ep_render,
+                            )
+                            if _ep_edited is not None:
+                                _ep_parsed = _parse_edited_features("\n".join(_ep_edited), [_ep_feat])
+                                if _ep_parsed:
+                                    _new = _ep_parsed[0]
+                                    _pa_kw = {f.name: getattr(_ep_analysis, f.name) for f in _dc_fields(_ep_analysis)}
+                                    _pa_kw["project_name"] = _new.title
+                                    _pa_kw["project_description"] = _new.description
+                                    graph_state["project_analysis"] = type(_ep_analysis)(**_pa_kw)
+                                    _ep_analysis = graph_state["project_analysis"]
+                                    _ep_renderable = _render_tui_epic(_ep_analysis, render_w=_rw)
+                                    if _ep_profile_id:
+                                        _b = _render_calibration_banner(_ep_profile_id, _rw, stage="feature_generator")
+                                        if _b:
+                                            _ep_renderable = _EpGroup(_b, _EpText(""), _ep_renderable)
+                                    _ep_lines = _render_to_lines(console, _ep_renderable, _rw)
+                        elif _ep_act == "Export":
+                            logger.info("Epic review: exporting")
+                            from scrum_agent.html_exporter import export_plan_html
+                            from scrum_agent.repl._io import _export_plan_markdown
+                            from scrum_agent.ui.mode_select.screens._screens_secondary import (
+                                _build_project_export_success_screen,
+                            )
+
+                            _h_path = export_plan_html(graph_state, stage="project_analyzer")
+                            _m_path = _export_plan_markdown(graph_state)
+                            w, h = console.size
+                            live.update(
+                                _build_project_export_success_screen(
+                                    f"HTML  {_h_path}\nMD    {_m_path}",
+                                    width=w,
+                                    height=h,
+                                    subtitle="Exported (HTML + MD)",
+                                    mode="planning",
+                                )
+                            )
+                            import time as _ep_t
+
+                            _t0 = _ep_t.monotonic()
+                            while True:
+                                try:
+                                    _ek = _key(timeout=0.05)
+                                except TypeError:
+                                    _ek = _key()
+                                if _ep_t.monotonic() - _t0 > 1.0 and _ek:
+                                    break
+
         # Skip the LLM call if we already have artifacts awaiting review
         # (resumed session or re-entering the loop after an edit request).
         if not pending:
@@ -611,164 +765,6 @@ def _phase_pipeline(
         # Check for pending_review
         pending = graph_state.get("pending_review")
         if not pending:
-            # ── Epic review (between analyzer and features) ──────────
-            # Show epic review once after analyzer is accepted, before features.
-            analysis = graph_state.get("project_analysis")
-            has_features = bool(graph_state.get("features"))
-            epic_reviewed = graph_state.get("_epic_reviewed", False)
-            if analysis and not has_features and not epic_reviewed and not export_only:
-                from scrum_agent.ui.session._renderers import _render_tui_epic
-
-                logger.info("Epic review: showing project-level epic for review")
-                epic_renderable = _render_tui_epic(analysis, render_w=max(40, console.size[0] - 20))
-
-                # Prepend calibration banner
-                _ep_profile_id = graph_state.get("analysis_profile_id", "")
-                if _ep_profile_id:
-                    from rich.console import Group as _EpGroup
-                    from rich.text import Text as _EpText
-
-                    from scrum_agent.ui.session._renderers import _render_calibration_banner
-
-                    _rw = max(40, console.size[0] - 20)
-                    _ep_banner = _render_calibration_banner(_ep_profile_id, _rw, stage="feature_generator")
-                    if _ep_banner:
-                        epic_renderable = _EpGroup(_ep_banner, _EpText(""), epic_renderable)
-
-                from scrum_agent.ui.session._utils import _render_to_lines
-
-                _ep_lines = _render_to_lines(console, epic_renderable, max(40, console.size[0] - 20))
-                _ep_scroll = 0
-                _ep_sel = 0
-                _ep_actions = ["Accept", "Edit", "Export"]
-                _ep_status = ""
-
-                while True:
-                    w, h = console.size
-                    live.update(
-                        _build_pipeline_screen(
-                            "Reviewing epic",
-                            "[2/6]",
-                            _ep_lines,
-                            _ep_scroll,
-                            _ep_sel,
-                            status="complete",
-                            width=w,
-                            height=h,
-                            actions=_ep_actions,
-                            status_msg=_ep_status,
-                            step=1,
-                            total=6,
-                        )
-                    )
-                    key = _key()
-                    if key in ("up", "scroll_up"):
-                        _ep_scroll = max(0, _ep_scroll - 1)
-                        continue
-                    elif key in ("down", "scroll_down"):
-                        _ep_scroll += 1
-                        continue
-                    elif key == "left":
-                        _ep_sel = max(0, _ep_sel - 1)
-                        continue
-                    elif key == "right":
-                        _ep_sel = min(len(_ep_actions) - 1, _ep_sel + 1)
-                        continue
-                    elif key not in ("enter", " "):
-                        continue
-                    _ep_action = _ep_actions[_ep_sel]
-                    if _ep_action == "Accept":
-                        logger.info("Epic review: accepted")
-                        graph_state["_epic_reviewed"] = True
-                        break
-                    elif _ep_action == "Edit":
-                        logger.info("Epic review: editing")
-                        from scrum_agent.agent.state import Feature, Priority
-                        from scrum_agent.ui.session.editor._editor_artifacts import (
-                            _feature_editable_start,
-                            _features_to_text,
-                            _find_first_editable,
-                            _parse_edited_features,
-                        )
-                        from scrum_agent.ui.session.editor._editor_core import edit_buffer_loop, render_editor_panel
-
-                        _ep_feat = Feature(
-                            id="EPIC",
-                            title=analysis.project_name,
-                            description=analysis.project_description,
-                            priority=Priority.HIGH,
-                        )
-                        _ep_text = _features_to_text([_ep_feat])
-                        _ep_buf = _ep_text.split("\n")
-                        _ep_cr, _ep_cc = _find_first_editable(_ep_buf, _feature_editable_start)
-
-                        def _ep_render(buf, cr, cc, so, rw, rh):
-                            return render_editor_panel(buf, cr, cc, so, width=rw, height=rh, editor_label="epic")
-
-                        _ep_edited = edit_buffer_loop(
-                            live,
-                            console,
-                            _ep_buf,
-                            _ep_cr,
-                            _ep_cc,
-                            _key,
-                            editable_start_fn=_feature_editable_start,
-                            render_fn=_ep_render,
-                        )
-                        if _ep_edited is not None:
-                            _ep_parsed = _parse_edited_features("\n".join(_ep_edited), [_ep_feat])
-                            if _ep_parsed:
-                                _new = _ep_parsed[0]
-                                # Update ProjectAnalysis (frozen — reconstruct)
-                                from dataclasses import fields as dc_fields
-
-                                _pa_kwargs = {f.name: getattr(analysis, f.name) for f in dc_fields(analysis)}
-                                _pa_kwargs["project_name"] = _new.title
-                                _pa_kwargs["project_description"] = _new.description
-                                graph_state["project_analysis"] = type(analysis)(**_pa_kwargs)
-                                analysis = graph_state["project_analysis"]
-                                # Re-render
-                                _rw = max(40, console.size[0] - 20)
-                                epic_renderable = _render_tui_epic(analysis, render_w=_rw)
-                                if _ep_profile_id:
-                                    _ep_banner = _render_calibration_banner(
-                                        _ep_profile_id, _rw, stage="feature_generator"
-                                    )
-                                    if _ep_banner:
-                                        epic_renderable = _EpGroup(_ep_banner, _EpText(""), epic_renderable)
-                                _ep_lines = _render_to_lines(console, epic_renderable, _rw)
-                    elif _ep_action == "Export":
-                        logger.info("Epic review: exporting")
-                        from scrum_agent.html_exporter import export_plan_html
-                        from scrum_agent.repl._io import _export_plan_markdown
-
-                        html_path = export_plan_html(graph_state, stage="project_analyzer")
-                        md_path = _export_plan_markdown(graph_state)
-                        from scrum_agent.ui.mode_select.screens._screens_secondary import (
-                            _build_project_export_success_screen,
-                        )
-
-                        w, h = console.size
-                        live.update(
-                            _build_project_export_success_screen(
-                                f"HTML  {html_path}\nMD    {md_path}",
-                                width=w,
-                                height=h,
-                                subtitle="Exported (HTML + MD)",
-                                mode="planning",
-                            )
-                        )
-                        import time as _ep_time
-
-                        _t0 = _ep_time.monotonic()
-                        while True:
-                            try:
-                                _ek = _key(timeout=0.05)
-                            except TypeError:
-                                _ek = _key()
-                            if _ep_time.monotonic() - _t0 > 1.0 and _ek:
-                                break
-
             continue
 
         # Story highlighting: for the story_writer stage, normal line-by-line
