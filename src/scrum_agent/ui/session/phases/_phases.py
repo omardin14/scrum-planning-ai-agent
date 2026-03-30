@@ -507,9 +507,16 @@ def _phase_pipeline(
                 from scrum_agent.ui.session._utils import _render_to_lines
 
                 _rw = max(40, console.size[0] - 20)
-                _ep_renderable = _render_tui_epic(_ep_analysis, render_w=_rw)
-
                 _ep_profile_id = graph_state.get("analysis_profile_id", "")
+                _ep_examples = None
+                if _ep_profile_id:
+                    try:
+                        from scrum_agent.agent.nodes import _load_profile_by_id
+
+                        _, _ep_examples = _load_profile_by_id(_ep_profile_id)
+                    except Exception:
+                        pass
+                _ep_renderable = _render_tui_epic(_ep_analysis, render_w=_rw, examples=_ep_examples)
                 if _ep_profile_id:
                     from rich.console import Group as _EpGroup
                     from rich.text import Text as _EpText
@@ -611,7 +618,11 @@ def _phase_pipeline(
                                     _pa_kw["project_description"] = _new.description
                                     graph_state["project_analysis"] = type(_ep_analysis)(**_pa_kw)
                                     _ep_analysis = graph_state["project_analysis"]
-                                    _ep_renderable = _render_tui_epic(_ep_analysis, render_w=_rw)
+                                    _ep_renderable = _render_tui_epic(
+                                        _ep_analysis,
+                                        render_w=_rw,
+                                        examples=_ep_examples,
+                                    )
                                     if _ep_profile_id:
                                         _b = _render_calibration_banner(_ep_profile_id, _rw, stage="feature_generator")
                                         if _b:

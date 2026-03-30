@@ -394,47 +394,96 @@ def _render_tui_stories(
 # ---------------------------------------------------------------------------
 
 
-def _render_tui_epic(analysis, *, render_w: int = 80) -> Group:
+def _render_tui_epic(analysis, *, render_w: int = 80, examples: dict | None = None) -> Group:
     """Render the project-level epic for review.
 
-    The epic uses project_name as title and project_description as description,
-    matching what gets created in Jira/AzDO during sync.
+    When examples dict is provided (from analysis profile), renders the epic
+    using the team's naming convention and template sections. Otherwise
+    falls back to a basic display of project name + description.
     """
     parts: list = []
+    _ex = examples or {}
+    wrap_w = max(40, render_w - 4)
+    c_section = "bold rgb(220,180,60)"
+    c_desc = "rgb(180,180,200)"
+    c_muted = "rgb(140,140,160)"
 
-    # Header
+    def _wrap(text: str, style: str, indent: str = "  ") -> None:
+        words = text.split()
+        buf = ""
+        for word in words:
+            if buf and len(buf) + len(word) + 1 > wrap_w:
+                parts.append(Text(f"{indent}{buf}", style=style))
+                buf = word
+            else:
+                buf = (buf + " " + word).strip()
+        if buf:
+            parts.append(Text(f"{indent}{buf}", style=style))
+
+    # Check for team naming convention
+    naming = _ex.get("naming_conventions", {})
+    epic_style = naming.get("epic_naming_style", "") if isinstance(naming, dict) else ""
+    template_sections = naming.get("template_sections", []) if isinstance(naming, dict) else []
+
+    project_name = getattr(analysis, "project_name", "Untitled")
+    desc = getattr(analysis, "project_description", "")
+
+    # Header — use team naming convention if available
     hdr = Text()
-    hdr.append("Epic: ", style="bold cyan")
-    hdr.append(getattr(analysis, "project_name", "Untitled"), style="bold white")
+    hdr.append("[E1]  ", style="bold cyan")
+    if epic_style:
+        hdr.append(f"({epic_style} naming)", style="dim")
+        hdr.append("  ", style="dim")
+    hdr.append(project_name, style="bold white")
     hdr.append("  \u00b7  ", style="dim")
     hdr.append("high", style="yellow")
     parts.append(hdr)
     parts.append(Text(""))
 
-    # Description
-    desc = getattr(analysis, "project_description", "")
-    if desc:
-        parts.append(Text("Description", style="bold rgb(140,140,160)"))
-        # Word-wrap
-        wrap_w = max(40, render_w - 4)
-        words = desc.split()
-        buf = ""
-        for word in words:
-            if buf and len(buf) + len(word) + 1 > wrap_w:
-                parts.append(Text(f"  {buf}", style="rgb(180,180,200)"))
-                buf = word
-            else:
-                buf = (buf + " " + word).strip()
-        if buf:
-            parts.append(Text(f"  {buf}", style="rgb(180,180,200)"))
+    # If team has template sections, render description using them
+    if template_sections and desc:
+        import re as _re
+
+        # Try to parse **Section?** markers from description (if LLM-generated)
+        section_re = _re.compile(r"\*\*([^*]+)\*\*\s*")
+        section_parts = section_re.split(desc)
+
+        if len(section_parts) > 2:
+            # Description has sections — render them
+            if section_parts[0].strip():
+                _wrap(section_parts[0].strip(), c_desc)
+                parts.append(Text(""))
+            i = 1
+            while i < len(section_parts) - 1:
+                section_title = section_parts[i].strip()
+                section_body = section_parts[i + 1].strip() if i + 1 < len(section_parts) else ""
+                parts.append(Text(f"  {section_title}", style=c_section))
+                if section_body:
+                    _wrap(section_body, c_desc)
+                parts.append(Text(""))
+                i += 2
+        else:
+            # No section markers — show template sections as guidance + raw description
+            parts.append(Text("  Description", style=f"bold {c_muted}"))
+            _wrap(desc, c_desc)
+            parts.append(Text(""))
+            if template_sections:
+                parts.append(Text("  Team's template sections:", style="dim"))
+                for sec_name, _ in template_sections[:5]:
+                    parts.append(Text(f"    \u2022 {sec_name}", style="dim"))
+                parts.append(Text(""))
+    elif desc:
+        # No template sections — basic description
+        parts.append(Text("  Description", style=f"bold {c_muted}"))
+        _wrap(desc, c_desc)
         parts.append(Text(""))
 
     # Target state
     target = getattr(analysis, "target_state", "")
     if target:
         row = Text()
-        row.append("Target State: ", style="bold rgb(140,140,160)")
-        row.append(target, style="rgb(180,180,200)")
+        row.append("  Target State: ", style=f"bold {c_muted}")
+        row.append(target, style=c_desc)
         parts.append(row)
         parts.append(Text(""))
 
@@ -446,6 +495,14 @@ def _render_tui_epic(analysis, *, render_w: int = 80) -> Group:
         row.append("Sprint Planning: ", style="bold rgb(140,140,160)")
         row.append(f"{sprint_weeks}-week sprints \u00d7 {target_sprints} sprints", style="rgb(180,180,200)")
         parts.append(row)
+        parts.append(Text(""))
+
+    # Team epic examples (if available from analysis)
+    epic_examples = naming.get("epic_examples", []) if isinstance(naming, dict) else []
+    if epic_examples:
+        parts.append(Text("  Team's Epic Examples", style=f"bold {c_muted}"))
+        for ex in epic_examples[:3]:
+            parts.append(Text(f"    \u2022 {ex}", style="dim"))
         parts.append(Text(""))
 
     # Info note
