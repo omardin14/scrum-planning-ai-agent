@@ -83,39 +83,43 @@ def _ac_format_rule(team_calibration: str) -> str:
 # nested acceptance_criteria arrays.
 # ---------------------------------------------------------------------------
 
-_JSON_SCHEMA = """\
+
+def _build_json_schema(dod_items: tuple[str, ...] | None = None) -> str:
+    """Build the JSON schema string with dynamic DoD items."""
+    from scrum_agent.agent.state import DOD_ITEMS
+
+    items = dod_items or DOD_ITEMS
+    n = len(items)
+    bools = ", ".join(["true"] * n)
+    mapping = "\n".join(f"  [{i}] {item}" for i, item in enumerate(items))
+
+    return f"""\
 [
-  {
+  {{
     "id": "string — sequential ID per feature: US-F1-001, US-F1-002, ...",
     "feature_id": "string — parent feature ID: F1, F2, ...",
-    "title": "string — short summary of the story (3-7 words, e.g. 'Create Bookmark Endpoint')",
+    "title": "string — short summary of the story (3-7 words)",
     "persona": "string — the user role (e.g. 'developer', 'admin', 'end user')",
     "goal": "string — what the user wants to do (verb phrase, no 'to' prefix)",
     "benefit": "string — why this matters to the user (no 'so that' prefix)",
     "acceptance_criteria": [
-      {
+      {{
         "given": "string — precondition or initial context",
         "when": "string — action or trigger",
         "then": "string — expected outcome"
-      }
+      }}
     ],
     "story_points": "integer — Fibonacci value: 1, 2, 3, 5, or 8",
-    "points_rationale": "string — 2-3 sentences: why this size, confidence vs team data, similar stories",
-    "points_confidence": "string — high, medium, or low based on team's sample count at this size",
+    "points_rationale": "string — why this size, confidence vs team data, similar stories",
+    "points_confidence": "string — high, medium, or low based on team's sample count",
     "priority": "string — one of: critical, high, medium, low",
     "discipline": "string — one of: frontend, backend, fullstack, infrastructure, design, testing",
-    "dod_applicable": [true, true, true, true, true, true, true]
-  }
+    "dod_applicable": [{bools}]
+  }}
 ]
 
-The 7 booleans in dod_applicable map in order to:
-  [0] Acceptance Criteria Met
-  [1] Documentation
-  [2] Proper Testing
-  [3] Code Merged to Main
-  [4] Released via SDLC
-  [5] Stakeholder Sign-off
-  [6] Knowledge Sharing
+The {n} booleans in dod_applicable map in order to:
+{mapping}
 Set to false when the item clearly does not apply to this specific story."""
 
 
@@ -131,6 +135,7 @@ def get_story_writer_prompt(
     *,
     out_of_scope: str = "",
     team_calibration: str = "",
+    dod_items: tuple[str, ...] | None = None,
     review_feedback: str | None = None,
     review_mode: str | None = None,
     previous_output: str | None = None,
@@ -165,12 +170,13 @@ def get_story_writer_prompt(
     Returns:
         The complete prompt string ready to send to the LLM.
     """
+    from scrum_agent.agent.state import DOD_ITEMS
     from scrum_agent.prompts.feature_generator import _build_review_section
 
     task_instruction = (
         f"Decompose each feature into {MIN_STORIES_PER_FEATURE}-{MAX_STORIES_PER_FEATURE} user stories. "
         f"Return a JSON array matching this exact schema:\n\n"
-        f"```json\n{_JSON_SCHEMA}\n```\n\n"
+        f"```json\n{_build_json_schema(dod_items)}\n```\n\n"
     )
     count_rule = (
         f"1. Produce {MIN_STORIES_PER_FEATURE}-{MAX_STORIES_PER_FEATURE} stories per feature — no fewer, no more.\n"
@@ -205,11 +211,8 @@ def get_story_writer_prompt(
         "11. Inherit priority from the parent feature unless there's a reason to differ.\n"
         f"12. Tag each story with a discipline: {', '.join(_ALLOWED_DISCIPLINES)}. "
         "Use 'fullstack' if the story spans multiple disciplines or is unclear.\n"
-        "13. Set dod_applicable as a 7-element boolean array. Mark false when an item clearly "
-        "does not apply — for example:\n"
-        "    - Non-code stories (docs, design, research): Code Merged = false, SDLC = false\n"
-        "    - Small or low-risk stories: Knowledge Sharing = false\n"
-        "    - Internal/automated stories: Stakeholder Sign-off = false\n"
+        f"13. Set dod_applicable as a {len(dod_items or DOD_ITEMS)}-element boolean array. "
+        "Mark false when an item clearly does not apply to this specific story.\n"
         "    Default to true when in doubt.\n"
         "14. Do NOT create stories for items listed under Out of Scope — "
         "assume these already exist or are handled elsewhere.\n"

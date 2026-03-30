@@ -159,6 +159,33 @@ DOD_ITEMS: tuple[str, ...] = (
 )
 
 
+def resolve_dod_items(graph_state: dict | None = None) -> tuple[str, ...]:
+    """Return custom DoD items from state if set, else the default DOD_ITEMS.
+
+    When an analysis profile provides team-specific DoD practices,
+    they override the generic defaults for the entire planning session.
+    """
+    if graph_state:
+        custom = graph_state.get("custom_dod_items")
+        if custom and isinstance(custom, (tuple, list)) and len(custom) > 0:
+            return tuple(custom)
+    return DOD_ITEMS
+
+
+def shorten_dod_items(items: tuple[str, ...]) -> tuple[str, ...]:
+    """Generate short display labels from full DoD item names."""
+    _known = {
+        "Acceptance Criteria Met": "AC Met",
+        "Documentation": "Docs",
+        "Proper Testing": "Testing",
+        "Code Merged to Main": "Code Merged",
+        "Released via SDLC": "SDLC",
+        "Stakeholder Sign-off": "Sign-off",
+        "Knowledge Sharing": "Know. Sharing",
+    }
+    return tuple(_known.get(item, item[:14].strip()) for item in items)
+
+
 @dataclass(frozen=True)
 class UserStory:
     """A user story following the persona/goal/benefit template."""
@@ -505,6 +532,10 @@ class ScrumState(_RequiredState, total=False):
     stories: Annotated[list[UserStory], operator.add]
     tasks: Annotated[list[Task], operator.add]
     sprints: Annotated[list[Sprint], operator.add]
+
+    # Custom DoD items from team analysis — overrides DOD_ITEMS when set.
+    # Empty tuple means use the default 7 items.
+    custom_dod_items: tuple[str, ...]
 
     # Team / planning knobs
     team_size: int

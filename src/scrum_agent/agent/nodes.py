@@ -6219,6 +6219,11 @@ def story_writer(state: ScrumState) -> dict:
         team_profile, examples=_load_team_examples(state.get("analysis_profile_id", ""))
     )
 
+    # Resolve DoD items — custom from analysis or default 7
+    from scrum_agent.agent.state import resolve_dod_items
+
+    _dod = resolve_dod_items(state)
+
     prompt = get_story_writer_prompt(
         project_name=analysis.project_name,
         project_description=analysis.project_description,
@@ -6230,6 +6235,7 @@ def story_writer(state: ScrumState) -> dict:
         features_block=features_block,
         out_of_scope=_format_epic_list(analysis.out_of_scope),
         team_calibration=team_calibration_text,
+        dod_items=_dod,
         review_feedback=review_feedback if review_mode else None,
         review_mode=review_mode,
         previous_output=previous_output,

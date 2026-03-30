@@ -268,7 +268,9 @@ def _render_tui_analysis(
 # ---------------------------------------------------------------------------
 
 
-def _render_tui_stories(stories, features, *, selected_index: int | None = None) -> Group:
+def _render_tui_stories(
+    stories, features, *, selected_index: int | None = None, graph_state: dict | None = None
+) -> Group:
     """Render user stories as text blocks grouped by feature — TUI-specific.
 
     Each story is a compact block: metadata header line, story text,
@@ -281,7 +283,9 @@ def _render_tui_stories(stories, features, *, selected_index: int | None = None)
     in the first feature).
     """
 
-    from scrum_agent.agent.state import DOD_ITEMS
+    from scrum_agent.agent.state import DOD_ITEMS, resolve_dod_items, shorten_dod_items
+
+    _graph_state = graph_state
 
     feature_titles = {e.id: e.title for e in features}
 
@@ -346,11 +350,13 @@ def _render_tui_stories(stories, features, *, selected_index: int | None = None)
 
             # DoD line — blank line above
             dod_flags = story.dod_applicable
-            if len(dod_flags) == len(DOD_ITEMS):
+            _dod_items = resolve_dod_items(_graph_state) if _graph_state else DOD_ITEMS
+            _dod_short = shorten_dod_items(_dod_items)
+            if len(dod_flags) >= len(_dod_items):
                 body_parts.append(Text(""))
                 dod = Text()
                 dod.append("DoD: ", style="bold")
-                for j, (short, applicable) in enumerate(zip(_DOD_SHORT, dod_flags)):
+                for j, (short, applicable) in enumerate(zip(_dod_short, dod_flags)):
                     sep = "" if j == 0 else "  "
                     if applicable:
                         dod.append(f"{sep}✓ {short}", style="green")
@@ -1031,7 +1037,10 @@ def _render_pipeline_artifacts(
             renderable = _render_tui_features(graph_state["features"], render_w=render_w)
         elif pending == "story_writer" and graph_state.get("stories"):
             renderable = _render_tui_stories(
-                graph_state["stories"], graph_state.get("features", []), selected_index=selected_story
+                graph_state["stories"],
+                graph_state.get("features", []),
+                selected_index=selected_story,
+                graph_state=graph_state,
             )
         elif pending == "task_decomposer" and graph_state.get("tasks"):
             renderable = _render_tui_tasks(
