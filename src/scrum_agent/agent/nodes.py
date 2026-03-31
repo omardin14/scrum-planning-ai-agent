@@ -4216,6 +4216,43 @@ def project_intake(state: ScrumState) -> dict:
                                     len(_selected_names),
                                     _vel,
                                 )
+                            # Auto-fill Q7 (team roles) from selected members' disciplines
+                            _contrib_list = _ap_ex2.get("contributor_stats", [])
+                            _roles: dict[str, int] = {}
+                            for c in _contrib_list:
+                                if isinstance(c, dict) and c.get("name", "").lower() in [
+                                    n.lower() for n in _selected_names
+                                ]:
+                                    disc = c.get("top_discipline", "fullstack")
+                                    # Map analysis disciplines to Q7 options
+                                    _disc_map = {
+                                        "backend": "Backend",
+                                        "frontend": "Frontend",
+                                        "fullstack": "Fullstack",
+                                        "infrastructure": "DevOps/Infra",
+                                        "devops": "DevOps/Infra",
+                                        "ci-cd": "DevOps/Infra",
+                                        "testing": "QA/Testing",
+                                        "qa": "QA/Testing",
+                                        "security": "DevOps/Infra",
+                                        "data": "Data/ML",
+                                        "design": "Design",
+                                        "observability": "DevOps/Infra",
+                                        "platform": "DevOps/Infra",
+                                        "networking": "DevOps/Infra",
+                                        "database": "Backend",
+                                    }
+                                    role = _disc_map.get(disc, "Fullstack")
+                                    _roles[role] = _roles.get(role, 0) + 1
+                            if _roles:
+                                _role_parts = []
+                                for role, count in sorted(_roles.items(), key=lambda x: -x[1]):
+                                    _role_parts.append(f"{count} {role}" if count > 1 else role)
+                                questionnaire.answers[7] = ", ".join(_role_parts)
+                                questionnaire.answer_sources[7] = AnswerSource.EXTRACTED
+                                questionnaire.extracted_questions.add(7)
+                                questionnaire.defaulted_questions.discard(7)
+                                logger.info("Q7 auto-filled from members: %s", questionnaire.answers[7])
                     except Exception:
                         pass
             questionnaire._q6_member_select = False
