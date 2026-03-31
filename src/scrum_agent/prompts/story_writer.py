@@ -48,10 +48,22 @@ def _ac_count_rule(team_calibration: str) -> str:
     m = re.search(r"[Mm]edian acceptance criteria per story:\s*(\d+)", team_calibration)
     if m:
         median = int(m.group(1))
+        if median <= 1:
+            return (
+                "7. Each story should have exactly 1 acceptance criterion "
+                "(matching team's median of 1). Bundle multiple test scenarios "
+                "into a single comprehensive AC rather than listing each separately. "
+                "Do NOT generate 3+ ACs — the team uses concise, consolidated criteria.\n"
+            )
+        if median <= 2:
+            return (
+                f"7. Each story should have {median} acceptance criteria "
+                f"(matching team's median). Keep ACs concise — bundle related "
+                "scenarios together rather than listing each separately.\n"
+            )
         return (
             f"7. Each story should have approximately {median} acceptance criteria "
-            f"(matching team's median of {median}). Include at least 1 happy-path "
-            "and 1 error-path scenario.\n"
+            f"(matching team's median of {median}).\n"
         )
     return (
         "7. Each story must have at least 3 acceptance criteria:\n"

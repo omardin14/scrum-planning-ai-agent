@@ -334,19 +334,30 @@ def _render_tui_stories(
 
             # Acceptance criteria — values aligned to longest key ("Given" = 6 chars)
             _ac_w = 6  # len("Given ")
-            for ac in story.acceptance_criteria:
+            _ac_count = len(story.acceptance_criteria)
+            if _ac_count > 0:
+                _ac_label = Text()
+                _ac_label.append(f"Acceptance Criteria ({_ac_count})", style="bold rgb(140,140,160)")
+                body_parts.append(_ac_label)
+            for _ac_idx, ac in enumerate(story.acceptance_criteria, 1):
+                if _ac_count > 1:
+                    _ac_num = Text()
+                    _ac_num.append(f"  AC {_ac_idx}", style="bold rgb(100,130,100)")
+                    body_parts.append(_ac_num)
                 ac_text = Text()
-                ac_text.append(f"{'Given':<{_ac_w}}", style="bold rgb(100,130,100)")
+                ac_text.append(f"  {'Given':<{_ac_w}}", style="bold rgb(100,130,100)")
                 ac_text.append(ac.given, style="rgb(140,140,140)")
                 body_parts.append(ac_text)
                 when_text = Text()
-                when_text.append(f"{'When':<{_ac_w}}", style="bold rgb(100,130,100)")
+                when_text.append(f"  {'When':<{_ac_w}}", style="bold rgb(100,130,100)")
                 when_text.append(ac.when, style="rgb(140,140,140)")
                 body_parts.append(when_text)
                 then_text = Text()
-                then_text.append(f"{'Then':<{_ac_w}}", style="bold rgb(100,130,100)")
+                then_text.append(f"  {'Then':<{_ac_w}}", style="bold rgb(100,130,100)")
                 then_text.append(ac.then, style="rgb(140,140,140)")
                 body_parts.append(then_text)
+                if _ac_idx < _ac_count:
+                    body_parts.append(Text(""))
 
             # DoD line — blank line above
             dod_flags = story.dod_applicable
