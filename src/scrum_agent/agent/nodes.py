@@ -4197,14 +4197,30 @@ def project_intake(state: ScrumState) -> dict:
         # Q6 team member multi-select → recalculate velocity from selected members
         if current_q == 6 and getattr(questionnaire, "_q6_member_select", False):
             _selected_text = last_msg.content
-            # Parse member names — strip the velocity/discipline suffix from labels
+            logger.info("Q6 member select raw answer: %s", _selected_text[:200])
+            # Parse member names from labels like "Name (X.X pts/sprint, discipline)"
+            # Split on "), " which separates complete labels, then extract name before " ("
+            import re as _q6_re
+
             _selected_names = []
-            for part in _selected_text.split(","):
-                name = part.strip().split(" (")[0].strip()
-                if name:
-                    _selected_names.append(name)
+            # Find all "Name (..." patterns
+            _label_parts = _q6_re.findall(r"([^,;]+?\s*\([^)]+\))", _selected_text)
+            if _label_parts:
+                for lbl in _label_parts:
+                    name = lbl.strip().split(" (")[0].strip()
+                    if name:
+                        _selected_names.append(name)
+            else:
+                # Fallback: try simple comma split (no parentheses in labels)
+                for part in _selected_text.split(","):
+                    name = part.strip().split(" (")[0].strip()
+                    if name:
+                        _selected_names.append(name)
+            logger.info("Q6 parsed members: %s", _selected_names)
             if _selected_names:
-                questionnaire.answers[6] = str(len(_selected_names))
+                # Store clean display: "2 engineers (Alice, Bob)"
+                _names_str = ", ".join(_selected_names)
+                questionnaire.answers[6] = f"{len(_selected_names)} ({_names_str})"
                 # Calculate velocity from selected members
                 _ap_id = state.get("analysis_profile_id", "")
                 if _ap_id:
