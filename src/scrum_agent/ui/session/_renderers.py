@@ -1123,6 +1123,9 @@ def _render_pipeline_artifacts(
                 return msgs[-1].content.splitlines(), []
             return ["(no content)"], []
     except Exception:
+        import logging as _log
+
+        _log.getLogger(__name__).exception("Pipeline artifact rendering failed for stage=%s", pending)
         msgs = graph_state.get("messages", [])
         if msgs and isinstance(msgs[-1], AIMessage):
             return msgs[-1].content.splitlines(), []
