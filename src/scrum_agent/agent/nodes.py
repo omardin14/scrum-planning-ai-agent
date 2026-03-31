@@ -1707,8 +1707,9 @@ def _extract_answers_from_profile(profile, examples: dict | None = None) -> dict
     """Extract intake questionnaire answers from a team analysis profile.
 
     Returns a dict mapping question numbers to answer strings.
-    Used to auto-fill Q6 (team size), Q8 (sprint length), Q9 (velocity)
-    when the user selects an analysis profile in planning mode.
+    Used to auto-fill Q6 (team size), Q8 (sprint length), Q9 (velocity),
+    Q11 (tech stack), Q12 (integrations) when the user selects an analysis
+    profile in planning mode.
     """
     answers: dict[int, str] = {}
     _ex = examples or {}
@@ -1749,6 +1750,18 @@ def _extract_answers_from_profile(profile, examples: dict | None = None) -> dict
     if vel > 0:
         answers[9] = f"{vel:.0f} points per sprint (from team analysis)"
         logger.info("Analysis auto-fill: Q9 (velocity) = %.0f pts/sprint", vel)
+
+    # Q11: Tech stack — from analysis profile's tech_stack field
+    tech = getattr(profile, "tech_stack", ())
+    if tech:
+        answers[11] = ", ".join(tech)
+        logger.info("Analysis auto-fill: Q11 (tech stack) = %s", answers[11])
+
+    # Q12: Integrations — from analysis profile's integrations field
+    integrations = getattr(profile, "integrations", ())
+    if integrations:
+        answers[12] = ", ".join(integrations)
+        logger.info("Analysis auto-fill: Q12 (integrations) = %s", answers[12])
 
     return answers
 
@@ -2525,6 +2538,29 @@ def _check_vague_answer(question: str, answer: str, q_num: int = 0) -> tuple[str
     except ValueError:
         pass
 
+    # Short-circuit: "no preference" / "none" answers for tech stack (Q11) and
+    # integrations (Q12). These are valid answers — the user genuinely has no
+    # preference or no integrations. Without this, the LLM vagueness check
+    # generates biased follow-up options (e.g. always suggesting JavaScript).
+    _no_pref_patterns = frozenset(
+        {
+            "any",
+            "anything",
+            "no preference",
+            "none",
+            "no integrations",
+            "n/a",
+            "not sure yet",
+            "tbd",
+            "no",
+            "whatever",
+            "flexible",
+        }
+    )
+    if q_num in (11, 12) and answer.strip().lower() in _no_pref_patterns:
+        logger.debug("_check_vague_answer: Q%d no-preference answer accepted: %s", q_num, answer.strip())
+        return None
+
     # Build custom follow-up hint if available for this question
     custom_hint = ""
     if q_num and q_num in FOLLOW_UP_TEMPLATES:
@@ -3221,9 +3257,12 @@ def project_intake(state: ScrumState) -> dict:
 
             # Pick essential set based on mode (needed before extraction split)
             essential_set = QUICK_ESSENTIALS if intake_mode == "quick" else SMART_ESSENTIALS
-            # If analysis provides velocity, skip Q9 from essentials
+            # If analysis provides velocity, skip Q9 from essentials (auto-accept).
+            # Q11 (tech stack) stays essential so it appears as a suggestion
+            # the user can confirm or override.
             if _analysis_profile_id and 9 in extracted:
                 essential_set = essential_set - {9}
+                logger.info("Analysis auto-fill: removed Q9 from essentials")
 
             # Split extractions: essential questions go to suggested_answers
             # (user confirms or overrides), non-essential go to answers (auto-accepted).

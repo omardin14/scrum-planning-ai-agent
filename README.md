@@ -74,8 +74,12 @@ scrum-agent --non-interactive --description @project-brief.txt --output html --t
 - [CLI Reference](#%EF%B8%8F-cli-reference)
 - [Intake Modes](#-intake-modes)
 - [Pipeline](#-pipeline)
+- [Team Analysis Mode](#-team-analysis-mode)
+- [Analysis-Calibrated Planning](#-analysis-calibrated-planning)
 - [Export Formats](#-export-formats)
 - [Session Management](#-session-management)
+- [Usage Page](#-usage-page)
+- [Settings Page](#%EF%B8%8F-settings-page)
 - [Tools](#-tools)
 - [Architecture](#%EF%B8%8F-architecture)
 - [Project Intake Questionnaire](#-project-intake-questionnaire)
@@ -117,7 +121,13 @@ scrum-agent --non-interactive --description @project-brief.txt --output html --t
 
 📄 **SCRUM.md Context** — Drop a `SCRUM.md` in your project directory; the agent reads it to pre-fill answers and ground output
 
+🔬 **Team Analysis Mode** — Connect your Jira or Azure DevOps board to analyze your team's real patterns: velocity, sprint cadence, story structure, acceptance criteria style, naming conventions, and per-developer breakdown
 
+🎯 **Analysis-Calibrated Planning** — Select a team analysis profile when planning and the agent auto-fills intake questions, matches your team's story/task counts, enforces your AC format, uses your Definition of Done, and shows calibration banners at every pipeline stage
+
+👥 **Team Member Selection** — Pick specific developers from your analysis profile for a project; velocity is calculated from their individual averages, not the whole team total
+
+📊 **Usage Dashboard** — Track token consumption per session, per provider, and lifetime totals with a dedicated usage page
 
 ---
 
@@ -626,16 +636,18 @@ The agent supports four intake modes, each balancing thoroughness with speed.
 The recommended mode. The agent:
 
 1. Reads your initial project description and extracts answers to as many questions as possible
-2. Asks only the remaining essential questions (typically 2–4)
-3. Uses **answer provenance tracking** to tag how each answer was obtained:
+2. **When an analysis profile is selected**, auto-fills team size, sprint length, velocity, tech stack, and integrations from real data
+3. Asks only the remaining essential questions (typically 2–4)
+4. Uses **answer provenance tracking** to tag how each answer was obtained:
    - `DIRECT` — you explicitly answered
    - `EXTRACTED` — parsed from your initial description
    - `DEFAULTED` — filled with a sensible default
    - `PROBED` — filled via a targeted follow-up question
    - `SCRUM_MD` — loaded from a `SCRUM.md` file in the current directory
-4. Applies **conditional essentials** — questions that only appear when relevant (e.g., "What are their roles?" only asked after you give a team size)
-5. Runs **cross-question validation** — catches contradictions (e.g., team size of 1 but multiple roles listed)
-6. Generates **adaptive follow-ups** using question-specific templates (not generic "tell me more")
+5. Applies **conditional essentials** — questions that only appear when relevant (e.g., "What are their roles?" only asked after you give a team size)
+6. Runs **cross-question validation** — catches contradictions (e.g., team size of 1 but multiple roles listed)
+7. Generates **adaptive follow-ups** using question-specific templates (not generic "tell me more")
+8. Accepts **"any" / "no preference"** for tech stack (Q11) and **"none"** for integrations (Q12) without triggering follow-up probes
 
 ### Quick mode (`--quick`)
 
@@ -760,6 +772,127 @@ After intake, the analysis review screen shows a deterministic quality rating:
 
 ---
 
+## 🔬 Team Analysis Mode
+
+Team Analysis connects to your Jira or Azure DevOps board and produces a comprehensive analysis of your team's real delivery patterns. The analysis becomes a reusable **profile** that calibrates future planning sessions.
+
+<!-- TODO: Screenshot — Team Analysis results overview page -->
+
+### What gets analyzed
+
+| Category | Details |
+|----------|---------|
+| **Velocity** | Per-sprint velocity, team average, per-developer breakdown with delivery vs KTLO split |
+| **Sprint Cadence** | Sprint length, seasonal patterns, velocity trends over time |
+| **Story Structure** | Average stories per epic, story point distribution, typical story size |
+| **Task Patterns** | Average tasks per story, type distribution (Development %, Testing %, Deploy %) |
+| **Acceptance Criteria** | AC count per story, writing style (Given/When/Then vs flexible), coverage patterns |
+| **Definition of Done** | Team's actual DoD items extracted from completed stories |
+| **Naming Conventions** | Epic naming style (quarter-scoped, feature-based), ticket organization patterns |
+| **Team Members** | Per-contributor analysis with velocity, discipline (backend/frontend/etc.), stories completed, sprint participation |
+| **Estimation Bias** | Whether the team tends to over- or under-estimate |
+| **Board Workflow** | Column workflow analysis showing how work items flow through states |
+
+### How it works
+
+1. **Select a board** — pick your Jira project or Azure DevOps team board
+2. **Choose sprint scope** — analyze last 3, 5, 10, or all sprints
+3. **Review the analysis** — 6-page walkthrough: Instructions, Sample Epic, Sample Stories, Sample Tasks, Sample Sprint Plan, Analysis Report
+4. **Save as a profile** — stored in SQLite, reusable across planning sessions
+
+<!-- TODO: Video — Full analysis flow from board selection to saved profile -->
+
+### Per-developer breakdown
+
+Each team member gets individual analysis:
+
+<!-- TODO: Screenshot — Team Members section showing per-developer velocity table -->
+
+| Metric | Description |
+|--------|-------------|
+| **Velocity** | Individual points per sprint average |
+| **Discipline** | Primary skill area (backend, frontend, fullstack, infrastructure, etc.) — LLM-classified from actual work |
+| **Stories completed** | Total stories delivered in the analysis window |
+| **Sprint participation** | Number of sprints active |
+| **Delivery vs KTLO** | Split between feature delivery and keeping-the-lights-on work |
+
+### Analysis exports
+
+Analysis results can be exported as HTML or Markdown reports. Both formats include all analysis sections plus a Team Members table. When an analysis profile is used during planning, the export includes a provenance note linking back to the analysis.
+
+---
+
+## 🎯 Analysis-Calibrated Planning
+
+When you start a planning session, you can select a saved analysis profile. This calibrates the entire planning pipeline to match your team's real patterns.
+
+<!-- TODO: Screenshot — Profile picker showing saved analysis profiles -->
+
+### Intake auto-fill
+
+The analysis profile auto-fills intake questions so you don't have to answer them manually:
+
+| Question | Source |
+|----------|--------|
+| **Q6 — Team size** | Replaced with a team member multi-select picker showing each developer's velocity and discipline |
+| **Q7 — Team roles** | Auto-filled from selected members' disciplines |
+| **Q8 — Sprint length** | Derived from sprint date ranges in the analysis |
+| **Q9 — Velocity** | Calculated from selected team members' individual per-sprint averages |
+| **Q11 — Tech stack** | Auto-filled from the analysis profile's tech stack (shown as suggestion, user can override) |
+| **Q12 — Integrations** | Auto-filled from the analysis profile's integrations list |
+| **Q27 — Sprint selection** | Falls back to analysis sprint data when live tracker is unavailable |
+
+<!-- TODO: Screenshot — Smart intake with analysis auto-fill showing pre-filled suggestions -->
+
+### Team member multi-select
+
+When an analysis profile has contributor data, Q6 (team size) becomes a multi-select picker instead of a free-text number:
+
+<!-- TODO: Screenshot — Team member multi-select with velocity and discipline labels -->
+
+- Each member shows their velocity (pts/sprint) and discipline
+- Select specific developers for this project with Space, confirm with Enter
+- Velocity is calculated from the selected members' individual averages
+- Team roles (Q7) auto-populated from selected members' disciplines
+
+### Calibration banners
+
+Each pipeline stage shows a calibration banner explaining what analysis data influenced the output:
+
+<!-- TODO: Screenshot — Calibration banner on the Story Writer stage -->
+
+| Stage | Banner shows |
+|-------|-------------|
+| **Project Analyzer** | Selected profile name and source board |
+| **Story Writer** | Target stories/epic, AC count, points scale, DoD source |
+| **Task Decomposer** | Target tasks/story, type distribution (Dev/Test/Deploy %) |
+| **Sprint Planner** | Selected team members with individual velocities, total team velocity |
+
+### What gets calibrated
+
+| Artifact | Calibration |
+|----------|-------------|
+| **Epics** | LLM-reformatted to match team's naming convention (quarter-scoped, feature-based, etc.) and template sections |
+| **Stories per feature** | Matches team's historical average stories per epic |
+| **AC count** | Enforces team's median acceptance criteria count per story |
+| **AC format** | Respects team's writing style (Given/When/Then or flexible) |
+| **Definition of Done** | Uses team's actual DoD items instead of generic checklist |
+| **Story points** | Includes confidence scoring and references to similar stories from the analysis |
+| **Tasks per story** | Matches team's average task count |
+| **Task type distribution** | Matches team's Development/Testing/Deploy percentages |
+
+### Epic review
+
+Before the feature generator runs, an **epic review page** lets you review and edit the project epic. When an analysis profile is active, the epic is LLM-reformatted to match your team's style:
+
+<!-- TODO: Screenshot — Epic review page with team-style formatting -->
+
+- Quarter-scoped naming when the team uses that convention (e.g., "Q2 2026 — Customer Portal")
+- Template sections matching the team's epic structure
+- Sync to Jira or Azure DevOps directly from the review page
+
+---
+
 ## 📤 Export Formats
 
 ### Markdown (default)
@@ -874,7 +1007,23 @@ AZURE_DEVOPS_TEAM=MyProject Team    # optional — defaults to "{project} Team"
 
 ## 💾 Session Management
 
-Sessions are persisted to SQLite at `~/.scrum-agent/sessions.db`. Every terminal session gets a unique ID (`new-<8hex>-<YYYY-MM-DD>`) and a human-readable display name derived from the project slug (`todoapp-2026-03-19`).
+Sessions are persisted to SQLite at `~/.scrum-agent/data/sessions.db`. Every terminal session gets a unique ID (`new-<8hex>-<YYYY-MM-DD>`) and a human-readable display name derived from the project slug (`todoapp-2026-03-19`). Team analysis profiles are stored in the same database.
+
+### Directory structure
+
+```
+~/.scrum-agent/
+  data/
+    sessions.db         # SQLite — planning sessions, analysis profiles, token usage
+  exports/
+    analysis/           # HTML + Markdown analysis reports
+    planning/           # HTML + Markdown planning exports
+  logs/
+    tui/                # TUI application logs (rotates at 2 MB)
+    analysis/           # Per-analysis session logs
+    planning/           # Per-planning session logs
+  .env                  # API keys and credentials
+```
 
 ### Resume a session
 
@@ -905,6 +1054,42 @@ Interactive picker to delete one session or clear all.
 ### Auto-pruning
 
 Sessions older than 30 days are auto-pruned at startup. Configure via `SESSION_PRUNE_DAYS` in `.env` (set to `0` to disable).
+
+---
+
+## 📊 Usage Page
+
+The Usage page tracks token consumption across all sessions, accessible from the main menu.
+
+<!-- TODO: Screenshot — Usage page showing token breakdown and session history -->
+
+| Metric | Description |
+|--------|-------------|
+| **Session tokens** | Input and output tokens for the current session |
+| **Lifetime tokens** | Cumulative total across all sessions, persisted in SQLite |
+| **Per-provider breakdown** | Tokens split by LLM provider (Anthropic, OpenAI, Google, Bedrock) |
+| **Session history** | Recent sessions with their token counts and timestamps |
+| **Cost estimate** | Approximate cost based on provider pricing |
+
+Token usage is tracked automatically via `track_usage()` on every LLM call and persisted to the `token_usage` table in SQLite. The page uses a dedicated amber colour theme to distinguish it from Planning (blue) and Analysis (green).
+
+---
+
+## ⚙️ Settings Page
+
+The Settings page provides a read-only view of your current configuration and a shortcut to the setup wizard.
+
+<!-- TODO: Screenshot — Settings page showing configuration overview -->
+
+| Section | What it shows |
+|---------|---------------|
+| **LLM Provider** | Active provider and model (e.g., Anthropic / claude-sonnet-4) |
+| **API Keys** | Configured keys with values masked (e.g., `sk-ant-***...***abc`) |
+| **Issue Tracking** | Jira and/or Azure DevOps connection status, org URL, project |
+| **Version Control** | GitHub token status |
+| **Paths** | Database location, export directories, log directories |
+
+From the Settings page you can launch the **setup wizard** to reconfigure providers, API keys, and integrations. The page uses a grey colour theme.
 
 ---
 
@@ -1017,7 +1202,7 @@ The agent has access to 30 tools, organized by integration:
 | **Interface** | Full-screen TUI with animated splash, mode selection, session editor, pipeline progress, streaming output, and dark/light themes |
 | **Prompt Construction** | Scrum Master persona, ARC-structured prompts per node, few-shot examples, adaptive question templates |
 | **Model** | Anthropic Claude (primary), OpenAI GPT, Google Gemini — swappable via `LLM_PROVIDER` env var |
-| **Data & Storage** | SQLite session store (`~/.scrum-agent/sessions.db`), optional Jira/Confluence integration |
+| **Data & Storage** | SQLite session store (`~/.scrum-agent/data/sessions.db`) with team analysis profiles, token usage tracking, optional Jira/Confluence/Azure DevOps integration |
 
 ### Three Design Principles
 
@@ -1083,10 +1268,10 @@ The `ui/` package provides a full-screen terminal UI with four subsystems:
 
 | Subsystem | Purpose |
 |-----------|---------|
-| `mode_select/` | Full-screen mode selection with ASCII art titles, project cards with pipeline progress indicators, project list with half-card peek stubs at viewport edges |
+| `mode_select/` | Full-screen mode selection with ASCII art titles, project cards with pipeline progress indicators, project list with half-card peek stubs at viewport edges. Includes Analysis, Planning, Usage, and Settings pages |
 | `provider_select/` | LLM and tool provider selection (block-character logos for Claude/GPT/Gemini), issue tracking setup, verification flow |
-| `session/` | Main session UI — description input, intake questions, summary review, pipeline stages with artifact editing, Jira export confirmation/progress screens, chat. Dry-run mode with mock data |
-| `shared/` | Animations (typewriter, pulse), ASCII font rendering, reusable components, mouse scroll handling |
+| `session/` | Main session UI — description input, intake questions, summary review, pipeline stages with artifact editing, epic review, calibration banners, Jira/Azure DevOps export, chat. Dry-run mode with mock data |
+| `shared/` | Animations (typewriter, pulse), ASCII font rendering, reusable components (Theme, buttons, scrollbar, progress dots, viewport), mouse scroll handling |
 
 Visual features:
 - **Rounded borders** with consistent padding and arrow-key navigation

@@ -517,6 +517,36 @@ class TestCheckVagueAnswer:
         assert _check_vague_answer("What velocity?", "15.5") is None
         mock_llm.invoke.assert_not_called()
 
+    def test_no_preference_short_circuits_q11(self, monkeypatch):
+        """'any' / 'no preference' for Q11 (tech stack) should skip the LLM — not vague."""
+        mock_llm = MagicMock()
+        monkeypatch.setattr("scrum_agent.agent.nodes.get_llm", lambda **kwargs: mock_llm)
+
+        for answer in ("any", "Any", "anything", "no preference", "tbd", "flexible"):
+            assert _check_vague_answer(INTAKE_QUESTIONS[11], answer, q_num=11) is None
+        mock_llm.invoke.assert_not_called()
+
+    def test_no_preference_short_circuits_q12(self, monkeypatch):
+        """'none' / 'no integrations' for Q12 should skip the LLM — not vague."""
+        mock_llm = MagicMock()
+        monkeypatch.setattr("scrum_agent.agent.nodes.get_llm", lambda **kwargs: mock_llm)
+
+        for answer in ("none", "None", "no integrations", "n/a", "no"):
+            assert _check_vague_answer(INTAKE_QUESTIONS[12], answer, q_num=12) is None
+        mock_llm.invoke.assert_not_called()
+
+    def test_no_preference_only_applies_to_q11_q12(self, monkeypatch):
+        """'any' for a non-tech question (e.g. Q1) should still go through the LLM."""
+        mock_llm = MagicMock()
+        fake_response = MagicMock()
+        fake_response.content = '{"vague": true, "follow_up": "Tell me more", "choices": ["A", "B"]}'
+        mock_llm.invoke.return_value = fake_response
+        monkeypatch.setattr("scrum_agent.agent.nodes.get_llm", lambda **kwargs: mock_llm)
+
+        result = _check_vague_answer("What is your project?", "any", q_num=1)
+        assert result is not None
+        mock_llm.invoke.assert_called_once()
+
     def test_exactly_100_chars_calls_llm(self, monkeypatch):
         """Answers of exactly 100 characters should still call the LLM (boundary)."""
         fake_response = AIMessage(content='{"vague": false}')

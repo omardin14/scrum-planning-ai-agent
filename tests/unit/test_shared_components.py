@@ -307,6 +307,34 @@ class TestExtractAnswersFromProfile:
         assert 8 in answers
         assert "2 week" in answers[8]
 
+    def test_extracts_tech_stack(self):
+        from scrum_agent.agent.nodes import _extract_answers_from_profile
+
+        p = type("P", (), {"velocity_avg": 0, "tech_stack": ("Python", "React", "PostgreSQL"), "integrations": ()})()
+        answers = _extract_answers_from_profile(p)
+        assert 11 in answers
+        assert "Python" in answers[11]
+        assert "React" in answers[11]
+        assert "PostgreSQL" in answers[11]
+
+    def test_extracts_integrations(self):
+        from scrum_agent.agent.nodes import _extract_answers_from_profile
+
+        p = type("P", (), {"velocity_avg": 0, "tech_stack": (), "integrations": ("Jira", "Slack", "GitHub Actions")})()
+        answers = _extract_answers_from_profile(p)
+        assert 12 in answers
+        assert "Jira" in answers[12]
+        assert "Slack" in answers[12]
+        assert 11 not in answers  # empty tech_stack → not filled
+
+    def test_empty_tech_stack_not_filled(self):
+        from scrum_agent.agent.nodes import _extract_answers_from_profile
+
+        p = type("P", (), {"velocity_avg": 0, "tech_stack": (), "integrations": ()})()
+        answers = _extract_answers_from_profile(p)
+        assert 11 not in answers
+        assert 12 not in answers
+
 
 class TestSettingsScreen:
     def test_returns_panel(self):

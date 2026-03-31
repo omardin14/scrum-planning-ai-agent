@@ -2029,9 +2029,9 @@ def select_mode(
                                             examples=_ta_examples,
                                         )
                                         if _instr_text.strip():
-                                            _ta_resume = _load_ana_session(
-                                                _ta_profile.project_key if _ta_profile else "",
-                                            )
+                                            # Fresh analysis — don't resume from a previous
+                                            # session (which may have last_page="stories"
+                                            # from an old run, skipping epic).
                                             _run_preview_flow(
                                                 live,
                                                 console,
@@ -2041,7 +2041,7 @@ def select_mode(
                                                 _instr_text,
                                                 _ta_profile,
                                                 _ta_examples,
-                                                resume_state=_ta_resume,
+                                                resume_state=None,
                                             )
                                         break
                                     if _ta_export_sel == 0:
