@@ -1143,8 +1143,9 @@ def _render_pipeline_artifacts(
         return ["(rendering error)"], []
 
     # Prepend calibration banner when an analysis profile is active
+    # Skip for feature_generator — features are just labels, no calibration needed
     _profile_id = graph_state.get("analysis_profile_id", "")
-    if _profile_id:
+    if _profile_id and pending != "feature_generator":
         banner = _render_calibration_banner(_profile_id, render_w, stage=pending or "")
         if banner:
             renderable = Group(banner, Text(""), renderable)
