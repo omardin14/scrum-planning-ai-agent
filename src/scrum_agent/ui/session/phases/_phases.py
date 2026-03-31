@@ -546,6 +546,33 @@ def _phase_pipeline(
 
                             _epic_result = [None]
 
+                            # Compute correct quarter/year from sprint date or current date
+                            from datetime import datetime as _dt
+
+                            _sprint_start = graph_state.get("sprint_start_date", "")
+                            _target_sprints = getattr(_ep_analysis, "target_sprints", 0)
+                            _sprint_weeks = getattr(_ep_analysis, "sprint_length_weeks", 2)
+                            try:
+                                _start_dt = _dt.fromisoformat(_sprint_start) if _sprint_start else _dt.now()
+                            except Exception:
+                                _start_dt = _dt.now()
+                            _start_q = ((_start_dt.month - 1) // 3) + 1
+                            _start_year = _start_dt.year
+                            # Calculate end date from sprints
+                            from datetime import timedelta
+
+                            _end_dt = (
+                                _start_dt + timedelta(weeks=_target_sprints * _sprint_weeks)
+                                if _target_sprints
+                                else _start_dt
+                            )
+                            _end_q = ((_end_dt.month - 1) // 3) + 1
+                            _end_year = _end_dt.year
+                            if _start_q == _end_q and _start_year == _end_year:
+                                _quarter_label = f"Q{_start_q}|{_start_year}"
+                            else:
+                                _quarter_label = f"Q{_start_q}|{_start_year}-Q{_end_q}|{_end_year}"
+
                             def _reformat_epic():
                                 try:
                                     from scrum_agent.tools.team_learning import _llm_invoke
@@ -564,9 +591,11 @@ def _phase_pipeline(
                                         f"Reformat this project epic to match the team's style.\n\n"
                                         f"Project: {_proj_name}\n"
                                         f"Description: {_proj_desc}\n\n"
+                                        f"IMPORTANT: The correct quarter/year for this epic is: {_quarter_label}\n"
+                                        f"Use this EXACT quarter/year in the title — do NOT guess the date.\n\n"
                                         f"{_cal_text}\n\n"
                                         f"Requirements:\n"
-                                        f"1. Use the team's naming convention for the title\n"
+                                        f"1. Use the team's naming convention with {_quarter_label} as the quarter\n"
                                     )
                                     if _sec_names:
                                         _prompt += (
