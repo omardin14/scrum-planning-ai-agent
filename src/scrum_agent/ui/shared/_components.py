@@ -266,7 +266,13 @@ def calc_viewport(height: int, *, header_h: int = 7, action_h: int = 4) -> int:
     """Calculate viewport height from terminal height.
 
     Accounts for panel border (2) + padding (2) = 4 rows overhead,
-    then subtracts header and action areas.
+    then subtracts header and action areas. Returns at least 3 rows
+    even on very small terminals to prevent render crashes.
     """
-    inner_h = height - 4
+    inner_h = max(0, height - 4)
     return max(3, inner_h - header_h - action_h)
+
+
+# Minimum terminal size for the TUI to function
+MIN_TERMINAL_HEIGHT = 10
+MIN_TERMINAL_WIDTH = 40

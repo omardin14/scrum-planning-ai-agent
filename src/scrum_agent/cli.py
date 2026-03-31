@@ -1132,12 +1132,25 @@ def main(argv: list[str] | None = None) -> None:
         # flicker; clean it up when the TUI exits.
         # Mouse tracking captures scroll-wheel events so they scroll within
         # the app instead of the terminal's own scrollback buffer.
+        import atexit
+
         from scrum_agent.ui.shared._input import disable_mouse_tracking, enable_mouse_tracking
 
+        def _terminal_cleanup() -> None:
+            """Safety net — ensure terminal is restored even on unhandled crash."""
+            try:
+                disable_mouse_tracking()
+            except Exception:
+                pass
+
+        atexit.register(_terminal_cleanup)
         enable_mouse_tracking()
         try:
             mode_result = select_mode(console, dry_run=args.dry_run)
         except KeyboardInterrupt:
+            mode_result = None
+        except Exception:
+            logging.getLogger(__name__).exception("Unhandled exception in TUI")
             mode_result = None
         finally:
             disable_mouse_tracking()
