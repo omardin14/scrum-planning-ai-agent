@@ -687,6 +687,33 @@ def _phase_pipeline(
                 _ep_lines = _render_to_lines(console, _ep_renderable, _rw)
                 _ep_scroll, _ep_sel = 0, 0
                 _ep_actions = ["Accept", "Edit", "Export"]
+
+                # Add tracker sync buttons (dynamic based on configured boards)
+                _ep_preferred = ""
+                _qs = graph_state.get("questionnaire")
+                if _qs:
+                    _ep_preferred = getattr(_qs, "_preferred_tracker", "")
+                try:
+                    from scrum_agent.jira_sync import is_jira_configured
+
+                    _jira_ok = is_jira_configured()
+                except Exception:
+                    _jira_ok = False
+                try:
+                    from scrum_agent.azdevops_sync import is_azdevops_board_configured
+
+                    _azdo_ok = is_azdevops_board_configured()
+                except Exception:
+                    _azdo_ok = False
+                if _ep_preferred == "jira" and _jira_ok:
+                    _ep_actions.append("Jira")
+                elif _ep_preferred == "azdevops" and _azdo_ok:
+                    _ep_actions.append("Azure DevOps")
+                elif _jira_ok:
+                    _ep_actions.append("Jira")
+                elif _azdo_ok:
+                    _ep_actions.append("Azure DevOps")
+
                 logger.info("Epic review: showing project-level epic")
 
                 while True:
@@ -818,6 +845,76 @@ def _phase_pipeline(
                                     _ek = _key()
                                 if _ep_t.monotonic() - _t0 > 1.0 and _ek:
                                     break
+                        elif _ep_act in ("Jira", "Azure DevOps"):
+                            logger.info("Epic review: syncing to %s", _ep_act)
+                            _ep_title = getattr(_ep_analysis, "project_name", "Project")
+                            _ep_desc = getattr(_ep_analysis, "project_description", "")
+
+                            if _ep_act == "Jira":
+                                try:
+                                    from jira import JIRA
+
+                                    from scrum_agent.config import (
+                                        get_jira_base_url,
+                                        get_jira_email,
+                                        get_jira_project_key,
+                                        get_jira_token,
+                                    )
+                                    from scrum_agent.jira_sync import _detect_issue_types
+
+                                    _j = JIRA(get_jira_base_url(), basic_auth=(get_jira_email(), get_jira_token()))
+                                    _it = _detect_issue_types(_j, get_jira_project_key())
+                                    _fields = {
+                                        "project": {"key": get_jira_project_key()},
+                                        "summary": _ep_title,
+                                        "description": _ep_desc,
+                                        "issuetype": {"name": _it.get("epic", "Epic")},
+                                    }
+                                    _issue = _j.create_issue(fields=_fields)
+                                    graph_state["jira_epic_key"] = _issue.key
+                                    logger.info("Created Jira Epic: %s", _issue.key)
+                                    _ep_status = f"\u2713 Jira Epic created: {_issue.key}"
+                                except Exception as _je:
+                                    logger.warning("Jira epic creation failed: %s", _je)
+                                    _ep_status = f"\u2717 Jira epic failed: {_je}"
+                            else:
+                                try:
+                                    from azure.devops.v7_0.work_item_tracking.models import JsonPatchOperation
+
+                                    from scrum_agent.azdevops_sync import _get_wit_client
+                                    from scrum_agent.config import get_azure_devops_org_url, get_azure_devops_project
+
+                                    _wit = _get_wit_client(get_azure_devops_org_url())
+                                    _ops = [
+                                        JsonPatchOperation(op="add", path="/fields/System.Title", value=_ep_title),
+                                        JsonPatchOperation(op="add", path="/fields/System.Description", value=_ep_desc),
+                                    ]
+                                    _wi = _wit.create_work_item(_ops, get_azure_devops_project(), "Epic")
+                                    graph_state["azdevops_epic_id"] = str(_wi.id)
+                                    logger.info("Created AzDO Epic: %s", _wi.id)
+                                    _ep_status = f"\u2713 Azure DevOps Epic created: {_wi.id}"
+                                except Exception as _ae:
+                                    logger.warning("AzDO epic creation failed: %s", _ae)
+                                    _ep_status = f"\u2717 Azure DevOps epic failed: {_ae}"
+
+                            # Show status briefly then re-render
+                            w, h = console.size
+                            live.update(
+                                _build_pipeline_screen(
+                                    "Reviewing epic",
+                                    "[2/6]",
+                                    _ep_lines,
+                                    _ep_scroll,
+                                    _ep_sel,
+                                    status="complete",
+                                    width=w,
+                                    height=h,
+                                    actions=_ep_actions,
+                                    step=1,
+                                    total=6,
+                                    status_msg=_ep_status,
+                                )
+                            )
 
         # Skip the LLM call if we already have artifacts awaiting review
         # (resumed session or re-entering the loop after an edit request).
