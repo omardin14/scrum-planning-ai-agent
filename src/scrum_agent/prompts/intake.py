@@ -323,7 +323,7 @@ CONDITIONAL_ESSENTIALS: dict[int, int] = {
     7: 6,  # ask team roles        when team size is answered
     12: 11,  # ask integrations      when tech stack is answered
     13: 2,  # ask constraints       when project type is answered
-    29: 6,  # ask unplanned leave % when team size is answered
+    # Q29 (unplanned leave %) defaults to 10% — editable at confirmation screen
 }
 
 # Deterministic mapping from Q2 (project type) → Q15 (existing codebase?).

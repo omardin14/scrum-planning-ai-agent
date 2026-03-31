@@ -2403,9 +2403,10 @@ class TestFindEssentialGaps:
         qs.answers = {2: "Greenfield", 6: "3"}
         gaps = _find_essential_gaps(qs, SMART_ESSENTIALS)
         # SMART_ESSENTIALS = {2, 3, 4, 6, 10, 11, 27}; answered: 2, 6
-        # Conditional: Q6 answered → Q7, Q29 promoted; Q2 answered → Q13 promoted
-        # → gaps: 3, 4, 7, 10, 11, 13, 27, 29
-        assert gaps == [3, 4, 7, 10, 11, 13, 27, 29]
+        # Conditional: Q6 answered → Q7 promoted; Q2 answered → Q13 promoted
+        # Q29 no longer conditional — defaults to 10%, editable at confirmation
+        # → gaps: 3, 4, 7, 10, 11, 13, 27
+        assert gaps == [3, 4, 7, 10, 11, 13, 27]
 
     def test_no_gaps_when_all_answered(self):
         qs = QuestionnaireState()
@@ -3749,17 +3750,10 @@ class TestConditionalEssentials:
         gaps = _find_essential_gaps(qs, SMART_ESSENTIALS)
         assert 7 in gaps
 
-    def test_q29_promoted_when_q6_answered(self):
-        """Q29 (unplanned leave %) becomes a gap when Q6 (team size) is answered."""
+    def test_q29_not_promoted_in_smart_mode(self):
+        """Q29 (unplanned leave %) no longer promoted — defaults to 10%."""
         qs = QuestionnaireState()
         qs.answers = {6: "5"}
-        gaps = _find_essential_gaps(qs, SMART_ESSENTIALS)
-        assert 29 in gaps
-
-    def test_q29_not_promoted_when_q6_defaulted(self):
-        qs = QuestionnaireState()
-        qs.answers = {6: "3"}
-        qs.defaulted_questions.add(6)
         gaps = _find_essential_gaps(qs, SMART_ESSENTIALS)
         assert 29 not in gaps
 
@@ -3771,11 +3765,11 @@ class TestConditionalEssentials:
         assert 7 in gaps
         assert 12 in gaps
         assert 13 in gaps
-        assert 29 in gaps
+        assert 29 not in gaps  # Q29 no longer conditional
 
     def test_conditional_essentials_mapping_is_complete(self):
-        """Verify the mapping covers Q7→Q6, Q12→Q11, Q13→Q2, Q29→Q6."""
-        assert CONDITIONAL_ESSENTIALS == {7: 6, 12: 11, 13: 2, 29: 6}
+        """Verify the mapping covers Q7→Q6, Q12→Q11, Q13→Q2."""
+        assert CONDITIONAL_ESSENTIALS == {7: 6, 12: 11, 13: 2}
 
 
 class TestMultiChoiceMetadata:
