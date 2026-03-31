@@ -3540,88 +3540,89 @@ def project_intake(state: ScrumState) -> dict:
                 questionnaire.skipped_questions.discard(current_q)
                 questionnaire.answer_sources[current_q] = AnswerSource.DIRECT
 
-                # Q6 team member multi-select → recalculate velocity + auto-fill Q7
-                if current_q == 6 and getattr(questionnaire, "_q6_member_select", False):
-                    import re as _q6re
+            # Q6 team member multi-select → recalculate velocity + auto-fill Q7
+            # (runs after both pending and single-gap answer recording)
+            if current_q == 6 and getattr(questionnaire, "_q6_member_select", False):
+                import re as _q6re
 
-                    _sel_text = last_msg.content
-                    _sel_names = []
-                    _label_parts = _q6re.findall(r"([^;]+?\s*\([^)]+\))", _sel_text)
-                    if _label_parts:
-                        for lbl in _label_parts:
-                            name = lbl.strip().split(" (")[0].strip()
-                            if name:
-                                _sel_names.append(name)
-                    else:
-                        for part in _sel_text.split(","):
-                            name = part.strip().split(" (")[0].strip()
-                            if name:
-                                _sel_names.append(name)
+                _sel_text = last_msg.content
+                _sel_names = []
+                _label_parts = _q6re.findall(r"([^;]+?\s*\([^)]+\))", _sel_text)
+                if _label_parts:
+                    for lbl in _label_parts:
+                        name = lbl.strip().split(" (")[0].strip()
+                        if name:
+                            _sel_names.append(name)
+                else:
+                    for part in _sel_text.split(","):
+                        name = part.strip().split(" (")[0].strip()
+                        if name:
+                            _sel_names.append(name)
 
-                    if _sel_names:
-                        _names_str = ", ".join(_sel_names)
-                        questionnaire.answers[6] = f"{len(_sel_names)} ({_names_str})"
-                        logger.info("Q6 member select: %d members: %s", len(_sel_names), _names_str)
+                if _sel_names:
+                    _names_str = ", ".join(_sel_names)
+                    questionnaire.answers[6] = f"{len(_sel_names)} ({_names_str})"
+                    logger.info("Q6 member select: %d members: %s", len(_sel_names), _names_str)
 
-                        _ap_id = state.get("analysis_profile_id", "")
-                        if _ap_id:
-                            try:
-                                _, _ap_ex2 = _load_profile_by_id(_ap_id)
-                                if _ap_ex2:
-                                    _vel = _calculate_velocity_for_members(_sel_names, _ap_ex2)
-                                    if _vel > 0:
-                                        questionnaire.answers[9] = (
-                                            f"{_vel:.0f} points per sprint (from {len(_sel_names)} selected members)"
-                                        )
-                                        questionnaire.answer_sources[9] = AnswerSource.EXTRACTED
-                                        questionnaire.extracted_questions.add(9)
-                                        questionnaire.defaulted_questions.discard(9)
+                    _ap_id = state.get("analysis_profile_id", "")
+                    if _ap_id:
+                        try:
+                            _, _ap_ex2 = _load_profile_by_id(_ap_id)
+                            if _ap_ex2:
+                                _vel = _calculate_velocity_for_members(_sel_names, _ap_ex2)
+                                if _vel > 0:
+                                    questionnaire.answers[9] = (
+                                        f"{_vel:.0f} points per sprint (from {len(_sel_names)} selected members)"
+                                    )
+                                    questionnaire.answer_sources[9] = AnswerSource.EXTRACTED
+                                    questionnaire.extracted_questions.add(9)
+                                    questionnaire.defaulted_questions.discard(9)
 
-                                    # Auto-fill Q7 from selected members' disciplines
-                                    _contrib_list = _ap_ex2.get("contributor_stats", [])
-                                    _roles: dict[str, int] = {}
-                                    _lower_names = [n.lower() for n in _sel_names]
-                                    for c in _contrib_list:
-                                        if isinstance(c, dict) and c.get("name", "").lower() in _lower_names:
-                                            disc = c.get("top_discipline", "fullstack")
-                                            _dm = {
-                                                "backend": "Backend",
-                                                "frontend": "Frontend",
-                                                "fullstack": "Fullstack",
-                                                "infrastructure": "DevOps/Infra",
-                                                "devops": "DevOps/Infra",
-                                                "ci-cd": "DevOps/Infra",
-                                                "testing": "QA/Testing",
-                                                "security": "DevOps/Infra",
-                                                "data": "Data/ML",
-                                                "design": "Design",
-                                                "observability": "DevOps/Infra",
-                                                "platform": "DevOps/Infra",
-                                                "networking": "DevOps/Infra",
-                                                "database": "Backend",
-                                            }
-                                            role = _dm.get(disc, "Fullstack")
-                                            _roles[role] = _roles.get(role, 0) + 1
-                                    if _roles:
-                                        _rp = [
-                                            f"{c} {r}" if c > 1 else r
-                                            for r, c in sorted(_roles.items(), key=lambda x: -x[1])
-                                        ]
-                                        questionnaire.answers[7] = ", ".join(_rp)
-                                        questionnaire.answer_sources[7] = AnswerSource.EXTRACTED
-                                        questionnaire.extracted_questions.add(7)
-                                        questionnaire.defaulted_questions.discard(7)
-                                        logger.info("Q7 auto-filled: %s", questionnaire.answers[7])
-                            except Exception:
-                                pass
-                    questionnaire._q6_member_select = False
-                    questionnaire._follow_up_choices.pop(6, None)
+                                # Auto-fill Q7 from selected members' disciplines
+                                _contrib_list = _ap_ex2.get("contributor_stats", [])
+                                _roles: dict[str, int] = {}
+                                _lower_names = [n.lower() for n in _sel_names]
+                                for c in _contrib_list:
+                                    if isinstance(c, dict) and c.get("name", "").lower() in _lower_names:
+                                        disc = c.get("top_discipline", "fullstack")
+                                        _dm = {
+                                            "backend": "Backend",
+                                            "frontend": "Frontend",
+                                            "fullstack": "Fullstack",
+                                            "infrastructure": "DevOps/Infra",
+                                            "devops": "DevOps/Infra",
+                                            "ci-cd": "DevOps/Infra",
+                                            "testing": "QA/Testing",
+                                            "security": "DevOps/Infra",
+                                            "data": "Data/ML",
+                                            "design": "Design",
+                                            "observability": "DevOps/Infra",
+                                            "platform": "DevOps/Infra",
+                                            "networking": "DevOps/Infra",
+                                            "database": "Backend",
+                                        }
+                                        role = _dm.get(disc, "Fullstack")
+                                        _roles[role] = _roles.get(role, 0) + 1
+                                if _roles:
+                                    _rp = [
+                                        f"{c} {r}" if c > 1 else r
+                                        for r, c in sorted(_roles.items(), key=lambda x: -x[1])
+                                    ]
+                                    questionnaire.answers[7] = ", ".join(_rp)
+                                    questionnaire.answer_sources[7] = AnswerSource.EXTRACTED
+                                    questionnaire.extracted_questions.add(7)
+                                    questionnaire.defaulted_questions.discard(7)
+                                    logger.info("Q7 auto-filled: %s", questionnaire.answers[7])
+                        except Exception:
+                            pass
+                questionnaire._q6_member_select = False
+                questionnaire._follow_up_choices.pop(6, None)
 
-                if current_q == 17:
-                    _sync_platform_from_url(questionnaire)
-                    platform = questionnaire.answers.get(16, "")
-                    if platform:
-                        repo_confirm = f"*✓ {platform} repo detected — will be scanned during analysis.*\n\n"
+            if current_q == 17:
+                _sync_platform_from_url(questionnaire)
+                platform = questionnaire.answers.get(16, "")
+                if platform:
+                    repo_confirm = f"*✓ {platform} repo detected — will be scanned during analysis.*\n\n"
 
             # Q2 repo URL follow-up: when Q2 = "Existing codebase"/"Hybrid",
             # prompt for the repo URL inline as part of Q2. The answer is stored
