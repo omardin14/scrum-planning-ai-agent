@@ -170,17 +170,35 @@ def get_story_writer_prompt(
     Returns:
         The complete prompt string ready to send to the LLM.
     """
+    # Extract team's avg stories/epic from calibration text if available
+    import re as _re
+
     from scrum_agent.agent.state import DOD_ITEMS
     from scrum_agent.prompts.feature_generator import _build_review_section
 
-    task_instruction = (
-        f"Decompose each feature into {MIN_STORIES_PER_FEATURE}-{MAX_STORIES_PER_FEATURE} user stories. "
-        f"Return a JSON array matching this exact schema:\n\n"
-        f"```json\n{_build_json_schema(dod_items)}\n```\n\n"
-    )
-    count_rule = (
-        f"1. Produce {MIN_STORIES_PER_FEATURE}-{MAX_STORIES_PER_FEATURE} stories per feature — no fewer, no more.\n"
-    )
+    _avg_match = _re.search(r"avg\s+(\d+\.?\d*)\s+stories.epic", team_calibration, _re.IGNORECASE)
+    if _avg_match:
+        _team_avg = round(float(_avg_match.group(1)))
+        _team_min = max(1, _team_avg - 1)
+        _team_max = max(_team_avg + 1, 3)
+        task_instruction = (
+            f"Decompose each feature into approximately {_team_avg} user stories "
+            f"(range {_team_min}-{_team_max}, matching the team's historical average). "
+            f"Consolidate related work into fewer, meatier stories rather than creating many thin ones. "
+            f"Return a JSON array matching this exact schema:\n\n"
+            f"```json\n{_build_json_schema(dod_items)}\n```\n\n"
+        )
+        count_rule = (
+            f"1. Aim for ~{_team_avg} stories per feature (team avg is {_team_avg}). "
+            f"Range: {_team_min}-{_team_max}. Prefer fewer consolidated stories over many small ones.\n"
+        )
+    else:
+        task_instruction = (
+            f"Decompose each feature into {MIN_STORIES_PER_FEATURE}-{MAX_STORIES_PER_FEATURE} user stories. "
+            f"Return a JSON array matching this exact schema:\n\n"
+            f"```json\n{_build_json_schema(dod_items)}\n```\n\n"
+        )
+        count_rule = f"1. Produce {MIN_STORIES_PER_FEATURE}-{MAX_STORIES_PER_FEATURE} stories per feature.\n"
     id_rule = "2. Use sequential IDs per feature: US-F1-001, US-F1-002, US-F2-001, etc.\n"
 
     base = (
