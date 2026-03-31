@@ -439,6 +439,10 @@ class QuestionnaireState:
     # Used to cap the "increase team" recommendation so we never suggest more
     # engineers than exist on the board. Set even when velocity is zero.
     _jira_org_team_size: int | None = None
+    # Transient: True when Q6 is set up as a team member multi-select
+    # (from analysis contributor_stats). When set, Q6 answer is parsed
+    # as comma-separated member names and velocity is recalculated.
+    _q6_member_select: bool = False
     # Transient: tracks which question numbers were auto-populated from SCRUM.md
     # content (as opposed to the user's typed description). Used for provenance
     # markers in the intake preamble ("N from SCRUM.md").
@@ -536,6 +540,11 @@ class ScrumState(_RequiredState, total=False):
     # Custom DoD items from team analysis — overrides DOD_ITEMS when set.
     # Empty tuple means use the default 7 items.
     custom_dod_items: tuple[str, ...]
+
+    # Selected team members from analysis profile (names from contributor_stats).
+    # When set, velocity is calculated from these specific members' per_sprint values.
+    # Empty tuple = no specific members selected (use total team velocity).
+    selected_team_members: tuple[str, ...]
 
     # Team / planning knobs
     team_size: int

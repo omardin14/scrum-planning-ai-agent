@@ -281,7 +281,7 @@ class TestExtractAnswersFromProfile:
         from scrum_agent.agent.nodes import _extract_answers_from_profile
 
         p = type("P", (), {"velocity_avg": 0})()
-        examples = {"contributor_stats": {"alice": {}, "bob": {}, "charlie": {}}}
+        examples = {"contributor_stats": [{"name": "alice"}, {"name": "bob"}, {"name": "charlie"}]}
         answers = _extract_answers_from_profile(p, examples)
         assert 6 in answers
         assert answers[6] == "3"

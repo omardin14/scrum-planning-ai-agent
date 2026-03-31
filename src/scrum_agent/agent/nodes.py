@@ -1714,8 +1714,8 @@ def _extract_answers_from_profile(profile, examples: dict | None = None) -> dict
     _ex = examples or {}
 
     # Q6: Team size — from contributor stats
-    contrib = _ex.get("contributor_stats", {})
-    if isinstance(contrib, dict) and contrib:
+    contrib = _ex.get("contributor_stats", [])
+    if isinstance(contrib, list) and contrib:
         answers[6] = str(len(contrib))
         logger.info("Analysis auto-fill: Q6 (team size) = %s from %d contributors", answers[6], len(contrib))
 
@@ -1743,13 +1743,50 @@ def _extract_answers_from_profile(profile, examples: dict | None = None) -> dict
         except Exception:
             pass
 
-    # Q9: Velocity — direct from profile
+    # Q9: Velocity — use total team velocity as default suggestion
+    # (will be recalculated when specific team members are selected in Q6)
     vel = getattr(profile, "velocity_avg", 0.0)
     if vel > 0:
         answers[9] = f"{vel:.0f} points per sprint (from team analysis)"
         logger.info("Analysis auto-fill: Q9 (velocity) = %.0f pts/sprint", vel)
 
     return answers
+
+
+def _get_contributor_names(examples: dict | None) -> list[str]:
+    """Extract contributor names from analysis examples for Q6 multi-select."""
+    if not examples:
+        return []
+    contrib = examples.get("contributor_stats", [])
+    if isinstance(contrib, list):
+        return [c.get("name", "") for c in contrib if c.get("name")]
+    return []
+
+
+def _calculate_velocity_for_members(member_names: list[str], examples: dict | None) -> float:
+    """Calculate combined velocity from selected team members' per_sprint values."""
+    if not examples or not member_names:
+        return 0.0
+    contrib = examples.get("contributor_stats", [])
+    if not isinstance(contrib, list):
+        return 0.0
+    total = 0.0
+    matched = 0
+    for c in contrib:
+        name = c.get("name", "")
+        per_sprint = c.get("per_sprint", 0.0)
+        if name and per_sprint > 0:
+            # Match by exact name or case-insensitive
+            if any(name.lower() == m.lower() for m in member_names):
+                total += per_sprint
+                matched += 1
+    logger.info(
+        "Velocity from %d/%d selected members: %.1f pts/sprint",
+        matched,
+        len(member_names),
+        total,
+    )
+    return total
 
 
 def _extract_confluence_page_ids(text: str) -> list[str]:
@@ -3146,6 +3183,26 @@ def project_intake(state: ScrumState) -> dict:
                     sorted(_analysis_answers.keys()),
                 )
 
+                # Set up Q6 as team member multi-select when contributor data exists
+                _member_names = _get_contributor_names(_ap_ex)
+                if _member_names and len(_member_names) >= 2:
+                    # Build member labels with velocity info
+                    _member_labels = []
+                    _contrib_list = _ap_ex.get("contributor_stats", [])
+                    for c in _contrib_list:
+                        name = c.get("name", "")
+                        ps = c.get("per_sprint", 0)
+                        disc = c.get("top_discipline", "")
+                        if name:
+                            label = f"{name} ({ps:.1f} pts/sprint, {disc})" if ps > 0 else name
+                            _member_labels.append(label)
+                    if _member_labels:
+                        qs._follow_up_choices[6] = tuple(_member_labels)
+                        qs._q6_member_select = True  # flag for velocity recalc
+                        # Don't auto-fill Q6 — let user select members
+                        extracted.pop(6, None)
+                        logger.info("Q6 set up as team member multi-select: %d members", len(_member_labels))
+
         # ── Smart / quick mode first-invocation ──────────────────────
         # See README: "Project Intake Questionnaire" — smart intake
         #
@@ -4129,6 +4186,41 @@ def project_intake(state: ScrumState) -> dict:
         # First answer to this question — record it and check vagueness.
         questionnaire.answers[current_q] = last_msg.content
         questionnaire.answer_sources[current_q] = AnswerSource.DIRECT
+
+        # Q6 team member multi-select → recalculate velocity from selected members
+        if current_q == 6 and getattr(questionnaire, "_q6_member_select", False):
+            _selected_text = last_msg.content
+            # Parse member names — strip the velocity/discipline suffix from labels
+            _selected_names = []
+            for part in _selected_text.split(","):
+                name = part.strip().split(" (")[0].strip()
+                if name:
+                    _selected_names.append(name)
+            if _selected_names:
+                questionnaire.answers[6] = str(len(_selected_names))
+                # Calculate velocity from selected members
+                _ap_id = state.get("analysis_profile_id", "")
+                if _ap_id:
+                    try:
+                        _, _ap_ex2 = _load_profile_by_id(_ap_id)
+                        if _ap_ex2:
+                            _vel = _calculate_velocity_for_members(_selected_names, _ap_ex2)
+                            if _vel > 0:
+                                questionnaire.answers[9] = (
+                                    f"{_vel:.0f} points per sprint (from {len(_selected_names)} selected members)"
+                                )
+                                questionnaire.answer_sources[9] = AnswerSource.EXTRACTED
+                                questionnaire.extracted_questions.add(9)
+                                logger.info(
+                                    "Q6 member select: %d members, velocity=%.0f",
+                                    len(_selected_names),
+                                    _vel,
+                                )
+                    except Exception:
+                        pass
+            questionnaire._q6_member_select = False
+            questionnaire._follow_up_choices.pop(6, None)
+
         if current_q == 17:
             _sync_platform_from_url(questionnaire)
             platform = questionnaire.answers.get(16, "")
