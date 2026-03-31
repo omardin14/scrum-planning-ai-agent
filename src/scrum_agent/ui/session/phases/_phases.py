@@ -516,6 +516,109 @@ def _phase_pipeline(
                         _, _ep_examples = _load_profile_by_id(_ep_profile_id)
                     except Exception:
                         pass
+
+                # If analysis profile is active, reformat the epic using
+                # team conventions (naming, template sections, sizing)
+                if _ep_profile_id and _ep_examples and not dry_run:
+                    try:
+                        from scrum_agent.agent.nodes import _format_team_calibration, _load_team_profile
+
+                        _ep_tp = _load_team_profile(_ep_profile_id)
+                        _cal_text = _format_team_calibration(_ep_tp, examples=_ep_examples) if _ep_tp else ""
+                        if _cal_text:
+                            # Show loading screen while LLM reformats
+                            import threading
+
+                            from scrum_agent.ui.session.screens._screens_pipeline import _build_pipeline_screen
+
+                            _epic_result = [None]
+
+                            def _reformat_epic():
+                                try:
+                                    from scrum_agent.tools.team_learning import _llm_invoke
+
+                                    _proj_name = getattr(_ep_analysis, "project_name", "")
+                                    _proj_desc = getattr(_ep_analysis, "project_description", "")
+                                    _naming = _ep_examples.get("naming_conventions", {})
+                                    _sections = (
+                                        _naming.get("template_sections", []) if isinstance(_naming, dict) else []
+                                    )
+                                    _sec_names = [
+                                        s[0] if isinstance(s, (list, tuple)) else str(s) for s in _sections[:5]
+                                    ]
+
+                                    _prompt = (
+                                        f"Reformat this project epic to match the team's style.\n\n"
+                                        f"Project: {_proj_name}\n"
+                                        f"Description: {_proj_desc}\n\n"
+                                        f"{_cal_text}\n\n"
+                                        f"Requirements:\n"
+                                        f"1. Use the team's naming convention for the title\n"
+                                    )
+                                    if _sec_names:
+                                        _prompt += (
+                                            f"2. Structure the description with these sections: "
+                                            f"{', '.join(_sec_names)}\n"
+                                        )
+                                    _prompt += (
+                                        "3. Keep the project scope — don't change what the epic is about\n"
+                                        "4. Match the team's writing style and level of detail\n\n"
+                                        "Return ONLY a JSON object:\n"
+                                        '{"title": "...", "description": "...", "stories_estimate": N, '
+                                        '"points_estimate": N, "rationale": "..."}'
+                                    )
+                                    resp = _llm_invoke(_prompt, temperature=0.2)
+                                    import json
+                                    import re
+
+                                    text = resp.content if hasattr(resp, "content") else str(resp)
+                                    text = text.strip()
+                                    if text.startswith("```"):
+                                        text = re.sub(r"^```\w*\n?", "", text)
+                                        text = re.sub(r"\n?```$", "", text)
+                                    _epic_result[0] = json.loads(text)
+                                except Exception as exc:
+                                    logger.warning("Epic reformat failed: %s", exc)
+
+                            _t = threading.Thread(target=_reformat_epic, daemon=True)
+                            _t.start()
+                            _anim_start = time.monotonic()
+                            while _t.is_alive():
+                                _tick = time.monotonic() - _anim_start
+                                w, h = console.size
+                                live.update(
+                                    _build_pipeline_screen(
+                                        "Formatting epic",
+                                        "[2/6]",
+                                        [],
+                                        0,
+                                        0,
+                                        status="processing",
+                                        width=w,
+                                        height=h,
+                                        tick=_tick,
+                                        step=1,
+                                        total=6,
+                                    )
+                                )
+                                time.sleep(1 / 30)
+                            _t.join()
+
+                            if _epic_result[0] and isinstance(_epic_result[0], dict):
+                                _new_epic = _epic_result[0]
+                                from dataclasses import fields as _dc_f
+
+                                _pa_kw = {f.name: getattr(_ep_analysis, f.name) for f in _dc_f(_ep_analysis)}
+                                _new_title = _new_epic.get("title", _pa_kw["project_name"])
+                                _new_desc = _new_epic.get("description", _pa_kw["project_description"])
+                                _pa_kw["project_name"] = _new_title
+                                _pa_kw["project_description"] = _new_desc
+                                graph_state["project_analysis"] = type(_ep_analysis)(**_pa_kw)
+                                _ep_analysis = graph_state["project_analysis"]
+                                logger.info("Epic reformatted to team style: %s", _new_title)
+                    except Exception:
+                        logger.debug("Epic reformat skipped", exc_info=True)
+
                 _ep_renderable = _render_tui_epic(_ep_analysis, render_w=_rw, examples=_ep_examples)
                 if _ep_profile_id:
                     from rich.console import Group as _EpGroup
