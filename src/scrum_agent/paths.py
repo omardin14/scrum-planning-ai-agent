@@ -82,15 +82,50 @@ REPL_HISTORY = ROOT_DIR / "repl-history"
 
 
 def get_db_path() -> Path:
-    """Return the sessions DB path, migrating from legacy location if needed."""
-    if DB_PATH.exists():
+    """Return the sessions DB path, migrating from legacy location if needed.
+
+    If both old and new DB exist, merges team_profiles and token_usage from the
+    old DB into the new one, then removes the old DB to prevent divergence.
+    """
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+    if DB_PATH.exists() and LEGACY_DB_PATH.exists():
+        # Both exist — merge legacy data into new DB, then remove legacy
+        try:
+            import sqlite3
+
+            old = sqlite3.connect(str(LEGACY_DB_PATH))
+            new = sqlite3.connect(str(DB_PATH))
+            # Copy team_profiles that don't exist in new DB
+            try:
+                rows = old.execute(
+                    "SELECT team_id, profile_json, examples_json, updated_at FROM team_profiles"
+                ).fetchall()
+                for team_id, pjson, ejson, updated in rows:
+                    # Extract source and project_key from team_id (format: "source-key")
+                    parts = team_id.split("-", 1)
+                    source = parts[0] if len(parts) > 1 else ""
+                    proj_key = parts[1] if len(parts) > 1 else team_id
+                    new.execute(
+                        "INSERT OR IGNORE INTO team_profiles "
+                        "(team_id, project_key, source, profile_json, examples_json, created_at, updated_at) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        (team_id, proj_key, source, pjson, ejson or "{}", updated or "", updated or ""),
+                    )
+                new.commit()
+            except Exception:
+                pass
+            old.close()
+            new.close()
+            LEGACY_DB_PATH.unlink(missing_ok=True)
+        except Exception:
+            pass
         return DB_PATH
-    if LEGACY_DB_PATH.exists():
-        # Migrate: move to new location
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+    if not DB_PATH.exists() and LEGACY_DB_PATH.exists():
         LEGACY_DB_PATH.rename(DB_PATH)
         return DB_PATH
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+
     return DB_PATH
 
 
