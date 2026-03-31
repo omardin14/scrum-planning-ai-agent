@@ -3451,6 +3451,12 @@ def project_intake(state: ScrumState) -> dict:
     # The last message in state is always the HumanMessage with the user's reply.
     last_msg = state["messages"][-1]
     current_q = questionnaire.current_question
+    logger.info(
+        "Intake subsequent: current_q=%s, _q6_member=%s, msg=%.60s",
+        current_q,
+        getattr(questionnaire, "_q6_member_select", "N/A"),
+        last_msg.content if hasattr(last_msg, "content") else "?",
+    )
 
     # ── Edit re-ask handler ──────────────────────────────────────────
     # See README: "Project Intake Questionnaire" — edit flow
