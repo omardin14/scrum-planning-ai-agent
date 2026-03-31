@@ -3544,16 +3544,24 @@ def project_intake(state: ScrumState) -> dict:
             # (runs after both pending and single-gap answer recording)
             if current_q == 6 and getattr(questionnaire, "_q6_member_select", False):
                 _sel_text = last_msg.content
-                # Parse "Name (info), Name (info)" — split on "), " boundary
+                # Parse member names — handle both "; " and ", " separators
+                # Labels look like "Name (X pts/sprint, discipline)"
+                # Split on "; " first (multi-select default), then try ", " between labels
                 _sel_names = []
-                _parts = (_sel_text.rstrip(")") + ")").split("), ")
-                for _p in _parts:
-                    _p = _p.strip().rstrip(")")
-                    if not _p:
-                        continue
-                    name = _p.split(" (")[0].strip()
-                    if name:
-                        _sel_names.append(name)
+                if "; " in _sel_text:
+                    for _p in _sel_text.split("; "):
+                        name = _p.strip().split(" (")[0].strip()
+                        if name:
+                            _sel_names.append(name)
+                else:
+                    # Separator is ", " — use regex to find "Name (info)" patterns
+                    import re as _q6re
+
+                    _labels = _q6re.findall(r"([A-Za-z][^(]*?)\s*\([^)]+\)", _sel_text)
+                    _sel_names = [lbl.strip() for lbl in _labels if lbl.strip()]
+                    if not _sel_names:
+                        # No parentheses — plain comma-separated names
+                        _sel_names = [p.strip() for p in _sel_text.split(",") if p.strip()]
                 # Deduplicate preserving order
                 _seen: set[str] = set()
                 _unique: list[str] = []
