@@ -529,8 +529,6 @@ def _phase_pipeline(
                             # Show loading screen while LLM reformats
                             import threading
 
-                            from scrum_agent.ui.session.screens._screens_pipeline import _build_pipeline_screen
-
                             _epic_result = [None]
 
                             def _reformat_epic():
