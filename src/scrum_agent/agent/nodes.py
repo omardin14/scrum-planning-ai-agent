@@ -3543,21 +3543,25 @@ def project_intake(state: ScrumState) -> dict:
             # Q6 team member multi-select → recalculate velocity + auto-fill Q7
             # (runs after both pending and single-gap answer recording)
             if current_q == 6 and getattr(questionnaire, "_q6_member_select", False):
-                import re as _q6re
-
                 _sel_text = last_msg.content
+                # Parse "Name (info), Name (info)" — split on "), " boundary
                 _sel_names = []
-                _label_parts = _q6re.findall(r"([^;]+?\s*\([^)]+\))", _sel_text)
-                if _label_parts:
-                    for lbl in _label_parts:
-                        name = lbl.strip().split(" (")[0].strip()
-                        if name:
-                            _sel_names.append(name)
-                else:
-                    for part in _sel_text.split(","):
-                        name = part.strip().split(" (")[0].strip()
-                        if name:
-                            _sel_names.append(name)
+                _parts = (_sel_text.rstrip(")") + ")").split("), ")
+                for _p in _parts:
+                    _p = _p.strip().rstrip(")")
+                    if not _p:
+                        continue
+                    name = _p.split(" (")[0].strip()
+                    if name:
+                        _sel_names.append(name)
+                # Deduplicate preserving order
+                _seen: set[str] = set()
+                _unique: list[str] = []
+                for _n in _sel_names:
+                    if _n.lower() not in _seen:
+                        _seen.add(_n.lower())
+                        _unique.append(_n)
+                _sel_names = _unique
 
                 if _sel_names:
                     _names_str = ", ".join(_sel_names)
