@@ -3347,6 +3347,13 @@ def project_intake(state: ScrumState) -> dict:
             # once Q10 has its final answer — not here where Q10 may still be
             # the default "6 sprints").
             gaps = _find_essential_gaps(qs, essential_set)
+            logger.info(
+                "Essential gaps: %s (essentials=%s, Q27 in answers=%s, Q27 in defaults=%s)",
+                gaps,
+                sorted(essential_set),
+                27 in qs.answers,
+                27 in qs.defaulted_questions,
+            )
 
             # Build extraction summary for the preamble
             num_from_desc = len(qs.extracted_questions - qs._scrum_md_questions)
