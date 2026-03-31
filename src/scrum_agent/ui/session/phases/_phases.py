@@ -653,7 +653,10 @@ def _phase_pipeline(
                         )
                     )
                     key = _key()
-                    if key in ("up", "scroll_up"):
+                    if key in ("esc", "q"):
+                        logger.info("Epic review: user pressed Esc — exiting planning")
+                        return graph_state
+                    elif key in ("up", "scroll_up"):
                         _ep_scroll = max(0, _ep_scroll - 1)
                     elif key in ("down", "scroll_down"):
                         _ep_scroll += 1
