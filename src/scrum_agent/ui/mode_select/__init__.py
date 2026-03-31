@@ -95,7 +95,7 @@ def _load_ana_session(project_key: str) -> dict | None:
             for sess in sessions:
                 if project_key in sess.get("project_name", ""):
                     state = store.load_state(sess["session_id"])
-                    if state and state.get("last_page") and state["last_page"] != "complete":
+                    if state and state.get("last_page") and state["last_page"] not in ("complete", "done", ""):
                         global _ana_sid  # noqa: PLW0603
                         _ana_sid = sess["session_id"]
                         logger.info(
@@ -1344,7 +1344,7 @@ def select_mode(
                                     "ORDER BY last_modified DESC LIMIT 1",
                                     (f"%{_rp.project_key}%",),
                                 ).fetchone()
-                                if _a_sessions and _a_sessions[0] == "complete":
+                                if _a_sessions and _a_sessions[0] in ("complete", "done"):
                                     _is_complete = True
                             except Exception:
                                 pass
@@ -1613,6 +1613,9 @@ def select_mode(
                                                     examples=_stored_ex,
                                                 )
                                                 if _si_text.strip():
+                                                    _si_resume = _load_ana_session(
+                                                        _full.project_key if _full else "",
+                                                    )
                                                     _run_preview_flow(
                                                         live,
                                                         console,
@@ -1622,6 +1625,7 @@ def select_mode(
                                                         _si_text,
                                                         _full,
                                                         _stored_ex,
+                                                        resume_state=_si_resume,
                                                     )
                                                 break
                                             if _esel == 0:
@@ -2025,6 +2029,9 @@ def select_mode(
                                             examples=_ta_examples,
                                         )
                                         if _instr_text.strip():
+                                            _ta_resume = _load_ana_session(
+                                                _ta_profile.project_key if _ta_profile else "",
+                                            )
                                             _run_preview_flow(
                                                 live,
                                                 console,
@@ -2034,6 +2041,7 @@ def select_mode(
                                                 _instr_text,
                                                 _ta_profile,
                                                 _ta_examples,
+                                                resume_state=_ta_resume,
                                             )
                                         break
                                     if _ta_export_sel == 0:
