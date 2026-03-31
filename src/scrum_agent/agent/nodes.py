@@ -4197,6 +4197,12 @@ def project_intake(state: ScrumState) -> dict:
         questionnaire.answer_sources[current_q] = AnswerSource.DIRECT
 
         # Q6 team member multi-select → recalculate velocity from selected members
+        logger.info(
+            "Q6 check: current_q=%s, _q6_member_select=%s, answer=%s",
+            current_q,
+            getattr(questionnaire, "_q6_member_select", "MISSING"),
+            last_msg.content[:80],
+        )
         if current_q == 6 and getattr(questionnaire, "_q6_member_select", False):
             _selected_text = last_msg.content
             logger.info("Q6 member select raw answer: %s", _selected_text[:200])
