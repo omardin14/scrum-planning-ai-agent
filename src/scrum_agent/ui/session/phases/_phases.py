@@ -509,22 +509,37 @@ def _phase_pipeline(
                 _rw = max(40, console.size[0] - 20)
                 _ep_profile_id = graph_state.get("analysis_profile_id", "")
                 _ep_examples = None
-                if _ep_profile_id:
-                    try:
-                        from scrum_agent.agent.nodes import _load_profile_by_id
+                _ep_profile = None
 
-                        _, _ep_examples = _load_profile_by_id(_ep_profile_id)
-                    except Exception:
-                        pass
+                # Try to load profile — from explicit selection or auto-detect
+                try:
+                    from scrum_agent.agent.nodes import _load_profile_by_id, _load_team_examples, _load_team_profile
+
+                    if _ep_profile_id:
+                        _ep_profile, _ep_examples = _load_profile_by_id(_ep_profile_id)
+                    else:
+                        # Auto-detect from configured trackers (for resumed sessions)
+                        _ep_profile = _load_team_profile()
+                        _ep_examples = _load_team_examples()
+                        if _ep_profile:
+                            _ep_profile_id = getattr(_ep_profile, "team_id", "")
+                            logger.info("Epic review: auto-detected profile %s", _ep_profile_id)
+                except Exception:
+                    pass
 
                 # If analysis profile is active, reformat the epic using
                 # team conventions (naming, template sections, sizing)
-                if _ep_profile_id and _ep_examples and not dry_run:
+                logger.info(
+                    "Epic review: profile=%s, has_examples=%s, dry_run=%s",
+                    _ep_profile_id or "(none)",
+                    bool(_ep_examples),
+                    dry_run,
+                )
+                if _ep_profile and _ep_examples and not dry_run:
                     try:
-                        from scrum_agent.agent.nodes import _format_team_calibration, _load_team_profile
+                        from scrum_agent.agent.nodes import _format_team_calibration
 
-                        _ep_tp = _load_team_profile(_ep_profile_id)
-                        _cal_text = _format_team_calibration(_ep_tp, examples=_ep_examples) if _ep_tp else ""
+                        _cal_text = _format_team_calibration(_ep_profile, examples=_ep_examples)
                         if _cal_text:
                             # Show loading screen while LLM reformats
                             import threading
