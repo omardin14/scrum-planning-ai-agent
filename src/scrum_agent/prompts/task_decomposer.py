@@ -87,6 +87,42 @@ def get_task_decomposer_prompt(
     if doc_context:
         doc_context_section = f"\n### Documentation References\n{doc_context}\n"
 
+    # Extract team task patterns from calibration text
+    import re as _re
+
+    _avg_tasks_match = _re.search(r"[Aa]vg\s+(\d+\.?\d*)\s+tasks.(?:per.)?story", team_calibration)
+    if _avg_tasks_match:
+        _team_avg_tasks = round(float(_avg_tasks_match.group(1)))
+        _t_min = max(2, _team_avg_tasks - 1)
+        _t_max = max(_team_avg_tasks + 1, 3)
+        _task_count_instruction = (
+            f"Break each user story into approximately {_team_avg_tasks} tasks "
+            f"(range {_t_min}-{_t_max}, matching the team's historical average)."
+        )
+        _task_count_rule = f"1. Aim for ~{_team_avg_tasks} tasks per story (team avg). Range: {_t_min}-{_t_max}.\n"
+    else:
+        _task_count_instruction = (
+            f"Break each user story into {MIN_TASKS_PER_STORY}-{MAX_TASKS_PER_STORY} concrete implementation tasks."
+        )
+        _task_count_rule = f"1. Produce {MIN_TASKS_PER_STORY}-{MAX_TASKS_PER_STORY} tasks per story.\n"
+
+    # Extract type distribution to match team patterns
+    _dist_match = _re.search(
+        r"(?:Type distribution|Development)\s+(\d+)%.*?Testing\s+(\d+)%",
+        team_calibration,
+    )
+    _dist_rule = ""
+    if _dist_match:
+        _dev_pct = _dist_match.group(1)
+        _test_pct = _dist_match.group(2)
+        _deploy_match = _re.search(r"Deploy\s+(\d+)%", team_calibration)
+        _deploy_pct = _deploy_match.group(1) if _deploy_match else "0"
+        _dist_rule = (
+            f"   Match the team's task type distribution: ~{_dev_pct}% Code, "
+            f"~{_test_pct}% Testing, ~{_deploy_pct}% Infrastructure/Deploy. "
+            "Include Testing and Documentation tasks — not just Code.\n"
+        )
+
     base = (
         "You are a Senior Technical Lead with expertise in task decomposition.\n\n"
         "## Project Context\n\n"
@@ -98,11 +134,12 @@ def get_task_decomposer_prompt(
         + "## Stories to Decompose\n\n"
         f"{stories_block}\n\n"
         "## Task\n\n"
-        f"Break each user story into {MIN_TASKS_PER_STORY}-{MAX_TASKS_PER_STORY} concrete implementation tasks. "
+        f"{_task_count_instruction} "
         "Return a JSON array matching this exact schema:\n\n"
         f"```json\n{_JSON_SCHEMA}\n```\n\n"
         "## Rules\n\n"
-        f"1. Produce {MIN_TASKS_PER_STORY}-{MAX_TASKS_PER_STORY} tasks per story — no fewer, no more.\n"
+        f"{_task_count_rule}"
+        f"{_dist_rule}"
         "2. Use sequential IDs per story: T-US-E1-001-01, T-US-E1-001-02, etc.\n"
         '3. Task titles must be imperative (verb-first: "Create...", "Implement...", "Configure...").\n'
         "4. Descriptions should reference concrete technical artifacts "
