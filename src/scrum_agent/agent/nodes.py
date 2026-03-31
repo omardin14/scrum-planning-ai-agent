@@ -3637,7 +3637,9 @@ def project_intake(state: ScrumState) -> dict:
             _pref_trk = questionnaire._preferred_tracker
             _use_jira = _pref_trk == "jira" or (not _pref_trk and _is_jira_configured())
             _trk_label = "Jira" if _use_jira else "Azure DevOps"
+            logger.info("Q27: fetching active sprint from %s (preferred=%s)", _trk_label, _pref_trk)
             active_num, active_start, jira_status = _fetch_active_sprint_number(_pref_trk)
+            logger.info("Q27: active_num=%s, active_start=%s, status=%s", active_num, active_start, jira_status)
             if active_num is not None:
                 questionnaire._active_sprint_number = active_num
                 questionnaire._active_sprint_start_date = active_start
