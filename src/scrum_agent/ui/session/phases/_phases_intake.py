@@ -265,9 +265,15 @@ def _phase_intake_questions(
             follow_up_choices = qs._follow_up_choices.get(cur_q)
             if follow_up_choices and not in_pto_subloop:
                 choices = [(opt, False) for opt in follow_up_choices]
-                # Tracker choice (Q1 with _awaiting_tracker_choice) is single-select;
-                # all other follow-up choices are multi-select (toggle with space).
-                is_multi_select = not getattr(qs, "_awaiting_tracker_choice", False)
+                # Tracker choice and sprint selection are single-select;
+                # team member selection (Q6) is multi-select.
+                _single_select_qs = {27}  # Q27 sprint selection = pick one
+                if getattr(qs, "_awaiting_tracker_choice", False):
+                    is_multi_select = False
+                elif cur_q in _single_select_qs:
+                    is_multi_select = False
+                else:
+                    is_multi_select = True
 
         # If no question text from AI, use a generic prompt
         if not question_text:
