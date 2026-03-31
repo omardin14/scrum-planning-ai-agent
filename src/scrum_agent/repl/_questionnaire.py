@@ -245,6 +245,12 @@ def _resolve_dynamic_choice(user_input: str, choices: tuple[str, ...]) -> str:
     except ValueError:
         pass
 
+    # If input already contains full labels (has parentheses with info),
+    # it's from the multi-select TUI — return as-is, don't re-resolve
+    if "(" in user_input and "pts/sprint" in user_input:
+        logger.debug("_resolve_dynamic_choice: multi-select labels detected, returning as-is")
+        return user_input
+
     # Multiple numbers: "1 and 3", "1, 2, 4", "1,3", "1 3"
     nums = _re.findall(r"\d+", user_input)
     if len(nums) >= 2:
