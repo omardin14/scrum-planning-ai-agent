@@ -3539,6 +3539,84 @@ def project_intake(state: ScrumState) -> dict:
                 questionnaire.defaulted_questions.discard(current_q)
                 questionnaire.skipped_questions.discard(current_q)
                 questionnaire.answer_sources[current_q] = AnswerSource.DIRECT
+
+                # Q6 team member multi-select → recalculate velocity + auto-fill Q7
+                if current_q == 6 and getattr(questionnaire, "_q6_member_select", False):
+                    import re as _q6re
+
+                    _sel_text = last_msg.content
+                    _sel_names = []
+                    _label_parts = _q6re.findall(r"([^;]+?\s*\([^)]+\))", _sel_text)
+                    if _label_parts:
+                        for lbl in _label_parts:
+                            name = lbl.strip().split(" (")[0].strip()
+                            if name:
+                                _sel_names.append(name)
+                    else:
+                        for part in _sel_text.split(","):
+                            name = part.strip().split(" (")[0].strip()
+                            if name:
+                                _sel_names.append(name)
+
+                    if _sel_names:
+                        _names_str = ", ".join(_sel_names)
+                        questionnaire.answers[6] = f"{len(_sel_names)} ({_names_str})"
+                        logger.info("Q6 member select: %d members: %s", len(_sel_names), _names_str)
+
+                        _ap_id = state.get("analysis_profile_id", "")
+                        if _ap_id:
+                            try:
+                                _, _ap_ex2 = _load_profile_by_id(_ap_id)
+                                if _ap_ex2:
+                                    _vel = _calculate_velocity_for_members(_sel_names, _ap_ex2)
+                                    if _vel > 0:
+                                        questionnaire.answers[9] = (
+                                            f"{_vel:.0f} points per sprint (from {len(_sel_names)} selected members)"
+                                        )
+                                        questionnaire.answer_sources[9] = AnswerSource.EXTRACTED
+                                        questionnaire.extracted_questions.add(9)
+                                        questionnaire.defaulted_questions.discard(9)
+
+                                    # Auto-fill Q7 from selected members' disciplines
+                                    _contrib_list = _ap_ex2.get("contributor_stats", [])
+                                    _roles: dict[str, int] = {}
+                                    _lower_names = [n.lower() for n in _sel_names]
+                                    for c in _contrib_list:
+                                        if isinstance(c, dict) and c.get("name", "").lower() in _lower_names:
+                                            disc = c.get("top_discipline", "fullstack")
+                                            _dm = {
+                                                "backend": "Backend",
+                                                "frontend": "Frontend",
+                                                "fullstack": "Fullstack",
+                                                "infrastructure": "DevOps/Infra",
+                                                "devops": "DevOps/Infra",
+                                                "ci-cd": "DevOps/Infra",
+                                                "testing": "QA/Testing",
+                                                "security": "DevOps/Infra",
+                                                "data": "Data/ML",
+                                                "design": "Design",
+                                                "observability": "DevOps/Infra",
+                                                "platform": "DevOps/Infra",
+                                                "networking": "DevOps/Infra",
+                                                "database": "Backend",
+                                            }
+                                            role = _dm.get(disc, "Fullstack")
+                                            _roles[role] = _roles.get(role, 0) + 1
+                                    if _roles:
+                                        _rp = [
+                                            f"{c} {r}" if c > 1 else r
+                                            for r, c in sorted(_roles.items(), key=lambda x: -x[1])
+                                        ]
+                                        questionnaire.answers[7] = ", ".join(_rp)
+                                        questionnaire.answer_sources[7] = AnswerSource.EXTRACTED
+                                        questionnaire.extracted_questions.add(7)
+                                        questionnaire.defaulted_questions.discard(7)
+                                        logger.info("Q7 auto-filled: %s", questionnaire.answers[7])
+                            except Exception:
+                                pass
+                    questionnaire._q6_member_select = False
+                    questionnaire._follow_up_choices.pop(6, None)
+
                 if current_q == 17:
                     _sync_platform_from_url(questionnaire)
                     platform = questionnaire.answers.get(16, "")
@@ -3660,16 +3738,50 @@ def project_intake(state: ScrumState) -> dict:
                     f"Which sprint are you planning for?"
                 )
             else:
-                # Couldn't fetch sprint — tell the user why, then fall back
+                # Couldn't fetch active sprint from live tracker
                 logger.warning("Tracker sprint fetch failed: %s", jira_status)
-                _derive_q27_from_locale(questionnaire)
-                gaps = _find_essential_gaps(questionnaire, essential_set)
-                if not gaps:
-                    _prepare_bank_holiday_choices(questionnaire)
-                    return _show_summary_or_pto(questionnaire, prefix=repo_confirm)
-                prompt_text, q_nums = _build_gap_prompt(gaps, questionnaire)
-                questionnaire._pending_merged_questions = q_nums
-                questionnaire.current_question = q_nums[0]
+                # Try analysis sprint data as fallback
+                _ap_id = state.get("analysis_profile_id", "")
+                _used_analysis = False
+                if _ap_id:
+                    try:
+                        _, _ap_ex3 = _load_profile_by_id(_ap_id)
+                        if _ap_ex3:
+                            _sd = _ap_ex3.get("sprint_details", [])
+                            if _sd:
+                                # Find the latest sprint number from analysis
+                                _last_sprint = _sd[-1]
+                                _last_name = _last_sprint.get("name", "")
+                                import re as _s27re
+
+                                _num_m = _s27re.search(r"(\d+)", _last_name)
+                                if _num_m:
+                                    _last_num = int(_num_m.group(1))
+                                    questionnaire._active_sprint_number = _last_num
+                                    questionnaire.answers[27] = f"_active:{_last_num}"
+                                    questionnaire._follow_up_choices[27] = (
+                                        f"Sprint {_last_num + 1} (next)",
+                                        f"Sprint {_last_num + 2}",
+                                        f"Sprint {_last_num + 3}",
+                                    )
+                                    prompt_text = (
+                                        f"Last analysed sprint: **Sprint {_last_num}** "
+                                        f"(from team analysis — live tracker unavailable).\n\n"
+                                        f"Which sprint are you planning for?"
+                                    )
+                                    _used_analysis = True
+                                    logger.info("Q27 fallback: using analysis sprint %d", _last_num)
+                    except Exception:
+                        pass
+                if not _used_analysis:
+                    _derive_q27_from_locale(questionnaire)
+                    gaps = _find_essential_gaps(questionnaire, essential_set)
+                    if not gaps:
+                        _prepare_bank_holiday_choices(questionnaire)
+                        return _show_summary_or_pto(questionnaire, prefix=repo_confirm)
+                    prompt_text, q_nums = _build_gap_prompt(gaps, questionnaire)
+                    questionnaire._pending_merged_questions = q_nums
+                    questionnaire.current_question = q_nums[0]
 
         return {
             "questionnaire": questionnaire,
