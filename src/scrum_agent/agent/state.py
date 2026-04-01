@@ -159,6 +159,33 @@ DOD_ITEMS: tuple[str, ...] = (
 )
 
 
+def resolve_dod_items(graph_state: dict | None = None) -> tuple[str, ...]:
+    """Return custom DoD items from state if set, else the default DOD_ITEMS.
+
+    When an analysis profile provides team-specific DoD practices,
+    they override the generic defaults for the entire planning session.
+    """
+    if graph_state:
+        custom = graph_state.get("custom_dod_items")
+        if custom and isinstance(custom, (tuple, list)) and len(custom) > 0:
+            return tuple(custom)
+    return DOD_ITEMS
+
+
+def shorten_dod_items(items: tuple[str, ...]) -> tuple[str, ...]:
+    """Generate short display labels from full DoD item names."""
+    _known = {
+        "Acceptance Criteria Met": "AC Met",
+        "Documentation": "Docs",
+        "Proper Testing": "Testing",
+        "Code Merged to Main": "Code Merged",
+        "Released via SDLC": "SDLC",
+        "Stakeholder Sign-off": "Sign-off",
+        "Knowledge Sharing": "Know. Sharing",
+    }
+    return tuple(_known.get(item, item[:14].strip()) for item in items)
+
+
 @dataclass(frozen=True)
 class UserStory:
     """A user story following the persona/goal/benefit template."""
@@ -187,6 +214,9 @@ class UserStory:
     # uncertainty, or effort factors led to the assigned value. Used to calibrate
     # the AI's estimation against engineer expectations over time.
     points_rationale: str = ""
+    # Confidence that the point estimate matches the team's historical data.
+    # "high" (≥15 samples), "medium" (≥5), "low" (<5), "" (no data).
+    points_confidence: str = ""
 
     @property
     def text(self) -> str:
@@ -409,6 +439,10 @@ class QuestionnaireState:
     # Used to cap the "increase team" recommendation so we never suggest more
     # engineers than exist on the board. Set even when velocity is zero.
     _jira_org_team_size: int | None = None
+    # Transient: True when Q6 is set up as a team member multi-select
+    # (from analysis contributor_stats). When set, Q6 answer is parsed
+    # as comma-separated member names and velocity is recalculated.
+    _q6_member_select: bool = False
     # Transient: tracks which question numbers were auto-populated from SCRUM.md
     # content (as opposed to the user's typed description). Used for provenance
     # markers in the intake preamble ("N from SCRUM.md").
@@ -503,11 +537,24 @@ class ScrumState(_RequiredState, total=False):
     tasks: Annotated[list[Task], operator.add]
     sprints: Annotated[list[Sprint], operator.add]
 
+    # Custom DoD items from team analysis — overrides DOD_ITEMS when set.
+    # Empty tuple means use the default 7 items.
+    custom_dod_items: tuple[str, ...]
+
+    # Selected team members from analysis profile (names from contributor_stats).
+    # When set, velocity is calculated from these specific members' per_sprint values.
+    # Empty tuple = no specific members selected (use total team velocity).
+    selected_team_members: tuple[str, ...]
+
     # Team / planning knobs
     team_size: int
     sprint_length_weeks: int
     velocity_per_sprint: int
     target_sprints: int
+    # Analysis profile selected by user in planning mode profile picker.
+    # When set, intake auto-fills Q6/Q8/Q9 from the profile and nodes
+    # use this profile for team calibration. Empty string = no profile selected.
+    analysis_profile_id: str
     # Starting sprint number — set by the sprint_selector node after fetching
     # the active Jira sprint and asking the user which sprint to plan for.
     # e.g. if active sprint is "Sprint 104" and user picks next → 105.

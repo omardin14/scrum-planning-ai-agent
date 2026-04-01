@@ -395,6 +395,27 @@ def _build_analysis_section(graph_state: dict) -> str:
 """
 
 
+def _build_epic_section(graph_state: dict) -> str:
+    """Render the project-level epic as an HTML section."""
+    analysis = graph_state.get("project_analysis")
+    if not analysis:
+        return ""
+    epic_key = graph_state.get("jira_epic_key", "") or graph_state.get("azdevops_epic_id", "")
+    key_badge = f' <span class="badge badge-tag">{_e(epic_key)}</span>' if epic_key else ""
+    return f"""
+<section id="epic">
+  <h2>Epic</h2>
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">{_e(analysis.project_name)}</span>{key_badge}
+    </div>
+    <div class="card-desc">{_e(analysis.project_description)}</div>
+    <div class="card-desc" style="margin-top:0.5rem;"><strong>Target state:</strong> {_e(analysis.target_state)}</div>
+  </div>
+</section>
+"""
+
+
 def _build_features_section(graph_state: dict) -> str:
     """Render feature list as an HTML section."""
     features = graph_state.get("features", [])
@@ -451,19 +472,29 @@ def _build_stories_section(graph_state: dict) -> str:
             if story.acceptance_criteria:
                 lis = "".join(
                     f"<li>"
+                    f"<strong style='font-size:0.75rem;color:var(--text-muted);'>AC {i + 1}</strong> &mdash; "
                     f"<span class='ac-given'>Given</span> {_e(ac.given)} "
                     f"<span class='ac-when'>When</span> {_e(ac.when)} "
                     f"<span class='ac-then'>Then</span> {_e(ac.then)}"
                     f"</li>"
-                    for ac in story.acceptance_criteria
+                    for i, ac in enumerate(story.acceptance_criteria)
                 )
                 ac_items = f'<ul class="ac-list">{lis}</ul>'
 
             rationale_html = ""
             if story.points_rationale:
+                confidence = getattr(story, "points_confidence", "")
+                conf_badge = ""
+                if confidence:
+                    conf_color = {"high": "#22c55e", "medium": "#eab308", "low": "#ef4444"}.get(
+                        confidence.lower(), "var(--text-muted)"
+                    )
+                    conf_badge = (
+                        f' <span style="font-size:0.75rem;color:{conf_color};">[{_e(confidence)} confidence]</span>'
+                    )
                 rationale_html = (
                     f'<div class="card-desc" style="margin-top:0.5rem;font-style:italic;">'
-                    f"<strong>Points rationale:</strong> {_e(story.points_rationale)}</div>"
+                    f"<strong>Points rationale:</strong> {_e(story.points_rationale)}{conf_badge}</div>"
                 )
 
             # User story description ("As a X, I want to Y, so that Z")
@@ -472,16 +503,17 @@ def _build_stories_section(graph_state: dict) -> str:
                 f"{_e(story.text)}</div>"
             )
 
-            # Definition of Done flags
-            from scrum_agent.agent.state import DOD_ITEMS
+            # Definition of Done flags — use team-specific DoD when available
+            from scrum_agent.agent.state import resolve_dod_items
 
             dod_html = ""
+            dod_items = resolve_dod_items(graph_state)
             dod_flags = story.dod_applicable
-            if len(dod_flags) == len(DOD_ITEMS):
+            if len(dod_flags) == len(dod_items):
                 dod_items_html = "".join(
                     f'<li style="{"text-decoration:line-through;opacity:0.5;" if not applicable else ""}">'
                     f"{'✓' if applicable else '✗'} {_e(item)}</li>"
-                    for item, applicable in zip(DOD_ITEMS, dod_flags)
+                    for item, applicable in zip(dod_items, dod_flags)
                 )
                 dod_html = (
                     f'<div style="margin-top:0.5rem;">'
@@ -597,17 +629,27 @@ def _build_sprints_section(graph_state: dict) -> str:
         used = sum(story_pts.get(sid, 0) for sid in sprint.story_ids)
         capacity = sprint.capacity_points
         fill_pct = min(int(used / capacity * 100), 100) if capacity else 0
+        fill_color = "#ef4444" if fill_pct > 100 else "#eab308" if fill_pct > 80 else "var(--accent)"
+
+        # Show reduced capacity annotation when sprint has deductions
+        deduction_note = ""
+        if capacity < velocity:
+            deduction_note = (
+                f'<div style="font-size:0.75rem;color:#eab308;margin-top:0.25rem;">'
+                f"Reduced from {velocity} pts (bank holidays / deductions)</div>"
+            )
 
         story_chips = "".join(f'<span class="badge badge-tag">{_e(sid)}</span>' for sid in sprint.story_ids)
 
         cards.append(f"""
-  <div class="card sprint-card">
+  <div class="card sprint-card"{' style="border-color:#eab308;"' if capacity < velocity else ""}>
     <div class="sprint-header">
       <span class="card-title">{_e(sprint.name)}</span>
       <span class="badge badge-tag">{used} / {capacity} pts</span>
     </div>
     <div class="sprint-goal">{_e(sprint.goal)}</div>
-    <div class="capacity-bar"><div class="capacity-fill" style="width:{fill_pct}%"></div></div>
+    <div class="capacity-bar"><div class="capacity-fill" style="width:{fill_pct}%;background:{fill_color}"></div></div>
+    {deduction_note}
     <div class="sprint-stories">{story_chips}</div>
   </div>""")
 
@@ -671,6 +713,18 @@ def _build_header(graph_state: dict, stage_label: str) -> str:
 
     badges = "".join(f'<span class="badge">{_e(s)}</span>' for s in stages_done)
 
+    # Analysis profile provenance
+    profile_banner = ""
+    profile_id = graph_state.get("analysis_profile_id", "")
+    if profile_id:
+        display_name = profile_id.split("-", 1)[1] if "-" in profile_id else profile_id
+        source = profile_id.split("-", 1)[0] if "-" in profile_id else ""
+        profile_banner = (
+            f'\n  <div class="meta" style="margin-top:0.3rem;">'
+            f"<span>Calibrated with: <strong>{_e(display_name)}</strong>"
+            f"{f' ({_e(source)})' if source else ''}</span></div>"
+        )
+
     return f"""
 <header class="site-header">
   <h1>{_e(project_name)}</h1>
@@ -678,7 +732,7 @@ def _build_header(graph_state: dict, stage_label: str) -> str:
     <span>Exported: {_e(now)}</span>
     <span>Stage: {_e(stage_label)}</span>
     {badges}
-  </div>
+  </div>{profile_banner}
 </header>
 """
 
@@ -719,6 +773,7 @@ def build_export_html(graph_state: dict, stage: str = "complete") -> str:
     sections = [
         _build_questionnaire_section(graph_state),
         _build_analysis_section(graph_state),
+        _build_epic_section(graph_state),
         _build_features_section(graph_state),
         _build_stories_section(graph_state),
         _build_tasks_section(graph_state),

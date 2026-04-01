@@ -1707,19 +1707,19 @@ class TestSpinnerProgress:
         assert "[" not in msg
 
     def test_build_spinner_message_pipeline_step(self):
-        """Pipeline steps get [N/5] prefix."""
+        """Pipeline steps get [N/6] prefix."""
         msg = _build_spinner_message("feature_generator")
-        assert msg == "[2/5] Generating features"
+        assert msg == "[3/6] Generating features"
 
     def test_build_spinner_message_first_pipeline_step(self):
-        """First pipeline step is [1/5]."""
+        """First pipeline step is [1/6]."""
         msg = _build_spinner_message("project_analyzer")
-        assert msg == "[1/5] Analysing project"
+        assert msg == "[1/6] Analysing project"
 
     def test_build_spinner_message_last_pipeline_step(self):
-        """Last pipeline step is [5/5]."""
+        """Last pipeline step is [6/6]."""
         msg = _build_spinner_message("sprint_planner")
-        assert msg == "[5/5] Planning sprints"
+        assert msg == "[6/6] Planning sprints"
 
     def test_build_spinner_message_agent(self):
         """Agent node has no step prefix."""

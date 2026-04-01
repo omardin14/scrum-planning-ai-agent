@@ -1018,3 +1018,127 @@ _Bring Azure DevOps to full feature parity with Jira — read board/velocity, cr
 - [x] `CLAUDE.md` — updated tool count, added `azdevops_sync.py` to structure, added env vars
 - [x] `README.md` — added Azure DevOps Boards section with artifact mapping, PAT permissions table, env vars table
 - [x] `.env.example` — documented PAT permissions (Code=Read, Work Items=Read+Write, Project=Read)
+
+## Phase 16: Deep Analysis
+
+### 16a: Definition of Done patterns
+- [x] Detect PR linkage, code review, testing, deploy mentions from comments/descriptions
+- [x] Compute coverage percentages per practice (e.g. "82% of stories have PR linked")
+- [x] Extract common checklist keywords ("tests passing", "deployed", "code reviewed")
+- [x] Learn DoD *ordering* — detect typical sequence from timestamped Jira comments
+- [x] Detect team-specific DoD steps from recurring subtask title patterns
+- [x] Analyse subtask patterns as DoD signals — which task types are always created? Which are skipped?
+- [x] Cross-reference subtask completion with DoD signals (e.g. "Testing" task exists but only 45% done)
+- [x] Generate a proposed unified Definition of Done based on analysis (what the team actually does vs should do)
+- [x] Show DoD proposal in TUI, HTML, and MD reports with coverage gaps highlighted
+- [x] Inject proposed DoD + team calibration into task_decomposer prompt
+
+### 16b: Acceptance criteria patterns
+- [x] Detect Given/When/Then format (`uses_given_when_then`)
+- [x] Compute median AC count per story (`median_ac_count`)
+- [x] Learn AC *content* patterns — 8 theme regexes (error handling, validation, edge cases, performance, security, UX, integration, data)
+- [x] Detect AC coverage by discipline — avg AC count per discipline with sample sizes
+- [x] Learn AC specificity — vague/moderate/precise classification with precise% and vague%
+- [x] Detect missing AC patterns — spillover correlation (0-1 ACs vs 3+ ACs spill rates)
+
+### 16c: Ticket naming and organisation
+- [x] Extract common title patterns per point value (`common_patterns`)
+- [x] Learn title conventions — regex + LLM prefix detection (e.g. "[FE]", "SPIKE:", "TECH:")
+- [x] Detect labelling conventions — labels/tags stored per story, distribution computed
+- [x] Learn epic naming patterns — batch-fetch epic titles, classify as feature/quarter/team-scoped
+- [x] Detect component/area tagging — labels/tags aggregated as area distribution
+- [x] Learn description templates — LLM + regex detect recurring section headings
+
+### 16d: Story/epic/subtask structure
+- [x] Subtask count per story (`median_task_count_per_story`)
+- [x] Subtask label distribution (Development 64%, Testing 13%, etc.)
+- [x] Stories per epic (`avg_stories_per_epic`, range)
+- [x] Epic description analysis (`epics_with_description_pct`)
+- [x] Detect subtask *ordering* — typical sequence from pairwise transition analysis
+- [x] Learn which subtask types are skipped — presence rate per type, flag if < 30%
+- [x] Detect epic completion patterns — per-epic completion rate, flag lingering epics < 80%
+- [x] Learn story splitting patterns — detect point range variation within epics
+- [x] Detect dependency patterns — epic sprint spread (stories in same epic across N sprints)
+
+### 16e: Mid-sprint scope changes
+- [x] Detect stories added to a sprint after sprint start (Jira changelog + AzDO revisions)
+- [x] Detect stories removed mid-sprint (carried_over flag + iteration path changes)
+- [x] Track point changes during a sprint (original estimate vs final via revision history)
+- [x] Compute scope change rate per sprint (% of stories added/removed after commitment)
+- [x] Detect patterns — which disciplines or story sizes get re-estimated most?
+- [x] Identify carry-over chains — stories that bounce across 3+ sprints
+- [x] Daily scope timeline — reconstruct day-by-day scope from AzDO revisions and Jira changelogs
+- [x] Committed vs delivered velocity — track what was planned on day 1 vs what was delivered
+- [x] Scope churn rate — absolute sum of daily deltas / committed scope
+- [x] Scope change events — identify which stories caused scope changes and when
+- [x] Wire daily scope timelines into TUI, HTML, and Markdown reports
+- [x] Per-sprint scope timeline table (Committed / Final / Delivered / Δ Scope / Churn)
+- [x] Delivery accuracy recommendation when team delivers <70% of committed scope
+- [x] High scope churn recommendation when 2+ sprints have >30% churn
+
+### 16f: Additional team patterns
+- [x] Recurring/ceremony ticket detection and exclusion
+- [x] Shadow spillover detection (closed then re-created)
+- [x] Repository activity correlation (which repos touch which stories)
+- [x] Detect estimation bias — compare actual cycle time vs point-value average, flag >2x as underestimated
+- [x] Detect seasonal patterns — velocity by month, flag months >25% below/above average
+- [x] Track bug rate — count bug/defect issue types per sprint, compute ratio and points
+- [ ] Learn WIP patterns — needs intermediate state timestamps (deferred)
+- [ ] Learn review cycle time — needs state transition timestamps (deferred)
+
+---
+
+## Phase 17: Post-Analysis — Reshape Planning Output
+
+### 17a: Calibrated generation — Phase 1: Inject already-extracted data
+- [x] Inject team calibration data into story_writer prompt
+- [x] Inject velocity/completion data into sprint_planner prompt
+- [x] Inject DoD patterns into task generation
+- [x] 1A: Inject spillover correlation (by size/discipline) into story_writer + sprint_planner
+- [x] 1B: Inject velocity trend (improving/degrading/stable) into sprint_planner + analyzer
+- [x] 1C: Inject discipline-specific calibration (per-discipline cycle times) into story_writer
+- [x] 1D: Inject task decomposition patterns into prompt injection (common tasks, bottlenecks)
+- [x] 1E: Inject committed vs delivered + scope churn into sprint_planner + analyzer
+- [ ] Match generated story *shape* to team patterns (same AC count, task count, discipline mix)
+- [ ] Match generated subtask *types* to team patterns (if team always has "Deploy" task, include it)
+- [ ] Generate stories with the team's naming conventions (prefixes, labels, description templates)
+- [ ] Auto-suggest story point values based on similarity to historical stories at each point level
+
+### 17a-2: Calibrated generation — Phase 2: New TeamProfile fields + feature generator
+- [ ] 2A: Promote velocity_trend, committed/delivered velocity, scope_churn to TeamProfile fields
+- [ ] 2B: Inject team calibration into feature_generator (epic sizing patterns, discipline mix)
+
+### 17a-3: Calibrated generation — Phase 3: New data extraction
+- [ ] 3A: Fetch AzDO work item comments (currently hardcoded to [] — breaks DoD signals)
+- [ ] 3B: Extract priority/severity fields from Jira + AzDO, compute priority_calibration
+
+### 17a-4: Analysis Mode — Simulated Plan Preview
+- [x] Phase A: Planning Instructions page — show/edit calibration instructions after analysis, Accept/Edit/Export
+- [x] Phase B: Sample Epic page — LLM generates sample epic matching team style, Accept/Edit/Regenerate/Export
+- [x] Phase C: Sample User Stories page — LLM generates 2-3 sample stories with ACs, points, discipline
+- [x] Phase D: Sample Tasks page — LLM generates sample tasks for the stories
+- [x] Phase E: Sample Sprint Plan page — LLM generates sprint plan using team velocity/capacity
+- [x] Phase F: Session persistence — save/resume analysis sessions, show as resumable items
+- [x] Cumulative export — exporting at any stage exports analysis profile (HTML + MD)
+
+### 17b: Engineer assignment
+- [ ] Build per-developer profile from analysis (velocity, disciplines, specialisation, cycle time)
+- [ ] After sprint planner generates sprints, add assignment phase
+- [ ] **Strong-suite mode**: assign stories to engineers who historically excel at that discipline/size
+  - [ ] Factor in per-developer cycle time for the story's discipline and point value
+  - [ ] Respect developer capacity (don't overload one person)
+- [ ] **Growth mode**: assign stories to engineers who *haven't* worked on that discipline/area
+  - [ ] Flag as stretch assignments with mentor pairing suggestion
+  - [ ] Cap growth assignments per sprint (e.g. max 1-2 unfamiliar stories per dev)
+- [ ] **Balanced mode**: mix of strong-suite and growth (default)
+- [ ] Show assignment rationale ("Alice: 3pt backend — she averages 2.8d for this size")
+- [ ] Export assignments to Jira/AzDO (update assignee field on synced stories)
+
+### 17c: Retrospective feedback loop
+- [x] `compare_plan_to_actuals` tool (basic structure)
+- [ ] Match generated stories to actual Jira/AzDO stories by key or fuzzy title
+- [ ] Compare: estimated vs actual points, planned vs actual sprint, stories added/removed
+- [ ] Compute estimation accuracy score for the generated plan
+- [ ] Feed accuracy data back into team profile (tighten calibration over time)
+- [ ] Show retro report: "Your plan estimated 45pts across 3 sprints; actuals were 52pts across 4 sprints"
+- [ ] Track improvement over time: "Plan accuracy improved from 62% to 78% over 3 projects"

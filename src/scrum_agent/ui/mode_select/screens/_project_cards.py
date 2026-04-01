@@ -38,6 +38,21 @@ class ProjectSummary:
     progress: str = ""  # e.g. "3/7 stages complete"
 
 
+@dataclass
+class ProfileSummary:
+    """Lightweight team profile metadata for the project list screen."""
+
+    team_id: str
+    source: str  # "jira" or "azdevops"
+    project_key: str
+    sample_sprints: int = 0
+    velocity_avg: float = 0.0
+    sample_stories: int = 0
+    updated: str = ""  # relative time "2 days ago"
+    staleness_days: int = 0
+    preview_complete: bool = False  # True when preview flow finished
+
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -305,6 +320,119 @@ def _build_new_project_card(
 
     return Panel(
         label,
+        border_style=border,
+        box=rich.box.ROUNDED,
+        padding=(0, 2),
+        width=box_w,
+    )
+
+
+def _build_profile_card(
+    profile: ProfileSummary,
+    *,
+    selected: bool,
+    box_w: int = 64,
+    opacity: float = 1.0,
+    card_fade: float = 0.0,
+    pulse: float = 0.0,
+) -> Panel:
+    """Build a team analysis profile card showing source, sprints, velocity.
+
+    Same visual pattern as _build_project_card — rounded Panel with
+    title + metadata lines, animated border on selection.
+    """
+    title_text = Text(justify="left")
+    _team = getattr(profile, "team_name", "")
+    title_label = f"{profile.source}/{profile.project_key}"
+    if _team:
+        title_label += f" — {_team}"
+    if selected:
+        title_text.append(title_label, style=f"bold {lerp_color(opacity, BLACK_RGB, (255, 255, 255))}")
+    else:
+        title_text.append(title_label, style=lerp_color(opacity, BLACK_RGB, (140, 140, 140)))
+
+    meta_style = lerp_color(opacity, BLACK_RGB, (140, 140, 160) if selected else (100, 100, 100))
+    sep = " \u00b7 "
+    meta_text = Text(justify="left")
+    parts = [f"{profile.sample_sprints} sprints"]
+    if profile.velocity_avg > 0:
+        parts.append(f"{profile.velocity_avg} pts/sprint")
+    if profile.sample_stories > 0:
+        parts.append(f"{profile.sample_stories} stories")
+    if profile.updated:
+        parts.append(profile.updated)
+    meta_text.append(sep.join(parts), style=meta_style)
+    if profile.preview_complete:
+        meta_text.append("  ")
+        meta_text.append(
+            "\u2713 Preview complete",
+            style=lerp_color(opacity, BLACK_RGB, (80, 200, 100)),
+        )
+
+    # Staleness hint (amber line if >30 days old)
+    if profile.staleness_days > 30:
+        stale_text = Text(justify="left")
+        stale_text.append(
+            f"\u21bb Re-analysis recommended ({profile.staleness_days} days old)",
+            style=lerp_color(opacity, BLACK_RGB, (220, 180, 60)),
+        )
+        content = Group(title_text, meta_text, stale_text)
+    else:
+        content = Group(title_text, meta_text)
+
+    _dim_border = (35, 35, 45)
+    _sel_border = (70, 100, 180)
+    _white = (255, 255, 255)
+    if selected:
+        blended = (
+            int(_dim_border[0] + (_sel_border[0] - _dim_border[0]) * card_fade),
+            int(_dim_border[1] + (_sel_border[1] - _dim_border[1]) * card_fade),
+            int(_dim_border[2] + (_sel_border[2] - _dim_border[2]) * card_fade),
+        )
+        if pulse > 0:
+            blended = (
+                int(blended[0] + (_white[0] - blended[0]) * pulse),
+                int(blended[1] + (_white[1] - blended[1]) * pulse),
+                int(blended[2] + (_white[2] - blended[2]) * pulse),
+            )
+        border = lerp_color(opacity, BLACK_RGB, blended)
+    else:
+        border = lerp_color(opacity, BLACK_RGB, _dim_border)
+
+    return Panel(
+        content,
+        border_style=border,
+        box=rich.box.ROUNDED,
+        padding=(0, 2),
+        width=box_w,
+        height=_CARD_H,
+    )
+
+
+def _build_new_analysis_card(
+    *,
+    label: str = "+ New Analysis",
+    selected: bool,
+    box_w: int = 64,
+    opacity: float = 1.0,
+) -> Panel:
+    """Build the '+ New Analysis' button card.
+
+    label can be customised for dual-board: '+ Analyse Jira Board' etc.
+    """
+    text = Text(justify="left")
+    if selected:
+        text.append(label, style=f"bold {lerp_color(opacity, BLACK_RGB, (255, 255, 255))}")
+    else:
+        text.append(label, style=lerp_color(opacity, BLACK_RGB, (100, 100, 100)))
+
+    if selected:
+        border = lerp_color(opacity, BLACK_RGB, (70, 100, 180))
+    else:
+        border = lerp_color(opacity, BLACK_RGB, (35, 35, 45))
+
+    return Panel(
+        text,
         border_style=border,
         box=rich.box.ROUNDED,
         padding=(0, 2),

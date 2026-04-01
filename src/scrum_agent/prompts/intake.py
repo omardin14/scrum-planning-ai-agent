@@ -323,7 +323,7 @@ CONDITIONAL_ESSENTIALS: dict[int, int] = {
     7: 6,  # ask team roles        when team size is answered
     12: 11,  # ask integrations      when tech stack is answered
     13: 2,  # ask constraints       when project type is answered
-    29: 6,  # ask unplanned leave % when team size is answered
+    # Q29 (unplanned leave %) defaults to 10% — editable at confirmation screen
 }
 
 # Deterministic mapping from Q2 (project type) → Q15 (existing codebase?).
@@ -587,7 +587,7 @@ FOLLOW_UP_TEMPLATES: dict[int, str] = {
     4: "What measurable outcome would tell you the project succeeded?",
     7: "Can you break down the team by specialty? (e.g., 2 backend, 1 frontend, 1 DevOps)",
     11: "What's the primary language and framework? And what database/storage?",
-    12: "Which integrations are critical vs nice-to-have?",
+    12: "Which integrations are critical vs nice-to-have? (or 'none' if there are no third-party integrations)",
     13: "Are these constraints firm (non-negotiable) or preferences?",
     20: "Which area of tech debt is the highest risk?",
     21: "Which risk should be addressed earliest? What's the worst-case impact?",

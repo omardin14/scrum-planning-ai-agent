@@ -14,7 +14,7 @@ from rich.console import Group
 from rich.panel import Panel
 from rich.text import Text
 
-from scrum_agent.ui.shared._animations import shimmer_style
+from scrum_agent.ui.shared._animations import COLOR_RGB, shimmer_style
 from scrum_agent.ui.shared._ascii_font import render_ascii_text
 from scrum_agent.ui.shared._components import PAD
 
@@ -24,11 +24,32 @@ from scrum_agent.ui.shared._components import PAD
 
 _MODE_CARDS: list[dict[str, Any]] = [
     {
+        "key": "team-analysis",
+        "title": "Analysis",
+        "description": "Analyse your team's board to learn velocity, estimation patterns, and delivery signals.",
+        "available": True,
+        "color": "rgb(100,180,100)",
+    },
+    {
         "key": "project-planning",
         "title": "Planning",
         "description": "Decompose your project into epics, user stories, tasks, and a sprint plan.",
         "available": True,
-        "color": "rgb(70,100,180)",
+        "color": "rgb(110,140,220)",
+    },
+    {
+        "key": "usage",
+        "title": "Usage",
+        "description": "View API token usage, session history, and cost estimates.",
+        "available": True,
+        "color": "rgb(220,160,60)",
+    },
+    {
+        "key": "settings",
+        "title": "Settings",
+        "description": "Manage API keys, LLM provider, and board configuration.",
+        "available": True,
+        "color": "rgb(160,160,180)",
     },
 ]
 
@@ -116,8 +137,14 @@ def _build_mode_row(
         rendered.append(_PAD + lines[0] + "\n", style="rgb(90,90,100)")
         rendered.append(_PAD + lines[1], style="rgb(90,90,100)")
     else:
-        rendered.append(_PAD + lines[0] + "\n", style="dim")
-        rendered.append(_PAD + lines[1], style="dim")
+        # Unselected: use a muted but visible version of the mode's accent color
+        r, g, b = COLOR_RGB.get(color, (100, 100, 120))
+        _dim_r = max(40, r // 2)
+        _dim_g = max(40, g // 2)
+        _dim_b = max(40, b // 2)
+        _unsel_style = f"rgb({_dim_r},{_dim_g},{_dim_b})"
+        rendered.append(_PAD + lines[0] + "\n", style=_unsel_style)
+        rendered.append(_PAD + lines[1], style=_unsel_style)
 
     items: list = [rendered]
 

@@ -532,7 +532,7 @@ class TestAzdevopsFetchActiveIteration:
 class TestGetTools:
     def test_returns_thirty_tools(self):
         tools = get_tools()
-        assert len(tools) == 30
+        assert len(tools) == 32
 
     def test_all_are_base_tools(self):
         from langchain_core.tools import BaseTool
@@ -575,4 +575,6 @@ class TestGetTools:
             "jira_fetch_velocity",
             "jira_fetch_active_sprint",
             "load_project_context",
+            "analyze_team_history",
+            "compare_plan_to_actuals",
         }

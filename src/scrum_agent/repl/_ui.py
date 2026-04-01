@@ -26,6 +26,7 @@ _SPINNER_MESSAGES: dict[str, str] = {
 # Only nodes AFTER the questionnaire are counted as pipeline steps.
 _PIPELINE_STEPS: tuple[str, ...] = (
     "project_analyzer",
+    "epic_review",
     "feature_generator",
     "story_writer",
     "task_decomposer",

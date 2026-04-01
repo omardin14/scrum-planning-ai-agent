@@ -251,20 +251,37 @@ def disable_bracketed_paste() -> None:
     sys.stdout.flush()
 
 
+def _is_ide_terminal() -> bool:
+    """Detect if we're running inside an IDE terminal that may not support mouse tracking.
+
+    VS Code, JetBrains, and other IDE terminals can crash or misbehave when
+    receiving mouse tracking escape sequences. Detecting these environments
+    lets us skip mouse tracking to prevent terminal corruption.
+    """
+    import os
+
+    # VS Code integrated terminal
+    if os.environ.get("VSCODE_PID") or os.environ.get("TERM_PROGRAM") == "vscode":
+        return True
+    # JetBrains IDEs (IntelliJ, PyCharm, WebStorm, etc.)
+    if os.environ.get("TERMINAL_EMULATOR") == "JetBrains-JediTerm":
+        return True
+    # Dumb terminals
+    if os.environ.get("TERM") in ("dumb", "unknown", ""):
+        return True
+    return False
+
+
 def enable_mouse_tracking() -> None:
     """Enable mouse event reporting so scrolling stays within the app.
 
-    Enables SGR extended mouse mode (\x1b[?1006h) on top of basic button
-    tracking (\x1b[?1000h). This causes the terminal to send mouse wheel
-    events as escape sequences that read_key() parses into "scroll_up" /
-    "scroll_down" instead of letting the terminal scroll its own buffer.
-
-    Also enables bracketed paste mode (\x1b[?2004h) so Cmd+V / Ctrl+V
-    sends paste content as an escape sequence that read_key() can parse,
-    rather than being swallowed by mouse tracking.
+    Skips mouse tracking in IDE terminals (VS Code, JetBrains) that are
+    known to crash or misbehave with these escape sequences. Bracketed
+    paste mode is still enabled as it's more widely supported.
     """
-    sys.stdout.write("\x1b[?1000h")  # enable basic mouse tracking
-    sys.stdout.write("\x1b[?1006h")  # enable SGR extended mode
+    if not _is_ide_terminal():
+        sys.stdout.write("\x1b[?1000h")  # enable basic mouse tracking
+        sys.stdout.write("\x1b[?1006h")  # enable SGR extended mode
     sys.stdout.write("\x1b[?2004h")  # enable bracketed paste mode
     sys.stdout.flush()
 

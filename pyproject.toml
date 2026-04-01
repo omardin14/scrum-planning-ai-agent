@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "scrum-agent"
-version = "1.2.0"
+version = "1.3.0"
 description = "A terminal-based AI agent that decomposes projects into epics, user stories, tasks, and sprint plans."
 readme = "README.md"
 requires-python = ">=3.11"

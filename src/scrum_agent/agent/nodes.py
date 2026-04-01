@@ -1583,6 +1583,273 @@ def _load_user_context(path: str | None = None, docs_dir: str | None = None) -> 
         return None, {"name": "User context", "status": "error", "detail": str(e)[:80]}
 
 
+def _load_team_profile(profile_id: str = "") -> object | None:
+    """Load the team profile from SQLite.
+
+    If profile_id is given (from user's profile picker selection), loads that
+    specific profile. Otherwise falls back to auto-detecting from configured
+    Jira/AzDO project keys.
+
+    Returns:
+        A TeamProfile instance or None. Non-fatal — never raises.
+    """
+    try:
+        from scrum_agent.paths import get_db_path
+        from scrum_agent.team_profile import TeamProfileStore
+
+        db_path = get_db_path()
+        if not db_path.exists():
+            return None
+
+        with TeamProfileStore(db_path) as store:
+            # If a specific profile was selected, use it
+            if profile_id:
+                profile = store.load(profile_id)
+                if profile:
+                    logger.debug("Loaded selected team profile: %s", profile_id)
+                    return profile
+                # Prefix match for old-format IDs (without timestamp)
+                row = store._conn.execute(
+                    "SELECT team_id FROM team_profiles WHERE team_id LIKE ? ORDER BY updated_at DESC LIMIT 1",
+                    (f"{profile_id}%",),
+                ).fetchone()
+                if row:
+                    profile = store.load(row[0])
+                    if profile:
+                        logger.debug("Loaded team profile via prefix: %s → %s", profile_id, row[0])
+                        return profile
+
+            # Auto-detect: try Jira first
+            try:
+                from scrum_agent.config import get_jira_project_key
+
+                jira_key = get_jira_project_key()
+                if jira_key:
+                    profile = store.load_by_project(jira_key, "jira")
+                    if profile:
+                        logger.debug("Loaded team profile for jira/%s", jira_key)
+                        return profile
+            except Exception:
+                pass
+
+            # Auto-detect: try AzDO
+            try:
+                from scrum_agent.config import get_azdevops_project
+
+                azdevops_project = get_azdevops_project()
+                if azdevops_project:
+                    profile = store.load_by_project(azdevops_project, "azdevops")
+                    if profile:
+                        logger.debug("Loaded team profile for azdevops/%s", azdevops_project)
+                        return profile
+            except Exception:
+                pass
+
+        return None
+    except Exception:
+        logger.debug("Team profile load failed (non-fatal)", exc_info=True)
+        return None
+
+
+def _load_team_examples(profile_id: str = "") -> dict | None:
+    """Load the examples dict for the team profile from SQLite.
+
+    If profile_id is given, loads examples for that specific profile.
+    Otherwise auto-detects from configured Jira/AzDO project keys.
+    """
+    try:
+        from scrum_agent.paths import get_db_path
+        from scrum_agent.team_profile import TeamProfileStore
+
+        db_path = get_db_path()
+        if not db_path.exists():
+            return None
+
+        with TeamProfileStore(db_path) as store:
+            if profile_id:
+                _, ex = store.load_with_examples(profile_id)
+                if ex:
+                    return ex
+                # Prefix match for old-format IDs
+                row = store._conn.execute(
+                    "SELECT team_id FROM team_profiles WHERE team_id LIKE ? ORDER BY updated_at DESC LIMIT 1",
+                    (f"{profile_id}%",),
+                ).fetchone()
+                if row:
+                    _, ex = store.load_with_examples(row[0])
+                    if ex:
+                        return ex
+
+            try:
+                from scrum_agent.config import get_jira_project_key
+
+                jira_key = get_jira_project_key()
+                if jira_key:
+                    row = store._conn.execute(
+                        "SELECT team_id FROM team_profiles WHERE team_id LIKE ? ORDER BY updated_at DESC LIMIT 1",
+                        (f"jira-{jira_key}%",),
+                    ).fetchone()
+                    if row:
+                        _, ex = store.load_with_examples(row[0])
+                        if ex:
+                            return ex
+            except Exception:
+                pass
+            try:
+                from scrum_agent.config import get_azdevops_project
+
+                azdevops_project = get_azdevops_project()
+                if azdevops_project:
+                    row = store._conn.execute(
+                        "SELECT team_id FROM team_profiles WHERE team_id LIKE ? ORDER BY updated_at DESC LIMIT 1",
+                        (f"azdevops-{azdevops_project}%",),
+                    ).fetchone()
+                    if row:
+                        _, ex = store.load_with_examples(row[0])
+                        if ex:
+                            return ex
+            except Exception:
+                pass
+
+        return None
+    except Exception:
+        return None
+
+
+def _load_profile_by_id(profile_id: str):
+    """Load a specific team profile and examples by team_id.
+
+    If exact match fails, tries prefix match to handle old-format IDs
+    (e.g. "azdevops-Proj" matching "azdevops-Proj-202604010430").
+    """
+    try:
+        from scrum_agent.paths import get_db_path
+        from scrum_agent.team_profile import TeamProfileStore
+
+        db_path = get_db_path()
+        if not db_path.exists():
+            return None, None
+
+        with TeamProfileStore(db_path) as store:
+            # Exact match first
+            result = store.load_with_examples(profile_id)
+            if result[0] is not None:
+                return result
+
+            # Prefix match — handles old IDs without timestamp
+            row = store._conn.execute(
+                "SELECT team_id FROM team_profiles WHERE team_id LIKE ? ORDER BY updated_at DESC LIMIT 1",
+                (f"{profile_id}%",),
+            ).fetchone()
+            if row:
+                logger.info("Profile prefix match: %s → %s", profile_id, row[0])
+                return store.load_with_examples(row[0])
+
+            return None, None
+    except Exception:
+        logger.debug("Failed to load profile %s", profile_id, exc_info=True)
+        return None, None
+
+
+def _extract_answers_from_profile(profile, examples: dict | None = None) -> dict[int, str]:
+    """Extract intake questionnaire answers from a team analysis profile.
+
+    Returns a dict mapping question numbers to answer strings.
+    Used to auto-fill Q6 (team size), Q8 (sprint length), Q9 (velocity),
+    Q11 (tech stack), Q12 (integrations) when the user selects an analysis
+    profile in planning mode.
+    """
+    answers: dict[int, str] = {}
+    _ex = examples or {}
+
+    # Q6: Team size — from contributor stats
+    contrib = _ex.get("contributor_stats", [])
+    if isinstance(contrib, list) and contrib:
+        answers[6] = str(len(contrib))
+        logger.info("Analysis auto-fill: Q6 (team size) = %s from %d contributors", answers[6], len(contrib))
+
+    # Q8: Sprint length — derive from sprint date ranges
+    sprint_details = _ex.get("sprint_details", [])
+    if sprint_details:
+        try:
+            durations = []
+            for sd in sprint_details:
+                start = sd.get("start", "")
+                end = sd.get("end", "")
+                if start and end:
+                    from datetime import datetime
+
+                    s_dt = datetime.fromisoformat(start.replace("Z", "+00:00"))
+                    e_dt = datetime.fromisoformat(end.replace("Z", "+00:00"))
+                    days = (e_dt - s_dt).days
+                    durations.append(days)
+            if durations:
+                avg_days = sum(durations) / len(durations)
+                weeks = round(avg_days / 7)
+                weeks = max(1, min(4, weeks))
+                answers[8] = f"{weeks} week{'s' if weeks > 1 else ''}"
+                logger.info("Analysis auto-fill: Q8 (sprint length) = %s from %d sprints", answers[8], len(durations))
+        except Exception:
+            pass
+
+    # Q9: Velocity — use total team velocity as default suggestion
+    # (will be recalculated when specific team members are selected in Q6)
+    vel = getattr(profile, "velocity_avg", 0.0)
+    if vel > 0:
+        answers[9] = f"{vel:.0f} points per sprint (from team analysis)"
+        logger.info("Analysis auto-fill: Q9 (velocity) = %.0f pts/sprint", vel)
+
+    # Q11: Tech stack — from analysis profile's tech_stack field
+    tech = getattr(profile, "tech_stack", ())
+    if tech:
+        answers[11] = ", ".join(tech)
+        logger.info("Analysis auto-fill: Q11 (tech stack) = %s", answers[11])
+
+    # Q12: Integrations — from analysis profile's integrations field
+    integrations = getattr(profile, "integrations", ())
+    if integrations:
+        answers[12] = ", ".join(integrations)
+        logger.info("Analysis auto-fill: Q12 (integrations) = %s", answers[12])
+
+    return answers
+
+
+def _get_contributor_names(examples: dict | None) -> list[str]:
+    """Extract contributor names from analysis examples for Q6 multi-select."""
+    if not examples:
+        return []
+    contrib = examples.get("contributor_stats", [])
+    if isinstance(contrib, list):
+        return [c.get("name", "") for c in contrib if c.get("name")]
+    return []
+
+
+def _calculate_velocity_for_members(member_names: list[str], examples: dict | None) -> float:
+    """Calculate combined velocity from selected team members' per_sprint values."""
+    if not examples or not member_names:
+        return 0.0
+    contrib = examples.get("contributor_stats", [])
+    if not isinstance(contrib, list):
+        return 0.0
+    total = 0.0
+    matched = 0
+    for c in contrib:
+        name = c.get("name", "")
+        per_sprint = c.get("per_sprint", 0.0)
+        if name and per_sprint > 0:
+            # Match by exact name or case-insensitive
+            if any(name.lower() == m.lower() for m in member_names):
+                total += per_sprint
+                matched += 1
+    logger.info(
+        "Velocity from %d/%d selected members: %.1f pts/sprint",
+        matched,
+        len(member_names),
+        total,
+    )
+    return total
+
+
 def _extract_confluence_page_ids(text: str) -> list[str]:
     """Extract Confluence page IDs from URLs found in free-form text (e.g. SCRUM.md).
 
@@ -2319,6 +2586,29 @@ def _check_vague_answer(question: str, answer: str, q_num: int = 0) -> tuple[str
     except ValueError:
         pass
 
+    # Short-circuit: "no preference" / "none" answers for tech stack (Q11) and
+    # integrations (Q12). These are valid answers — the user genuinely has no
+    # preference or no integrations. Without this, the LLM vagueness check
+    # generates biased follow-up options (e.g. always suggesting JavaScript).
+    _no_pref_patterns = frozenset(
+        {
+            "any",
+            "anything",
+            "no preference",
+            "none",
+            "no integrations",
+            "n/a",
+            "not sure yet",
+            "tbd",
+            "no",
+            "whatever",
+            "flexible",
+        }
+    )
+    if q_num in (11, 12) and answer.strip().lower() in _no_pref_patterns:
+        logger.debug("_check_vague_answer: Q%d no-preference answer accepted: %s", q_num, answer.strip())
+        return None
+
     # Build custom follow-up hint if available for this question
     custom_hint = ""
     if q_num and q_num in FOLLOW_UP_TEMPLATES:
@@ -2958,6 +3248,45 @@ def project_intake(state: ScrumState) -> dict:
                     len(_scrum_md_contributed),
                 )
 
+        # ── Analysis profile auto-fill ────────────────────────────────
+        # If the user selected an analysis profile in the profile picker,
+        # extract Q6/Q8/Q9 from it. Priority: description > SCRUM.md > analysis.
+        _analysis_profile_id = state.get("analysis_profile_id", "")
+        if _analysis_profile_id:
+            _ap, _ap_ex = _load_profile_by_id(_analysis_profile_id)
+            if _ap:
+                _analysis_answers = _extract_answers_from_profile(_ap, _ap_ex)
+                for q_num, answer in _analysis_answers.items():
+                    if q_num not in extracted:
+                        extracted[q_num] = answer
+                        _scrum_md_contributed.add(q_num)  # track as auto-filled
+                logger.info(
+                    "Analysis profile %s auto-filled %d answers: %s",
+                    _analysis_profile_id,
+                    len(_analysis_answers),
+                    sorted(_analysis_answers.keys()),
+                )
+
+                # Set up Q6 as team member multi-select when contributor data exists
+                _member_names = _get_contributor_names(_ap_ex)
+                if _member_names and len(_member_names) >= 2:
+                    # Build member labels with velocity info
+                    _member_labels = []
+                    _contrib_list = _ap_ex.get("contributor_stats", [])
+                    for c in _contrib_list:
+                        name = c.get("name", "")
+                        ps = c.get("per_sprint", 0)
+                        disc = c.get("top_discipline", "")
+                        if name:
+                            label = f"{name} ({ps:.1f} pts/sprint, {disc})" if ps > 0 else name
+                            _member_labels.append(label)
+                    if _member_labels:
+                        qs._follow_up_choices[6] = tuple(_member_labels)
+                        qs._q6_member_select = True  # flag for velocity recalc
+                        # Don't auto-fill Q6 — let user select members
+                        extracted.pop(6, None)
+                        logger.info("Q6 set up as team member multi-select: %d members", len(_member_labels))
+
         # ── Smart / quick mode first-invocation ──────────────────────
         # See README: "Project Intake Questionnaire" — smart intake
         #
@@ -2976,6 +3305,12 @@ def project_intake(state: ScrumState) -> dict:
 
             # Pick essential set based on mode (needed before extraction split)
             essential_set = QUICK_ESSENTIALS if intake_mode == "quick" else SMART_ESSENTIALS
+            # If analysis provides velocity, skip Q9 from essentials (auto-accept).
+            # Q11 (tech stack) stays essential so it appears as a suggestion
+            # the user can confirm or override.
+            if _analysis_profile_id and 9 in extracted:
+                essential_set = essential_set - {9}
+                logger.info("Analysis auto-fill: removed Q9 from essentials")
 
             # Split extractions: essential questions go to suggested_answers
             # (user confirms or overrides), non-essential go to answers (auto-accepted).
@@ -3003,6 +3338,14 @@ def project_intake(state: ScrumState) -> dict:
             # won't appear as a gap when Jira is absent.
             # Q28 (bank holidays) choices are prepared so the user sees a confirmation.
             # See README: "Scrum Standards" — capacity planning
+            # ── Derive tracker preference from analysis profile if selected ──
+            _ap_id = state.get("analysis_profile_id", "")
+            if _ap_id and not qs._preferred_tracker:
+                _ap_source = _ap_id.split("-", 1)[0]
+                if _ap_source in ("jira", "azdevops"):
+                    qs._preferred_tracker = _ap_source
+                    logger.info("Tracker preference derived from analysis profile: %s", _ap_source)
+
             # ── Tracker choice prompt when both are configured ─────────
             if _is_jira_configured() and _is_azdevops_configured() and not qs._preferred_tracker:
                 qs._awaiting_tracker_choice = True
@@ -3091,6 +3434,13 @@ def project_intake(state: ScrumState) -> dict:
             # once Q10 has its final answer — not here where Q10 may still be
             # the default "6 sprints").
             gaps = _find_essential_gaps(qs, essential_set)
+            logger.info(
+                "Essential gaps: %s (essentials=%s, Q27 in answers=%s, Q27 in defaults=%s)",
+                gaps,
+                sorted(essential_set),
+                27 in qs.answers,
+                27 in qs.defaulted_questions,
+            )
 
             # Build extraction summary for the preamble
             num_from_desc = len(qs.extracted_questions - qs._scrum_md_questions)
@@ -3188,6 +3538,12 @@ def project_intake(state: ScrumState) -> dict:
     # The last message in state is always the HumanMessage with the user's reply.
     last_msg = state["messages"][-1]
     current_q = questionnaire.current_question
+    logger.info(
+        "Intake subsequent: current_q=%s, _q6_member=%s, msg=%.60s",
+        current_q,
+        getattr(questionnaire, "_q6_member_select", "N/A"),
+        last_msg.content if hasattr(last_msg, "content") else "?",
+    )
 
     # ── Edit re-ask handler ──────────────────────────────────────────
     # See README: "Project Intake Questionnaire" — edit flow
@@ -3270,11 +3626,102 @@ def project_intake(state: ScrumState) -> dict:
                 questionnaire.defaulted_questions.discard(current_q)
                 questionnaire.skipped_questions.discard(current_q)
                 questionnaire.answer_sources[current_q] = AnswerSource.DIRECT
-                if current_q == 17:
-                    _sync_platform_from_url(questionnaire)
-                    platform = questionnaire.answers.get(16, "")
-                    if platform:
-                        repo_confirm = f"*✓ {platform} repo detected — will be scanned during analysis.*\n\n"
+
+            # Q6 team member multi-select → recalculate velocity + auto-fill Q7
+            # (runs after both pending and single-gap answer recording)
+            if current_q == 6 and getattr(questionnaire, "_q6_member_select", False):
+                _sel_text = last_msg.content
+                # Parse member names — handle both "; " and ", " separators
+                # Labels look like "Name (X pts/sprint, discipline)"
+                # Split on "; " first (multi-select default), then try ", " between labels
+                _sel_names = []
+                if "; " in _sel_text:
+                    for _p in _sel_text.split("; "):
+                        name = _p.strip().split(" (")[0].strip()
+                        if name:
+                            _sel_names.append(name)
+                else:
+                    # Separator is ", " — use regex to find "Name (info)" patterns
+                    import re as _q6re
+
+                    _labels = _q6re.findall(r"([A-Za-z][^(]*?)\s*\([^)]+\)", _sel_text)
+                    _sel_names = [lbl.strip() for lbl in _labels if lbl.strip()]
+                    if not _sel_names:
+                        # No parentheses — plain comma-separated names
+                        _sel_names = [p.strip() for p in _sel_text.split(",") if p.strip()]
+                # Deduplicate preserving order
+                _seen: set[str] = set()
+                _unique: list[str] = []
+                for _n in _sel_names:
+                    if _n.lower() not in _seen:
+                        _seen.add(_n.lower())
+                        _unique.append(_n)
+                _sel_names = _unique
+
+                if _sel_names:
+                    _names_str = ", ".join(_sel_names)
+                    questionnaire.answers[6] = f"{len(_sel_names)} ({_names_str})"
+                    logger.info("Q6 member select: %d members: %s", len(_sel_names), _names_str)
+
+                    _ap_id = state.get("analysis_profile_id", "")
+                    if _ap_id:
+                        try:
+                            _, _ap_ex2 = _load_profile_by_id(_ap_id)
+                            if _ap_ex2:
+                                _vel = _calculate_velocity_for_members(_sel_names, _ap_ex2)
+                                if _vel > 0:
+                                    questionnaire.answers[9] = (
+                                        f"{_vel:.0f} points per sprint (from {len(_sel_names)} selected members)"
+                                    )
+                                    questionnaire.answer_sources[9] = AnswerSource.EXTRACTED
+                                    questionnaire.extracted_questions.add(9)
+                                    questionnaire.defaulted_questions.discard(9)
+
+                                # Auto-fill Q7 from selected members' disciplines
+                                _contrib_list = _ap_ex2.get("contributor_stats", [])
+                                _roles: dict[str, int] = {}
+                                _lower_names = [n.lower() for n in _sel_names]
+                                for c in _contrib_list:
+                                    if isinstance(c, dict) and c.get("name", "").lower() in _lower_names:
+                                        disc = c.get("top_discipline", "fullstack")
+                                        _dm = {
+                                            "backend": "Backend",
+                                            "frontend": "Frontend",
+                                            "fullstack": "Fullstack",
+                                            "infrastructure": "DevOps/Infra",
+                                            "devops": "DevOps/Infra",
+                                            "ci-cd": "DevOps/Infra",
+                                            "testing": "QA/Testing",
+                                            "security": "DevOps/Infra",
+                                            "data": "Data/ML",
+                                            "design": "Design",
+                                            "observability": "DevOps/Infra",
+                                            "platform": "DevOps/Infra",
+                                            "networking": "DevOps/Infra",
+                                            "database": "Backend",
+                                        }
+                                        role = _dm.get(disc, "Fullstack")
+                                        _roles[role] = _roles.get(role, 0) + 1
+                                if _roles:
+                                    _rp = [
+                                        f"{c} {r}" if c > 1 else r
+                                        for r, c in sorted(_roles.items(), key=lambda x: -x[1])
+                                    ]
+                                    questionnaire.answers[7] = ", ".join(_rp)
+                                    questionnaire.answer_sources[7] = AnswerSource.EXTRACTED
+                                    questionnaire.extracted_questions.add(7)
+                                    questionnaire.defaulted_questions.discard(7)
+                                    logger.info("Q7 auto-filled: %s", questionnaire.answers[7])
+                        except Exception:
+                            pass
+                questionnaire._q6_member_select = False
+                questionnaire._follow_up_choices.pop(6, None)
+
+            if current_q == 17:
+                _sync_platform_from_url(questionnaire)
+                platform = questionnaire.answers.get(16, "")
+                if platform:
+                    repo_confirm = f"*✓ {platform} repo detected — will be scanned during analysis.*\n\n"
 
             # Q2 repo URL follow-up: when Q2 = "Existing codebase"/"Hybrid",
             # prompt for the repo URL inline as part of Q2. The answer is stored
@@ -3374,7 +3821,9 @@ def project_intake(state: ScrumState) -> dict:
             _pref_trk = questionnaire._preferred_tracker
             _use_jira = _pref_trk == "jira" or (not _pref_trk and _is_jira_configured())
             _trk_label = "Jira" if _use_jira else "Azure DevOps"
+            logger.info("Q27: fetching active sprint from %s (preferred=%s)", _trk_label, _pref_trk)
             active_num, active_start, jira_status = _fetch_active_sprint_number(_pref_trk)
+            logger.info("Q27: active_num=%s, active_start=%s, status=%s", active_num, active_start, jira_status)
             if active_num is not None:
                 questionnaire._active_sprint_number = active_num
                 questionnaire._active_sprint_start_date = active_start
@@ -3389,16 +3838,50 @@ def project_intake(state: ScrumState) -> dict:
                     f"Which sprint are you planning for?"
                 )
             else:
-                # Couldn't fetch sprint — tell the user why, then fall back
+                # Couldn't fetch active sprint from live tracker
                 logger.warning("Tracker sprint fetch failed: %s", jira_status)
-                _derive_q27_from_locale(questionnaire)
-                gaps = _find_essential_gaps(questionnaire, essential_set)
-                if not gaps:
-                    _prepare_bank_holiday_choices(questionnaire)
-                    return _show_summary_or_pto(questionnaire, prefix=repo_confirm)
-                prompt_text, q_nums = _build_gap_prompt(gaps, questionnaire)
-                questionnaire._pending_merged_questions = q_nums
-                questionnaire.current_question = q_nums[0]
+                # Try analysis sprint data as fallback
+                _ap_id = state.get("analysis_profile_id", "")
+                _used_analysis = False
+                if _ap_id:
+                    try:
+                        _, _ap_ex3 = _load_profile_by_id(_ap_id)
+                        if _ap_ex3:
+                            _sd = _ap_ex3.get("sprint_details", [])
+                            if _sd:
+                                # Find the latest sprint number from analysis
+                                _last_sprint = _sd[-1]
+                                _last_name = _last_sprint.get("name", "")
+                                import re as _s27re
+
+                                _num_m = _s27re.search(r"(\d+)", _last_name)
+                                if _num_m:
+                                    _last_num = int(_num_m.group(1))
+                                    questionnaire._active_sprint_number = _last_num
+                                    questionnaire.answers[27] = f"_active:{_last_num}"
+                                    questionnaire._follow_up_choices[27] = (
+                                        f"Sprint {_last_num + 1} (next)",
+                                        f"Sprint {_last_num + 2}",
+                                        f"Sprint {_last_num + 3}",
+                                    )
+                                    prompt_text = (
+                                        f"Last analysed sprint: **Sprint {_last_num}** "
+                                        f"(from team analysis — live tracker unavailable).\n\n"
+                                        f"Which sprint are you planning for?"
+                                    )
+                                    _used_analysis = True
+                                    logger.info("Q27 fallback: using analysis sprint %d", _last_num)
+                    except Exception:
+                        pass
+                if not _used_analysis:
+                    _derive_q27_from_locale(questionnaire)
+                    gaps = _find_essential_gaps(questionnaire, essential_set)
+                    if not gaps:
+                        _prepare_bank_holiday_choices(questionnaire)
+                        return _show_summary_or_pto(questionnaire, prefix=repo_confirm)
+                    prompt_text, q_nums = _build_gap_prompt(gaps, questionnaire)
+                    questionnaire._pending_merged_questions = q_nums
+                    questionnaire.current_question = q_nums[0]
 
         return {
             "questionnaire": questionnaire,
@@ -3930,6 +4413,100 @@ def project_intake(state: ScrumState) -> dict:
         # First answer to this question — record it and check vagueness.
         questionnaire.answers[current_q] = last_msg.content
         questionnaire.answer_sources[current_q] = AnswerSource.DIRECT
+
+        # Q6 team member multi-select → recalculate velocity from selected members
+        logger.info(
+            "Q6 check: current_q=%s, _q6_member_select=%s, answer=%s",
+            current_q,
+            getattr(questionnaire, "_q6_member_select", "MISSING"),
+            last_msg.content[:80],
+        )
+        if current_q == 6 and getattr(questionnaire, "_q6_member_select", False):
+            _selected_text = last_msg.content
+            logger.info("Q6 member select raw answer: %s", _selected_text[:200])
+            # Parse member names from labels like "Name (X.X pts/sprint, discipline)"
+            # Split on "), " which separates complete labels, then extract name before " ("
+            import re as _q6_re
+
+            _selected_names = []
+            # Find all "Name (..." patterns
+            _label_parts = _q6_re.findall(r"([^,;]+?\s*\([^)]+\))", _selected_text)
+            if _label_parts:
+                for lbl in _label_parts:
+                    name = lbl.strip().split(" (")[0].strip()
+                    if name:
+                        _selected_names.append(name)
+            else:
+                # Fallback: try simple comma split (no parentheses in labels)
+                for part in _selected_text.split(","):
+                    name = part.strip().split(" (")[0].strip()
+                    if name:
+                        _selected_names.append(name)
+            logger.info("Q6 parsed members: %s", _selected_names)
+            if _selected_names:
+                # Store clean display: "2 engineers (Alice, Bob)"
+                _names_str = ", ".join(_selected_names)
+                questionnaire.answers[6] = f"{len(_selected_names)} ({_names_str})"
+                # Calculate velocity from selected members
+                _ap_id = state.get("analysis_profile_id", "")
+                if _ap_id:
+                    try:
+                        _, _ap_ex2 = _load_profile_by_id(_ap_id)
+                        if _ap_ex2:
+                            _vel = _calculate_velocity_for_members(_selected_names, _ap_ex2)
+                            if _vel > 0:
+                                questionnaire.answers[9] = (
+                                    f"{_vel:.0f} points per sprint (from {len(_selected_names)} selected members)"
+                                )
+                                questionnaire.answer_sources[9] = AnswerSource.EXTRACTED
+                                questionnaire.extracted_questions.add(9)
+                                logger.info(
+                                    "Q6 member select: %d members, velocity=%.0f",
+                                    len(_selected_names),
+                                    _vel,
+                                )
+                            # Auto-fill Q7 (team roles) from selected members' disciplines
+                            _contrib_list = _ap_ex2.get("contributor_stats", [])
+                            _roles: dict[str, int] = {}
+                            for c in _contrib_list:
+                                if isinstance(c, dict) and c.get("name", "").lower() in [
+                                    n.lower() for n in _selected_names
+                                ]:
+                                    disc = c.get("top_discipline", "fullstack")
+                                    # Map analysis disciplines to Q7 options
+                                    _disc_map = {
+                                        "backend": "Backend",
+                                        "frontend": "Frontend",
+                                        "fullstack": "Fullstack",
+                                        "infrastructure": "DevOps/Infra",
+                                        "devops": "DevOps/Infra",
+                                        "ci-cd": "DevOps/Infra",
+                                        "testing": "QA/Testing",
+                                        "qa": "QA/Testing",
+                                        "security": "DevOps/Infra",
+                                        "data": "Data/ML",
+                                        "design": "Design",
+                                        "observability": "DevOps/Infra",
+                                        "platform": "DevOps/Infra",
+                                        "networking": "DevOps/Infra",
+                                        "database": "Backend",
+                                    }
+                                    role = _disc_map.get(disc, "Fullstack")
+                                    _roles[role] = _roles.get(role, 0) + 1
+                            if _roles:
+                                _role_parts = []
+                                for role, count in sorted(_roles.items(), key=lambda x: -x[1]):
+                                    _role_parts.append(f"{count} {role}" if count > 1 else role)
+                                questionnaire.answers[7] = ", ".join(_role_parts)
+                                questionnaire.answer_sources[7] = AnswerSource.EXTRACTED
+                                questionnaire.extracted_questions.add(7)
+                                questionnaire.defaulted_questions.discard(7)
+                                logger.info("Q7 auto-filled from members: %s", questionnaire.answers[7])
+                    except Exception:
+                        pass
+            questionnaire._q6_member_select = False
+            questionnaire._follow_up_choices.pop(6, None)
+
         if current_q == 17:
             _sync_platform_from_url(questionnaire)
             platform = questionnaire.answers.get(16, "")
@@ -4642,6 +5219,15 @@ def project_analyzer(state: ScrumState) -> dict:
         "CONFLUENCE: result status=%s detail=%s", confluence_status.get("status"), confluence_status.get("detail")
     )
 
+    # Load team profile for calibration-aware analysis.
+    # Non-fatal — if no profile exists, the prompt runs without calibration context.
+    # See README: "Scrum Standards" — team learning, self-calibrating estimates
+    team_profile = _load_team_profile(state.get("analysis_profile_id", ""))
+    team_calibration_text = _format_team_calibration(
+        team_profile, examples=_load_team_examples(state.get("analysis_profile_id", ""))
+    )
+    team_profile_summary = team_calibration_text.strip()
+
     # Build the formatted answers block for the prompt
     answers_block = _build_answers_block(questionnaire)
     prompt = get_analyzer_prompt(
@@ -4651,6 +5237,7 @@ def project_analyzer(state: ScrumState) -> dict:
         repo_context=repo_context,
         confluence_context=confluence_context,
         user_context=user_context,
+        team_profile_summary=team_profile_summary,
         review_feedback=review_feedback if review_mode else None,
         review_mode=review_mode,
         previous_output=previous_output,
@@ -5037,6 +5624,399 @@ def _format_features_for_prompt(features: list[Feature]) -> str:
     return "\n".join(lines)
 
 
+def _format_team_calibration(profile: object, *, examples: dict | None = None) -> str:
+    """Render a TeamProfile into prompt-ready calibration text.
+
+    # See README: "Scrum Standards" — team learning, self-calibrating estimates
+    #
+    # Injected into story_writer and sprint_planner prompts so the LLM uses
+    # team-specific patterns instead of generic Fibonacci rules. The profile
+    # is passed as `object` to avoid importing TeamProfile (circular import risk).
+    # The optional ``examples`` dict provides analysis data (spillover
+    # correlation, discipline calibration, task patterns, scope changes) that
+    # lives outside the TeamProfile dataclass.
+
+    Args:
+        profile: A TeamProfile instance (from team_profile.py).
+        examples: Optional analysis examples dict from TeamProfileStore.
+
+    Returns:
+        A formatted markdown section, or "" if the profile has no useful data.
+    """
+    if profile is None:
+        return ""
+
+    sample_sprints = getattr(profile, "sample_sprints", 0)
+    sample_stories = getattr(profile, "sample_stories", 0)
+    if sample_sprints == 0:
+        return ""
+
+    _ex = examples or {}
+    lines = [
+        f"\n## Team Calibration Data (from {sample_sprints} sprints, {sample_stories} stories)\n",
+    ]
+
+    # Point calibrations — prefer LLM-generated descriptions, fall back to raw metrics
+    calibrations = getattr(profile, "point_calibrations", ())
+    point_descs = _ex.get("point_descriptions", {}) if isinstance(_ex.get("point_descriptions"), dict) else {}
+    if calibrations:
+        lines.append("### What story points mean for THIS team:\n")
+        for cal in calibrations:
+            if cal.sample_count > 0:
+                desc = point_descs.get(str(cal.point_value), "")
+                if desc:
+                    lines.append(f"- **{cal.point_value} pt**: {desc}")
+                else:
+                    # Fallback to raw metrics
+                    patterns = ", ".join(cal.common_patterns) if cal.common_patterns else ""
+                    pattern_note = f' — typically "{patterns}"' if patterns else ""
+                    overshoot_note = f", overshoots {cal.overshoot_pct:.0f}% of time" if cal.overshoot_pct > 10 else ""
+                    if cal.sample_count >= 15:
+                        conf = " **(HIGH confidence)**"
+                    elif cal.sample_count >= 5:
+                        conf = " *(medium confidence)*"
+                    else:
+                        conf = " *(low confidence — few samples, use cautiously)*"
+                    lines.append(
+                        f"- **{cal.point_value} pt**: avg {cal.avg_cycle_time_days:.1f} day cycle time, "
+                        f"~{cal.typical_task_count:.0f} tasks ({cal.sample_count} samples)"
+                        f"{pattern_note}{overshoot_note}{conf}"
+                    )
+        lines.append("")
+
+    # Example stories per point value — for LLM to reference in points_rationale
+    _has_examples = False
+    for pts in (1, 2, 3, 5, 8):
+        ex_key = f"calibration_{pts}pt"
+        ex_items = _ex.get(ex_key, [])
+        if ex_items:
+            if not _has_examples:
+                lines.append("### Similar completed stories (reference these in points_rationale):\n")
+                _has_examples = True
+            lines.append(f"**{pts} pt examples:**")
+            for ex in ex_items[:3]:
+                ek = ex.get("issue_key", "")
+                sm = ex.get("summary", "")
+                detail = ex.get("detail", "")
+                lines.append(f"  - {ek}: {sm}" + (f" ({detail})" if detail else ""))
+    if _has_examples:
+        lines.append("")
+
+    # Story shapes with discipline-specific guidance
+    shapes = getattr(profile, "story_shapes", ())
+    if shapes:
+        lines.append("### Story shape patterns by discipline:\n")
+        for shape in shapes:
+            if shape.sample_count > 0:
+                if shape.sample_count >= 15:
+                    conf = " **(reliable)**"
+                elif shape.sample_count >= 5:
+                    conf = ""
+                else:
+                    conf = " *(few samples)*"
+                lines.append(
+                    f"- **{shape.discipline}** stories: avg {shape.avg_points:.1f} pts, "
+                    f"{shape.avg_ac_count:.0f} ACs, {shape.avg_task_count:.1f} tasks "
+                    f"({shape.sample_count} samples){conf}"
+                )
+        lines.append("")
+
+    # Velocity with trend context
+    vel_avg = getattr(profile, "velocity_avg", 0)
+    vel_std = getattr(profile, "velocity_stddev", 0)
+    if vel_avg > 0:
+        var_pct = vel_std / vel_avg * 100 if vel_avg else 0
+        stability = "stable" if var_pct < 20 else ("moderate variance" if var_pct < 35 else "HIGH variance")
+        lines.append(f"### Velocity: {vel_avg:.0f} ± {vel_std:.0f} pts/sprint ({stability})\n")
+
+    # Sprint completion
+    completion = getattr(profile, "sprint_completion_rate", 0)
+    if completion > 0:
+        lines.append(f"### Sprint completion rate: {completion:.0f}%")
+        if completion < 70:
+            lines.append("**WARNING:** Low completion rate — plan conservatively, target 80% of historical velocity.\n")
+        else:
+            lines.append("")
+
+    # Spillover with root-cause hints
+    spillover = getattr(profile, "spillover", None)
+    if spillover and getattr(spillover, "carried_over_pct", 0) > 0:
+        pct = spillover.carried_over_pct
+        lines.append(
+            f"### Spillover: {pct:.0f}% of stories "
+            f"carried to next sprint (avg {spillover.avg_spillover_pts:.1f} pts/sprint)"
+        )
+        if spillover.most_common_spillover_reason:
+            lines.append(f"- Most common cause: {spillover.most_common_spillover_reason}")
+        # Actionable guidance based on spillover severity
+        if pct > 20:
+            lines.append(
+                "- **High spillover — split stories aggressively.** "
+                "Prefer 2-3pt stories over 5-8pt. Add buffer for unknowns.\n"
+            )
+        elif pct > 10:
+            lines.append(
+                "- **Moderate spillover — be cautious with large stories.** "
+                "Consider splitting 8pt stories into smaller pieces.\n"
+            )
+        else:
+            lines.append("")
+
+    # Estimation accuracy
+    accuracy = getattr(profile, "estimation_accuracy_pct", 0)
+    if accuracy > 0:
+        lines.append(f"### Estimation accuracy: {accuracy:.0f}% of stories completed at original estimate")
+        if accuracy < 60:
+            lines.append("- Estimates are frequently wrong — add explicit unknowns/risks to ACs.\n")
+        else:
+            lines.append("")
+
+    # Epic patterns
+    epic = getattr(profile, "epic_pattern", None)
+    if epic and getattr(epic, "sample_count", 0) > 0:
+        lines.append(
+            f"### Epic sizing: avg {epic.avg_stories_per_epic:.0f} stories/epic, "
+            f"{epic.avg_points_per_epic:.0f} pts/epic "
+            f"(range {epic.typical_story_count_range[0]}–{epic.typical_story_count_range[1]} stories)\n"
+        )
+
+    # Definition of Done signals
+    dod = getattr(profile, "dod_signal", None)
+    if dod:
+        pr_pct = getattr(dod, "stories_with_pr_link_pct", 0)
+        review_pct = getattr(dod, "stories_with_review_mention_pct", 0)
+        test_pct = getattr(dod, "stories_with_testing_mention_pct", 0)
+        deploy_pct = getattr(dod, "stories_with_deploy_mention_pct", 0)
+        if pr_pct > 0 or review_pct > 0:
+            lines.append("### Definition of Done (observed behaviour):\n")
+            if pr_pct > 0:
+                lines.append(f"- PR linked before close: {pr_pct:.0f}% of stories")
+            if review_pct > 0:
+                lines.append(f"- Code review mentioned: {review_pct:.0f}% of stories")
+            if test_pct > 0:
+                lines.append(f"- Testing mentioned: {test_pct:.0f}% of stories")
+            if deploy_pct > 0:
+                lines.append(f"- Deploy/release mentioned: {deploy_pct:.0f}% of stories")
+            checklist = getattr(dod, "common_checklist_items", ())
+            if checklist:
+                items = ", ".join(f'"{c}"' for c in checklist[:4])
+                lines.append(f"- Common checklist items: {items}")
+            lines.append(
+                "\nWhen generating tasks, include steps that match this team's "
+                "DoD pattern (e.g. code review, testing, PR).\n"
+            )
+
+    # Writing patterns
+    wp = getattr(profile, "writing_patterns", None)
+    if wp:
+        gwt = getattr(wp, "uses_given_when_then", False)
+        median_ac = getattr(wp, "median_ac_count", 0)
+        median_tasks = getattr(wp, "median_task_count_per_story", 0)
+        personas = getattr(wp, "common_personas", ())
+        if gwt or median_ac > 0 or personas:
+            lines.append("### Writing patterns (match this team's style):\n")
+            if gwt:
+                lines.append("- Acceptance criteria use Given/When/Then format")
+            if median_ac > 0:
+                lines.append(f"- Median acceptance criteria per story: {median_ac:.0f}")
+            if median_tasks > 0:
+                lines.append(f"- Median tasks per story: {median_tasks:.0f}")
+            if personas:
+                lines.append(f"- Common personas: {', '.join(personas[:5])}")
+            lines.append("")
+
+    # ── Sections from examples dict (analysis data not in TeamProfile) ──
+
+    # 1A: Spillover correlation — which sizes/disciplines spill most
+    spill_corr = _ex.get("spillover_correlation", {})
+    if isinstance(spill_corr, dict):
+        by_size = spill_corr.get("by_size", {})
+        by_disc = spill_corr.get("by_discipline", {})
+        if by_size or by_disc:
+            lines.append("### Spillover risk factors:\n")
+            for sz in sorted(by_size.keys(), key=lambda x: int(x)):
+                pct = by_size[sz]
+                if pct > 0:
+                    risk = " ⚠ HIGH RISK" if pct >= 30 else ""
+                    lines.append(f"- {sz}pt stories spill {pct:.0f}% of the time{risk}")
+            for disc, pct in sorted(by_disc.items(), key=lambda x: -x[1]):
+                if pct > 0:
+                    lines.append(f"- {disc} stories spill {pct:.0f}%")
+            # Actionable guidance
+            high_spill_sizes = [sz for sz, p in by_size.items() if p >= 25]
+            if high_spill_sizes:
+                sizes = ", ".join(f"{s}pt" for s in sorted(high_spill_sizes, key=int))
+                lines.append(f"\n→ {sizes} stories are spill-prone. Prefer smaller slices.\n")
+            else:
+                lines.append("")
+
+    # 1B: Velocity trend — improving/degrading/stable
+    vel_trend = _ex.get("velocity_trend", {})
+    if isinstance(vel_trend, dict) and vel_trend.get("trend"):
+        trend = vel_trend["trend"]
+        slope = vel_trend.get("slope", 0)
+        first_v = vel_trend.get("first_velocity", 0)
+        last_v = vel_trend.get("last_velocity", 0)
+        if trend not in ("insufficient_data", ""):
+            lines.append(f"### Velocity trend: {trend.upper()} ({first_v}→{last_v}, {slope:+.1f}/sprint)\n")
+            if trend == "degrading":
+                lines.append(
+                    f"→ Velocity is declining. Plan using recent velocity ({last_v} pts), "
+                    "not the average. Investigate root causes.\n"
+                )
+            elif trend == "improving":
+                lines.append(
+                    f"→ Velocity is improving. Recent sprints deliver {last_v} pts. "
+                    "Can plan slightly above the historical average.\n"
+                )
+
+    # 1C: Discipline-specific calibration
+    disc_cal = _ex.get("discipline_calibration", {})
+    if isinstance(disc_cal, dict) and len(disc_cal) > 1:
+        lines.append("### Discipline calibration:\n")
+        for disc, entries in sorted(disc_cal.items()):
+            if not isinstance(entries, list):
+                continue
+            for e in entries:
+                if not isinstance(e, dict):
+                    continue
+                pts = e.get("points", 0)
+                cycle = e.get("avg_cycle_days", 0)
+                spill = e.get("spill_pct", 0)
+                samples = e.get("samples", 0)
+                conf = "reliable" if samples >= 10 else ("moderate" if samples >= 5 else "low data")
+                risk = " — ⚠ high spill" if spill >= 25 else ""
+                lines.append(
+                    f"- **{disc}** {pts}pt: {cycle:.1f}d cycle, {spill:.0f}% spill ({samples} samples) — {conf}{risk}"
+                )
+        lines.append("")
+
+    # 1D: Task decomposition patterns
+    task_decomp = _ex.get("task_decomposition", {})
+    if isinstance(task_decomp, dict) and task_decomp.get("total_stories", 0) > 0:
+        avg_tasks = task_decomp.get("avg_tasks_per_story", 0)
+        sw_tasks = task_decomp.get("stories_with_tasks", 0)
+        tot_s = task_decomp.get("total_stories", 0)
+        task_pct = round(sw_tasks / tot_s * 100) if tot_s else 0
+        completion = task_decomp.get("task_completion_rate", 100)
+        type_dist = task_decomp.get("type_distribution", {})
+        bottlenecks = task_decomp.get("bottlenecks", [])
+        common = task_decomp.get("common_tasks", [])
+
+        lines.append("### Task decomposition patterns (historical):\n")
+        if avg_tasks > 0:
+            lines.append(f"- Avg tasks per story: {avg_tasks:.1f} ({task_pct}% of stories have subtasks)")
+        if type_dist:
+            dist_parts = ", ".join(f"{t} {p:.0f}%" for t, p in type_dist.items() if p > 0)
+            if dist_parts:
+                lines.append(f"- Type distribution: {dist_parts}")
+        if completion < 70:
+            lines.append(f"- ⚠ Task completion rate: {completion:.0f}% — make tasks smaller and more actionable")
+        for cat, rate, count in bottlenecks[:2]:
+            lines.append(f"- ⚠ {cat} bottleneck: only {rate}% completion ({count} tasks)")
+        if common:
+            task_names = ", ".join(f'"{t}"' for t in common[:5])
+            lines.append(f"- Common task patterns: {task_names}")
+        lines.append("\n→ When generating subtasks, match this team's task style and naming conventions.\n")
+
+    # 1E: Committed vs delivered + scope churn
+    scope_changes = _ex.get("scope_changes", {})
+    if isinstance(scope_changes, dict) and scope_changes.get("totals"):
+        sc_totals = scope_changes["totals"]
+        committed = sc_totals.get("avg_committed_velocity", 0.0)
+        delivered = sc_totals.get("avg_delivered_velocity", 0.0)
+        if committed > 0:
+            accuracy = round(delivered / committed * 100)
+            lines.append("### Committed vs Delivered:\n")
+            lines.append(f"- Avg committed: {committed:g} pts/sprint")
+            lines.append(f"- Avg delivered: {delivered:g} pts/sprint ({accuracy}% delivery rate)")
+            # Compute avg churn from per-sprint data
+            per_sprint = scope_changes.get("per_sprint", [])
+            churns = [s.get("scope_churn", 0) for s in per_sprint if s.get("scope_churn") is not None]
+            if churns:
+                avg_churn = sum(churns) / len(churns)
+                lines.append(f"- Avg scope churn: {avg_churn:.0%}")
+            if accuracy < 80:
+                lines.append(
+                    f"\n→ Plan sprints at {delivered:g} pts (delivered velocity), "
+                    f"not {committed:g}. Leave buffer for mid-sprint scope changes.\n"
+                )
+            else:
+                lines.append("")
+
+    # Ticket naming conventions
+    naming = _ex.get("naming_conventions", {})
+    if isinstance(naming, dict):
+        naming_parts: list[str] = []
+        prefixes = naming.get("title_prefixes", [])
+        if prefixes:
+            p_str = ", ".join(f"{p} ({pct}%)" for p, pct in prefixes[:5])
+            naming_parts.append(f"- Title prefixes in use: {p_str} — use matching prefixes on generated stories")
+        labels = naming.get("label_distribution", [])
+        if labels:
+            l_str = ", ".join(f"{lbl} ({pct}%)" for lbl, pct in labels[:5])
+            naming_parts.append(f"- Label convention: {l_str}")
+        epic_style = naming.get("epic_naming_style", "")
+        epic_ex = naming.get("epic_examples", [])
+        if epic_style and epic_ex:
+            ex_str = ", ".join(f'"{e}"' for e in epic_ex[:3])
+            naming_parts.append(f"- Epic naming: {epic_style} (e.g. {ex_str})")
+        sections = naming.get("template_sections", [])
+        if sections:
+            s_str = ", ".join(f'"{s}"' for s, _ in sections[:5])
+            naming_parts.append(f"- Description template: use sections {s_str}")
+        if naming_parts:
+            lines.append("### Ticket naming conventions (match this team's style):\n")
+            lines.extend(naming_parts)
+            lines.append("\n→ Generated tickets MUST match these naming conventions.\n")
+
+    # Board workflow style
+    wf = _ex.get("workflow_style", {})
+    if isinstance(wf, dict) and wf.get("style") == "columns-as-dod":
+        workflow = wf.get("workflow", [])
+        dod_cols = wf.get("dod_columns", {})
+        if workflow and dod_cols:
+            col_str = " → ".join(workflow)
+            dod_str = ", ".join(f"{c} ({r}%)" for c, r in dod_cols.items())
+            lines.append("### Team workflow style: columns-as-DoD\n")
+            lines.append(f"- Board columns: {col_str}")
+            lines.append(f"- DoD columns: {dod_str}")
+            lines.append(
+                "\n→ This team uses board columns as workflow stages. "
+                "DO NOT create separate subtasks for steps that are tracked as column transitions "
+                "(e.g. Documentation, PR review). Instead, generate implementation tasks only.\n"
+            )
+
+    # Estimation bias and seasonal patterns
+    addl = _ex.get("additional_patterns", {})
+    if isinstance(addl, dict):
+        est = addl.get("estimation_bias", {})
+        if isinstance(est, dict) and est.get("underestimated_pct", 0) >= 20:
+            worst = est.get("worst_sizes", [])
+            w_str = ", ".join(f"{p}pt" for p in worst) if worst else "larger stories"
+            lines.append(
+                f"### Estimation warning: {est['underestimated_pct']}% of stories take >2x expected.\n"
+                f"- Most affected: {w_str}\n"
+                "- Add estimation buffer for these sizes or break into smaller pieces.\n"
+            )
+        seas = addl.get("seasonal", {})
+        if isinstance(seas, dict) and seas.get("low_months"):
+            low = seas["low_months"]
+            low_str = ", ".join(f"{m} ({v:g} pts)" for m, v in low.items())
+            lines.append(
+                f"### Seasonal velocity dips: {low_str}\n"
+                f"- Average velocity is {seas.get('overall_avg', 0):g} pts/sprint.\n"
+                "- Plan lighter sprints in low-velocity months.\n"
+            )
+
+    lines.append(
+        "### Estimation note: Use THESE team-specific patterns, not generic Fibonacci rules. "
+        "Weight HIGH confidence calibrations heavily; treat low confidence data as rough guidance only.\n"
+    )
+
+    return "\n".join(lines)
+
+
 def _snap_to_fibonacci(value: int) -> StoryPointValue:
     """Clamp an integer to [1, 8] and snap to the nearest Fibonacci story point.
 
@@ -5391,6 +6371,9 @@ def _parse_stories_response(raw: str, features: list[Feature], analysis: Project
                 dod_applicable = (True,) * len(DOD_ITEMS)
 
             points_rationale = str(item.get("points_rationale", ""))
+            points_confidence = str(item.get("points_confidence", ""))
+            if points_confidence not in ("high", "medium", "low"):
+                points_confidence = ""
 
             story = UserStory(
                 id=story_id,
@@ -5405,6 +6388,7 @@ def _parse_stories_response(raw: str, features: list[Feature], analysis: Project
                 discipline=discipline if discipline is not None else Discipline.FULLSTACK,
                 dod_applicable=dod_applicable,
                 points_rationale=points_rationale,
+                points_confidence=points_confidence,
             )
             # Infer discipline from text when the LLM didn't provide a valid one
             if discipline is None:
@@ -5606,6 +6590,18 @@ def story_writer(state: ScrumState) -> dict:
     # See README: "Prompt Construction" — pre-formatted strings pattern
     features_block = _format_features_for_prompt(features)
 
+    # Load team calibration for team-specific estimation rules.
+    # See README: "Scrum Standards" — team learning, self-calibrating estimates
+    team_profile = _load_team_profile(state.get("analysis_profile_id", ""))
+    team_calibration_text = _format_team_calibration(
+        team_profile, examples=_load_team_examples(state.get("analysis_profile_id", ""))
+    )
+
+    # Resolve DoD items — custom from analysis or default 7
+    from scrum_agent.agent.state import resolve_dod_items
+
+    _dod = resolve_dod_items(state)
+
     prompt = get_story_writer_prompt(
         project_name=analysis.project_name,
         project_description=analysis.project_description,
@@ -5616,6 +6612,8 @@ def story_writer(state: ScrumState) -> dict:
         constraints=_format_epic_list(analysis.constraints),
         features_block=features_block,
         out_of_scope=_format_epic_list(analysis.out_of_scope),
+        team_calibration=team_calibration_text,
+        dod_items=_dod,
         review_feedback=review_feedback if review_mode else None,
         review_mode=review_mode,
         previous_output=previous_output,
@@ -5965,6 +6963,7 @@ def _parallel_task_decompose(
     project_type: str,
     tech_stack: str,
     doc_context: str | None,
+    team_calibration: str = "",
 ) -> list[Task]:
     """Decompose stories into tasks with parallel LLM calls per feature.
 
@@ -6013,6 +7012,7 @@ def _parallel_task_decompose(
             tech_stack=tech_stack,
             stories_block=stories_block,
             doc_context=doc_context,
+            team_calibration=team_calibration,
         )
 
         try:
@@ -6098,6 +7098,13 @@ def task_decomposer(state: ScrumState) -> dict:
     doc_context = _build_doc_context(state)
     tech_stack_str = _format_epic_list(analysis.tech_stack)
 
+    # Load team calibration for team-specific task patterns.
+    # See README: "Scrum Standards" — team learning, self-calibrating estimates
+    team_profile = _load_team_profile(state.get("analysis_profile_id", ""))
+    team_calibration_text = _format_team_calibration(
+        team_profile, examples=_load_team_examples(state.get("analysis_profile_id", ""))
+    )
+
     # ── Parallel task decomposition by feature ────────────────────────────
     # Split stories into per-feature groups and decompose concurrently.
     # Each feature is independent — tasks in Feature 1 don't depend on
@@ -6117,6 +7124,7 @@ def task_decomposer(state: ScrumState) -> dict:
             tech_stack=tech_stack_str,
             stories_block=stories_block,
             doc_context=doc_context,
+            team_calibration=team_calibration_text,
             review_feedback=review_feedback,
             review_mode=review_mode,
             previous_output=previous_output,
@@ -6138,6 +7146,7 @@ def task_decomposer(state: ScrumState) -> dict:
             project_type=analysis.project_type,
             tech_stack=tech_stack_str,
             doc_context=doc_context,
+            team_calibration=team_calibration_text,
         )
 
     # Format the tasks for display
@@ -6870,6 +7879,13 @@ def sprint_planner(state: ScrumState) -> dict:
     # only needs points, priority, and discipline for capacity allocation.
     stories_block = _format_stories_for_sprint_planner(stories, features)
 
+    # Load team calibration for velocity-aware sprint planning.
+    # See README: "Scrum Standards" — team learning, self-calibrating estimates
+    team_profile = _load_team_profile(state.get("analysis_profile_id", ""))
+    team_calibration_text = _format_team_calibration(
+        team_profile, examples=_load_team_examples(state.get("analysis_profile_id", ""))
+    )
+
     prompt = get_sprint_planner_prompt(
         project_name=analysis.project_name,
         project_description=analysis.project_description,
@@ -6881,6 +7897,7 @@ def sprint_planner(state: ScrumState) -> dict:
         enforce_target=enforce_target,
         sprint_capacities=sprint_caps or None,
         team_override_from=original_team_size if state.get("_capacity_team_override", 0) > 0 else None,
+        team_calibration=team_calibration_text,
         review_feedback=review_feedback if review_mode else None,
         review_mode=review_mode,
         previous_output=previous_output,

@@ -128,7 +128,7 @@ CREATE TABLE IF NOT EXISTS sessions_meta (
 #   stored < current → run migrations, UPDATE to current
 #   stored == current → schema_mismatch=False
 # See README: "Memory & State" — session persistence
-CURRENT_SCHEMA_VERSION = 2  # v1=Phase 8A, v2=Phase 8B (session_state column)
+CURRENT_SCHEMA_VERSION = 5  # v1=Phase 8A, v2=Phase 8B, v3=team_profiles, v4=session_mode, v5=token_usage
 
 _SCHEMA_INFO = """\
 CREATE TABLE IF NOT EXISTS schema_info (
@@ -251,6 +251,7 @@ def _questionnaire_to_dict(qs: QuestionnaireState) -> dict:
         "extracted_questions": list(qs.extracted_questions),
         "_pending_merged_questions": list(qs._pending_merged_questions),
         "_follow_up_choices": {str(k): list(v) for k, v in qs._follow_up_choices.items()},
+        "_preferred_tracker": qs._preferred_tracker,
     }
 
 
@@ -273,6 +274,7 @@ def _dict_to_questionnaire(d: dict) -> QuestionnaireState:
         extracted_questions=set(d.get("extracted_questions", [])),
         _pending_merged_questions=d.get("_pending_merged_questions", []),
         _follow_up_choices={int(k): tuple(v) for k, v in d.get("_follow_up_choices", {}).items()},
+        _preferred_tracker=d.get("_preferred_tracker", ""),
     )
 
 
@@ -327,6 +329,8 @@ def _dict_to_story(d: dict) -> UserStory:
         priority=Priority(d["priority"]),
         discipline=Discipline(d.get("discipline", "fullstack")),
         dod_applicable=tuple(d.get("dod_applicable", (True,) * 7)),
+        points_rationale=d.get("points_rationale", ""),
+        points_confidence=d.get("points_confidence", ""),
     )
 
 
@@ -448,6 +452,7 @@ class SessionStore:
         if row is None:
             # Pre-8C DB or brand-new DB — stamp with current version
             self._conn.execute("INSERT INTO schema_info (schema_version) VALUES (?)", (CURRENT_SCHEMA_VERSION,))
+            self._run_migrations(0)
             self.schema_mismatch = False
         elif row[0] > CURRENT_SCHEMA_VERSION:
             # DB was written by a newer version of the code — warn but don't crash
@@ -455,8 +460,56 @@ class SessionStore:
         else:
             # row[0] <= CURRENT_SCHEMA_VERSION — up to date (or migrated above)
             if row[0] < CURRENT_SCHEMA_VERSION:
+                self._run_migrations(row[0])
                 self._conn.execute("UPDATE schema_info SET schema_version = ?", (CURRENT_SCHEMA_VERSION,))
             self.schema_mismatch = False
+
+    def _run_migrations(self, from_version: int) -> None:
+        """Run schema migrations from from_version to CURRENT_SCHEMA_VERSION.
+
+        v3: Create team_profiles table for team learning calibration data.
+        """
+        if from_version < 3:
+            from scrum_agent.team_profile import _TEAM_PROFILES_SCHEMA
+
+            self._conn.execute(_TEAM_PROFILES_SCHEMA)
+            logger.info("Migration v3: created team_profiles table")
+        if from_version < 4:
+            try:
+                self._conn.execute("ALTER TABLE sessions_meta ADD COLUMN session_mode TEXT NOT NULL DEFAULT 'planning'")
+                logger.info("Migration v4: added session_mode column")
+            except sqlite3.OperationalError:
+                pass  # column already exists
+
+        if from_version < 5:
+            self._conn.execute(
+                """CREATE TABLE IF NOT EXISTS token_usage (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT NOT NULL,
+                    input_tokens INT NOT NULL DEFAULT 0,
+                    output_tokens INT NOT NULL DEFAULT 0,
+                    model TEXT NOT NULL DEFAULT '',
+                    provider TEXT NOT NULL DEFAULT ''
+                )"""
+            )
+            logger.info("Migration v5: created token_usage table")
+
+    # ── Token usage persistence ──────────────────────────────────────────
+
+    def record_token_usage(self, input_tokens: int, output_tokens: int, model: str = "", provider: str = "") -> None:
+        """Record a single LLM call's token usage to persistent storage."""
+        self._conn.execute(
+            "INSERT INTO token_usage (timestamp, input_tokens, output_tokens, model, provider) VALUES (?, ?, ?, ?, ?)",
+            (self._now(), input_tokens, output_tokens, model, provider),
+        )
+
+    def get_lifetime_usage(self) -> dict:
+        """Return cumulative token usage across all sessions."""
+        row = self._conn.execute(
+            "SELECT COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0), COUNT(*) FROM token_usage"
+        ).fetchone()
+        inp, out, calls = row if row else (0, 0, 0)
+        return {"input_tokens": inp, "output_tokens": out, "total_tokens": inp + out, "call_count": calls}
 
     # ── Lifecycle ─────────────────────────────────────────────────────────
 
@@ -484,15 +537,22 @@ class SessionStore:
 
     # ── Write operations ──────────────────────────────────────────────────
 
-    def create_session(self, session_id: str, project_name: str = "") -> None:
+    def create_session(
+        self,
+        session_id: str,
+        project_name: str = "",
+        *,
+        mode: str = "planning",
+    ) -> None:
         """Insert a new session row. Silently ignores duplicate session IDs."""
-        logger.info("Creating session: %s", session_id)
+        logger.info("Creating session: %s (mode=%s)", session_id, mode)
         now = self._now()
         self._conn.execute(
             """INSERT OR IGNORE INTO sessions_meta
-               (session_id, project_name, created_at, last_modified, last_node_completed, session_state)
-               VALUES (?, ?, ?, ?, '', '')""",
-            (session_id, project_name, now, now),
+               (session_id, project_name, created_at, last_modified,
+                last_node_completed, session_state, session_mode)
+               VALUES (?, ?, ?, ?, '', '', ?)""",
+            (session_id, project_name, now, now, mode),
         )
 
     def update_project_name(self, session_id: str, project_name: str) -> None:
@@ -579,6 +639,24 @@ class SessionStore:
         result = [dict(zip(keys, row)) for row in rows]
         logger.debug("Found %d session(s)", len(result))
         return result
+
+    def list_analysis_sessions(self) -> list[dict]:
+        """Return analysis-mode sessions ordered by last_modified descending."""
+        rows = self._conn.execute(
+            "SELECT session_id, project_name, created_at, last_modified, "
+            "last_node_completed, session_state "
+            "FROM sessions_meta WHERE session_mode = 'analysis' "
+            "ORDER BY last_modified DESC"
+        ).fetchall()
+        keys = (
+            "session_id",
+            "project_name",
+            "created_at",
+            "last_modified",
+            "last_node_completed",
+            "session_state_raw",
+        )
+        return [dict(zip(keys, row)) for row in rows]
 
     def load_state(self, session_id: str) -> dict | None:
         """Load and reconstruct graph state from JSON.

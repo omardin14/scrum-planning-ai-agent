@@ -26,6 +26,10 @@ FRAME_TIME_30FPS = 1.0 / 30  # ~30fps — used by session and provider_select
 
 COLOR_RGB: dict[str, tuple[int, int, int]] = {
     "rgb(70,100,180)": (70, 100, 180),
+    "rgb(100,180,100)": (100, 180, 100),
+    "rgb(110,140,220)": (110, 140, 220),
+    "rgb(220,160,60)": (220, 160, 60),
+    "rgb(160,160,180)": (160, 160, 180),
 }
 
 # Grey levels for fade-out (bright → invisible) and fade-in (invisible → bright).

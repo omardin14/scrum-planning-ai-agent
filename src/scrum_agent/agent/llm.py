@@ -23,6 +23,79 @@ from scrum_agent.config import get_llm_model, get_llm_provider
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Token usage tracking — accumulates across all LLM calls in this process
+# ---------------------------------------------------------------------------
+
+_usage_stats: dict[str, int] = {
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "total_tokens": 0,
+    "call_count": 0,
+}
+
+
+def track_usage(response) -> None:
+    """Extract token usage from an LLM response and accumulate it.
+
+    Call this after every LLM invoke() to track token consumption.
+    Works with all providers (Anthropic, OpenAI, Google, Bedrock).
+    """
+    meta = getattr(response, "response_metadata", None) or {}
+    logger.info("track_usage: response_metadata keys=%s", list(meta.keys()) if meta else "empty")
+
+    # Anthropic: meta has 'usage' dict with input_tokens/output_tokens
+    # OpenAI: meta has 'token_usage' dict with prompt_tokens/completion_tokens
+    usage = meta.get("usage", {}) or meta.get("token_usage", {})
+    if not usage:
+        usage = meta
+    logger.info("track_usage: usage keys=%s, values=%s", list(usage.keys()) if isinstance(usage, dict) else "?", usage)
+
+    inp = usage.get("input_tokens", 0) or usage.get("prompt_tokens", 0)
+    out = usage.get("output_tokens", 0) or usage.get("completion_tokens", 0)
+    if inp or out:
+        _usage_stats["input_tokens"] += inp
+        _usage_stats["output_tokens"] += out
+        _usage_stats["total_tokens"] += inp + out
+        _usage_stats["call_count"] += 1
+        logger.info(
+            "Token usage: +%d in, +%d out (total: %d, calls: %d)",
+            inp,
+            out,
+            _usage_stats["total_tokens"],
+            _usage_stats["call_count"],
+        )
+        # Persist to SQLite for lifetime tracking across sessions
+        try:
+            from scrum_agent.sessions import SessionStore
+
+            provider = get_llm_provider()
+            model = get_llm_model() or _PROVIDER_DEFAULTS.get(provider, "")
+            from scrum_agent.paths import get_db_path
+
+            db = get_db_path()
+            with SessionStore(db) as store:
+                store.record_token_usage(inp, out, model=model, provider=provider)
+        except Exception:
+            logger.debug("Failed to persist token usage to DB", exc_info=True)
+    else:
+        logger.warning("track_usage: no token data found in response metadata")
+
+
+def get_usage_stats() -> dict:
+    """Return accumulated token usage stats for display on the Usage page."""
+    return dict(_usage_stats)
+
+
+def reset_usage_stats() -> None:
+    """Reset token counters (e.g. at start of a new session)."""
+    logger.info(
+        "Token usage stats reset (was %d tokens, %d calls)", _usage_stats["total_tokens"], _usage_stats["call_count"]
+    )
+    for k in _usage_stats:
+        _usage_stats[k] = 0
+
+
 # Default models per provider — chosen for best quality/cost balance.
 # Override any of these with the LLM_MODEL env var.
 _PROVIDER_DEFAULTS: dict[str, str] = {

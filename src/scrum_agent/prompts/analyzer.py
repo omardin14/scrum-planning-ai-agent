@@ -53,6 +53,7 @@ def get_analyzer_prompt(
     repo_context: str | None = None,
     confluence_context: str | None = None,
     user_context: str | None = None,
+    team_profile_summary: str = "",
     review_feedback: str | None = None,
     review_mode: str | None = None,
     previous_output: str | None = None,
@@ -146,6 +147,20 @@ def get_analyzer_prompt(
         else ""
     )
 
+    # Inject team profile summary when available — surfaces historical team patterns
+    # so the analyzer can flag realistic constraints (e.g. "this team's velocity is
+    # 18 pts/sprint, not the assumed 25").
+    team_section = (
+        (
+            "\n## Team Historical Profile\n\n"
+            "The following was computed from the team's actual sprint history. "
+            "Use it to validate velocity assumptions and flag mismatches.\n\n"
+            f"{team_profile_summary}\n"
+        )
+        if team_profile_summary
+        else ""
+    )
+
     base = (
         "You are a project analyst synthesizing intake questionnaire answers into "
         "a structured project analysis.\n\n"
@@ -154,7 +169,8 @@ def get_analyzer_prompt(
         f"- Velocity: {velocity_per_sprint} story points per sprint\n"
         f"{repo_section}"
         f"{confluence_section}"
-        f"{user_section}\n"
+        f"{user_section}"
+        f"{team_section}\n"
         f"## Questionnaire Answers ({TOTAL_QUESTIONS} questions)\n\n"
         f"{answers_block}\n\n"
         "## Task\n\n"

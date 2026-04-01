@@ -268,7 +268,9 @@ def _render_tui_analysis(
 # ---------------------------------------------------------------------------
 
 
-def _render_tui_stories(stories, features, *, selected_index: int | None = None) -> Group:
+def _render_tui_stories(
+    stories, features, *, selected_index: int | None = None, graph_state: dict | None = None
+) -> Group:
     """Render user stories as text blocks grouped by feature — TUI-specific.
 
     Each story is a compact block: metadata header line, story text,
@@ -281,7 +283,9 @@ def _render_tui_stories(stories, features, *, selected_index: int | None = None)
     in the first feature).
     """
 
-    from scrum_agent.agent.state import DOD_ITEMS
+    from scrum_agent.agent.state import DOD_ITEMS, resolve_dod_items, shorten_dod_items
+
+    _graph_state = graph_state
 
     feature_titles = {e.id: e.title for e in features}
 
@@ -330,33 +334,58 @@ def _render_tui_stories(stories, features, *, selected_index: int | None = None)
 
             # Acceptance criteria — values aligned to longest key ("Given" = 6 chars)
             _ac_w = 6  # len("Given ")
-            for ac in story.acceptance_criteria:
+            _ac_count = len(story.acceptance_criteria)
+            if _ac_count > 0:
+                _ac_label = Text()
+                _ac_label.append(f"Acceptance Criteria ({_ac_count})", style="bold rgb(140,140,160)")
+                body_parts.append(_ac_label)
+            for _ac_idx, ac in enumerate(story.acceptance_criteria, 1):
+                if _ac_count > 1:
+                    _ac_num = Text()
+                    _ac_num.append(f"  AC {_ac_idx}", style="bold rgb(100,130,100)")
+                    body_parts.append(_ac_num)
                 ac_text = Text()
-                ac_text.append(f"{'Given':<{_ac_w}}", style="bold rgb(100,130,100)")
+                ac_text.append(f"  {'Given':<{_ac_w}}", style="bold rgb(100,130,100)")
                 ac_text.append(ac.given, style="rgb(140,140,140)")
                 body_parts.append(ac_text)
                 when_text = Text()
-                when_text.append(f"{'When':<{_ac_w}}", style="bold rgb(100,130,100)")
+                when_text.append(f"  {'When':<{_ac_w}}", style="bold rgb(100,130,100)")
                 when_text.append(ac.when, style="rgb(140,140,140)")
                 body_parts.append(when_text)
                 then_text = Text()
-                then_text.append(f"{'Then':<{_ac_w}}", style="bold rgb(100,130,100)")
+                then_text.append(f"  {'Then':<{_ac_w}}", style="bold rgb(100,130,100)")
                 then_text.append(ac.then, style="rgb(140,140,140)")
                 body_parts.append(then_text)
+                if _ac_idx < _ac_count:
+                    body_parts.append(Text(""))
 
             # DoD line — blank line above
             dod_flags = story.dod_applicable
-            if len(dod_flags) == len(DOD_ITEMS):
+            _dod_items = resolve_dod_items(_graph_state) if _graph_state else DOD_ITEMS
+            _dod_short = shorten_dod_items(_dod_items)
+            if len(dod_flags) >= len(_dod_items):
                 body_parts.append(Text(""))
                 dod = Text()
                 dod.append("DoD: ", style="bold")
-                for j, (short, applicable) in enumerate(zip(_DOD_SHORT, dod_flags)):
+                for j, (short, applicable) in enumerate(zip(_dod_short, dod_flags)):
                     sep = "" if j == 0 else "  "
                     if applicable:
                         dod.append(f"{sep}✓ {short}", style="green")
                     else:
                         dod.append(f"{sep}✗ {short}", style="dim strike")
                 body_parts.append(dod)
+
+            # Points rationale + confidence — shows LLM's reasoning for the estimate
+            if story.points_rationale or getattr(story, "points_confidence", ""):
+                body_parts.append(Text(""))
+                rationale = Text()
+                conf = getattr(story, "points_confidence", "")
+                if conf:
+                    _conf_colors = {"high": "green", "medium": "yellow", "low": "red"}
+                    rationale.append(f"[{conf}] ", style=f"bold {_conf_colors.get(conf, 'dim')}")
+                if story.points_rationale:
+                    rationale.append(story.points_rationale, style="dim italic")
+                body_parts.append(rationale)
 
             card_parts.append(Padding(Group(*body_parts), (0, 0, 0, 1)))
 
@@ -367,6 +396,140 @@ def _render_tui_stories(stories, features, *, selected_index: int | None = None)
                 parts.append(sep)
                 parts.append(Text(""))
             global_idx += 1
+
+    return Group(*parts)
+
+
+# ---------------------------------------------------------------------------
+# Epic renderer (project-level epic from ProjectAnalysis)
+# ---------------------------------------------------------------------------
+
+
+def _render_tui_epic(analysis, *, render_w: int = 80, examples: dict | None = None) -> Group:
+    """Render the project-level epic for review.
+
+    When examples dict is provided (from analysis profile), renders the epic
+    using the team's naming convention and template sections. Otherwise
+    falls back to a basic display of project name + description.
+    """
+    parts: list = []
+    _ex = examples or {}
+    wrap_w = max(40, render_w - 4)
+    c_section = "bold rgb(220,180,60)"
+    c_desc = "rgb(180,180,200)"
+    c_muted = "rgb(140,140,160)"
+
+    def _wrap(text: str, style: str, indent: str = "  ") -> None:
+        words = text.split()
+        buf = ""
+        for word in words:
+            if buf and len(buf) + len(word) + 1 > wrap_w:
+                parts.append(Text(f"{indent}{buf}", style=style))
+                buf = word
+            else:
+                buf = (buf + " " + word).strip()
+        if buf:
+            parts.append(Text(f"{indent}{buf}", style=style))
+
+    # Check for team naming convention
+    naming = _ex.get("naming_conventions", {})
+    epic_style = naming.get("epic_naming_style", "") if isinstance(naming, dict) else ""
+    template_sections = naming.get("template_sections", []) if isinstance(naming, dict) else []
+
+    project_name = getattr(analysis, "project_name", "Untitled")
+    desc = getattr(analysis, "project_description", "")
+
+    # Header — use team naming convention if available
+    hdr = Text()
+    hdr.append("[E1]  ", style="bold cyan")
+    if epic_style:
+        hdr.append(f"({epic_style} naming)", style="dim")
+        hdr.append("  ", style="dim")
+    hdr.append(project_name, style="bold white")
+    hdr.append("  \u00b7  ", style="dim")
+    hdr.append("high", style="yellow")
+    parts.append(hdr)
+    parts.append(Text(""))
+
+    # If team has template sections, render description using them
+    if template_sections and desc:
+        import re as _re
+
+        # Try to parse section markers from description (LLM may use **Bold** or ## Heading)
+        # First try **Section** markers
+        section_re = _re.compile(r"\*\*([^*]+)\*\*\s*")
+        section_parts = section_re.split(desc)
+
+        # If no **bold** markers found, try ## heading markers
+        if len(section_parts) <= 2:
+            heading_re = _re.compile(r"#{1,3}\s+([^\n?]+\??)\s*")
+            section_parts = heading_re.split(desc)
+
+        if len(section_parts) > 2:
+            # Description has sections — render them
+            if section_parts[0].strip():
+                _wrap(section_parts[0].strip(), c_desc)
+                parts.append(Text(""))
+            i = 1
+            while i < len(section_parts) - 1:
+                section_title = section_parts[i].strip().rstrip("?")
+                section_body = section_parts[i + 1].strip() if i + 1 < len(section_parts) else ""
+                parts.append(Text(f"  {section_title}", style=c_section))
+                if section_body:
+                    _wrap(section_body, c_desc)
+                parts.append(Text(""))
+                i += 2
+        else:
+            # No section markers — show template sections as guidance + raw description
+            parts.append(Text("  Description", style=f"bold {c_muted}"))
+            _wrap(desc, c_desc)
+            parts.append(Text(""))
+            if template_sections:
+                parts.append(Text("  Team's template sections:", style="dim"))
+                for sec_name, _ in template_sections[:5]:
+                    parts.append(Text(f"    \u2022 {sec_name}", style="dim"))
+                parts.append(Text(""))
+    elif desc:
+        # No template sections — basic description
+        parts.append(Text("  Description", style=f"bold {c_muted}"))
+        _wrap(desc, c_desc)
+        parts.append(Text(""))
+
+    # Target state
+    target = getattr(analysis, "target_state", "")
+    if target:
+        row = Text()
+        row.append("  Target State: ", style=f"bold {c_muted}")
+        row.append(target, style=c_desc)
+        parts.append(row)
+        parts.append(Text(""))
+
+    # Sprint planning summary
+    sprint_weeks = getattr(analysis, "sprint_length_weeks", 0)
+    target_sprints = getattr(analysis, "target_sprints", 0)
+    if sprint_weeks or target_sprints:
+        row = Text()
+        row.append("Sprint Planning: ", style="bold rgb(140,140,160)")
+        row.append(f"{sprint_weeks}-week sprints \u00d7 {target_sprints} sprints", style="rgb(180,180,200)")
+        parts.append(row)
+        parts.append(Text(""))
+
+    # Team epic examples (if available from analysis)
+    epic_examples = naming.get("epic_examples", []) if isinstance(naming, dict) else []
+    if epic_examples:
+        parts.append(Text("  Team's Epic Examples", style=f"bold {c_muted}"))
+        for ex in epic_examples[:3]:
+            parts.append(Text(f"    \u2022 {ex}", style="dim"))
+        parts.append(Text(""))
+
+    # Info note
+    parts.append(Text(""))
+    parts.append(
+        Text(
+            "This epic will be created in Jira/Azure DevOps during sync. All stories will be linked to it.",
+            style="dim",
+        )
+    )
 
     return Group(*parts)
 
@@ -703,6 +866,213 @@ def _strip_borders(renderable):
 
 
 # ---------------------------------------------------------------------------
+# Calibration banner (shown when analysis profile is active)
+# ---------------------------------------------------------------------------
+
+_cached_profile = None
+_cached_profile_id = ""
+_cached_examples = None
+
+
+def _render_calibration_banner(profile_id: str, width: int = 80, stage: str = "") -> Panel | None:
+    """Render a stage-specific calibration banner from the selected analysis profile.
+
+    Shows different data depending on the pipeline stage:
+    - project_analyzer: velocity, completion rate, team size
+    - feature_generator: epic sizing, naming convention
+    - story_writer: point definitions, AC patterns, story shapes, DoD
+    - task_decomposer: task patterns, common task types
+    - sprint_planner: velocity, spillover, capacity, completion rate
+
+    Caches the loaded profile to avoid repeated DB reads on every frame.
+    """
+    global _cached_profile, _cached_profile_id, _cached_examples  # noqa: PLW0603
+
+    if profile_id != _cached_profile_id:
+        try:
+            from scrum_agent.agent.nodes import _load_profile_by_id
+
+            _cached_profile, _cached_examples = _load_profile_by_id(profile_id)
+            _cached_profile_id = profile_id
+        except Exception:
+            return None
+
+    p = _cached_profile
+    if p is None:
+        return None
+
+    _ex = _cached_examples or {}
+    c_label = "rgb(100,180,100)"
+    c_value = "bold white"
+    c_muted = "rgb(120,120,140)"
+
+    display_name = profile_id.split("-", 1)[1] if "-" in profile_id else profile_id
+    source = getattr(p, "source", "?")
+
+    def _dot() -> tuple[str, str]:
+        return "  \u00b7  ", "dim"
+
+    lines: list[Text] = []
+
+    if stage == "project_analyzer":
+        # Analysis phase: velocity, completion, team, sprints
+        row = Text("  ", justify="left")
+        vel = getattr(p, "velocity_avg", 0.0)
+        if vel > 0:
+            row.append(f"Velocity: {vel:.0f} pts/sprint", style=c_value)
+            row.append(*_dot())
+        comp = getattr(p, "sprint_completion_rate", 0.0)
+        if comp > 0:
+            row.append(f"Completion: {comp:.0f}%", style=c_value)
+            row.append(*_dot())
+        contrib = _ex.get("contributor_stats", {})
+        if isinstance(contrib, dict) and contrib:
+            row.append(f"Team: {len(contrib)}", style=c_value)
+            row.append(*_dot())
+        row.append(f"{getattr(p, 'sample_sprints', 0)} sprints", style=c_muted)
+        lines.append(row)
+
+    elif stage == "feature_generator":
+        # Epic phase: naming convention, epic sizing, template
+        row = Text("  ", justify="left")
+        naming = _ex.get("naming_conventions", {})
+        if isinstance(naming, dict):
+            ns = naming.get("epic_naming_style", "")
+            if ns:
+                row.append(f"Epic naming: {ns}", style=c_value)
+                row.append(*_dot())
+            examples = naming.get("epic_examples", [])
+            if examples:
+                row.append(f'e.g. "{examples[0][:40]}"', style=c_muted)
+        lines.append(row)
+        ep = getattr(p, "epic_pattern", None)
+        if ep and getattr(ep, "sample_count", 0) > 0:
+            row2 = Text("  ", justify="left")
+            row2.append(f"Avg {ep.avg_stories_per_epic:.0f} stories/epic", style=c_value)
+            row2.append(*_dot())
+            row2.append(f"{ep.avg_points_per_epic:.0f} pts/epic", style=c_value)
+            lines.append(row2)
+
+    elif stage == "story_writer":
+        # Story phase: point definitions, AC patterns, disciplines, DoD
+        pt_descs = _ex.get("point_descriptions", {})
+        cals = getattr(p, "point_calibrations", ())
+        if pt_descs and isinstance(pt_descs, dict):
+            for pts_key in sorted(pt_descs.keys(), key=lambda x: int(x) if x.isdigit() else 99)[:3]:
+                row = Text("  ", justify="left")
+                row.append(f"{pts_key}pt: ", style=c_value)
+                row.append(pt_descs[pts_key][:60], style=c_muted)
+                lines.append(row)
+        elif cals:
+            for c in cals[:3]:
+                if c.sample_count > 0:
+                    row = Text("  ", justify="left")
+                    row.append(f"{c.point_value}pt: ", style=c_value)
+                    row.append(f"{c.avg_cycle_time_days:.0f}d cycle, ~{c.typical_task_count:.0f} tasks", style=c_muted)
+                    lines.append(row)
+        # AC + DoD
+        wp = getattr(p, "writing_patterns", None)
+        dod = getattr(p, "dod_signal", None)
+        row_extra = Text("  ", justify="left")
+        if wp and getattr(wp, "median_ac_count", 0) > 0:
+            row_extra.append(f"Avg {wp.median_ac_count:.0f} ACs/story", style=c_value)
+            row_extra.append(*_dot())
+        if wp and getattr(wp, "uses_given_when_then", False):
+            row_extra.append("Given/When/Then", style=c_value)
+            row_extra.append(*_dot())
+        if dod:
+            dod_items = []
+            if getattr(dod, "stories_with_review_mention_pct", 0) > 30:
+                dod_items.append("review")
+            if getattr(dod, "stories_with_testing_mention_pct", 0) > 30:
+                dod_items.append("testing")
+            if getattr(dod, "stories_with_deploy_mention_pct", 0) > 30:
+                dod_items.append("deploy")
+            if dod_items:
+                row_extra.append(f"DoD: {', '.join(dod_items)}", style=c_value)
+        if row_extra.plain.strip():
+            lines.append(row_extra)
+
+    elif stage == "task_decomposer":
+        # Task phase: task patterns, type distribution, avg tasks/story
+        td = _ex.get("task_decomposition", {})
+        if isinstance(td, dict):
+            row = Text("  ", justify="left")
+            avg = td.get("avg_tasks_per_story", 0)
+            if avg:
+                row.append(f"Avg {avg:.1f} tasks/story", style=c_value)
+                row.append(*_dot())
+            dist = td.get("type_distribution", {})
+            if dist:
+                top = sorted(dist.items(), key=lambda x: -x[1])[:3]
+                row.append(", ".join(f"{t} {v}%" for t, v in top), style=c_muted)
+            lines.append(row)
+            common = td.get("common_tasks", [])
+            if common:
+                row2 = Text("  ", justify="left")
+                row2.append("Common: ", style=c_value)
+                names = [t[0] if isinstance(t, (list, tuple)) else str(t) for t in common[:3]]
+                row2.append(", ".join(names), style=c_muted)
+                lines.append(row2)
+
+    elif stage == "sprint_planner":
+        # Sprint phase: velocity, spillover, capacity
+        row = Text("  ", justify="left")
+        vel = getattr(p, "velocity_avg", 0.0)
+        if vel > 0:
+            row.append(f"Velocity: {vel:.0f} pts/sprint", style=c_value)
+            row.append(*_dot())
+        comp = getattr(p, "sprint_completion_rate", 0.0)
+        if comp > 0:
+            row.append(f"Completion: {comp:.0f}%", style=c_value)
+            row.append(*_dot())
+        spill = getattr(p, "spillover", None)
+        if spill and getattr(spill, "carried_over_pct", 0) > 0:
+            row.append(f"Spillover: {spill.carried_over_pct:.0f}%", style=c_value)
+        lines.append(row)
+        # Scope changes
+        scope = _ex.get("scope_changes", {})
+        if isinstance(scope, dict):
+            totals = scope.get("totals", {})
+            churn = totals.get("avg_scope_churn_pct", 0)
+            if churn > 0:
+                row2 = Text("  ", justify="left")
+                row2.append(f"Scope churn: {churn:.0f}%", style=c_value)
+                row2.append(*_dot())
+                delivered = totals.get("avg_delivered_velocity", 0)
+                committed = totals.get("avg_committed_velocity", 0)
+                if delivered and committed:
+                    row2.append(f"Committed {committed:.0f} → Delivered {delivered:.0f}", style=c_muted)
+                lines.append(row2)
+
+    else:
+        # Fallback: generic overview
+        row = Text("  ", justify="left")
+        vel = getattr(p, "velocity_avg", 0.0)
+        if vel > 0:
+            row.append(f"Velocity: {vel:.0f} pts/sprint", style=c_value)
+            row.append(*_dot())
+        row.append(f"{getattr(p, 'sample_sprints', 0)} sprints analysed", style=c_muted)
+        lines.append(row)
+
+    if not lines:
+        return None
+
+    content = Group(*lines)
+    banner_w = min(width - 4, 72)
+
+    return Panel(
+        content,
+        title=f"Team Analysis: {display_name} ({source})",
+        title_align="left",
+        border_style=c_label,
+        box=rich.box.ROUNDED,
+        width=banner_w,
+        padding=(0, 1),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Pipeline artifact rendering (main entry point)
 # ---------------------------------------------------------------------------
 
@@ -741,7 +1111,10 @@ def _render_pipeline_artifacts(
             renderable = _render_tui_features(graph_state["features"], render_w=render_w)
         elif pending == "story_writer" and graph_state.get("stories"):
             renderable = _render_tui_stories(
-                graph_state["stories"], graph_state.get("features", []), selected_index=selected_story
+                graph_state["stories"],
+                graph_state.get("features", []),
+                selected_index=selected_story,
+                graph_state=graph_state,
             )
         elif pending == "task_decomposer" and graph_state.get("tasks"):
             renderable = _render_tui_tasks(
@@ -767,10 +1140,21 @@ def _render_pipeline_artifacts(
                 return msgs[-1].content.splitlines(), []
             return ["(no content)"], []
     except Exception:
+        import logging as _log
+
+        _log.getLogger(__name__).exception("Pipeline artifact rendering failed for stage=%s", pending)
         msgs = graph_state.get("messages", [])
         if msgs and isinstance(msgs[-1], AIMessage):
             return msgs[-1].content.splitlines(), []
         return ["(rendering error)"], []
+
+    # Prepend calibration banner when an analysis profile is active
+    # Skip for feature_generator — features are just labels, no calibration needed
+    _profile_id = graph_state.get("analysis_profile_id", "")
+    if _profile_id and pending != "feature_generator":
+        banner = _render_calibration_banner(_profile_id, render_w, stage=pending or "")
+        if banner:
+            renderable = Group(banner, Text(""), renderable)
 
     lines = _render_to_lines(console, renderable, render_w)
 

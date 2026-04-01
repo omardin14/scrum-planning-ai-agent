@@ -36,43 +36,102 @@ _ALLOWED_PRIORITIES = ("critical", "high", "medium", "low")
 _ALLOWED_DISCIPLINES = ("frontend", "backend", "fullstack", "infrastructure", "design", "testing")
 
 # ---------------------------------------------------------------------------
+# Team-aware rule helpers — override defaults when calibration data is present
+# ---------------------------------------------------------------------------
+
+
+def _ac_count_rule(team_calibration: str) -> str:
+    """Build the AC count rule, using team's median if available."""
+    import re
+
+    # Extract "Median acceptance criteria per story: N" from calibration text
+    m = re.search(r"[Mm]edian acceptance criteria per story:\s*(\d+)", team_calibration)
+    if m:
+        median = int(m.group(1))
+        if median <= 1:
+            return (
+                "7. Each story should have exactly 1 acceptance criterion "
+                "(matching team's median of 1). Bundle multiple test scenarios "
+                "into a single comprehensive AC rather than listing each separately. "
+                "Do NOT generate 3+ ACs — the team uses concise, consolidated criteria.\n"
+            )
+        if median <= 2:
+            return (
+                f"7. Each story should have {median} acceptance criteria "
+                f"(matching team's median). Keep ACs concise — bundle related "
+                "scenarios together rather than listing each separately.\n"
+            )
+        return (
+            f"7. Each story should have approximately {median} acceptance criteria "
+            f"(matching team's median of {median}).\n"
+        )
+    return (
+        "7. Each story must have at least 3 acceptance criteria:\n"
+        "   - At least 1 happy-path scenario\n"
+        "   - At least 1 negative/error-path scenario\n"
+        "   - At least 1 edge case\n"
+    )
+
+
+def _ac_format_rule(team_calibration: str) -> str:
+    """Build the AC format rule, respecting team's actual style."""
+    # Check if team uses Given/When/Then
+    if "Given/When/Then" in team_calibration or "uses_given_when_then" in team_calibration:
+        return "8. Acceptance criteria must use Given/When/Then format (matching team style).\n"
+    if "Writing patterns" in team_calibration:
+        # Team has data but doesn't use GWT — use a flexible format
+        return (
+            "8. Write acceptance criteria as clear, testable statements. "
+            "Use bullet points with specific expected outcomes. "
+            "Do NOT use Given/When/Then format unless the team's analysis shows they use it.\n"
+        )
+    # Default: Given/When/Then
+    return "8. Acceptance criteria must use Given/When/Then format.\n"
+
+
+# ---------------------------------------------------------------------------
 # JSON schema description embedded in the prompt so the LLM knows exactly
 # what structure to produce. Returns a JSON *array* of story objects with
 # nested acceptance_criteria arrays.
 # ---------------------------------------------------------------------------
 
-_JSON_SCHEMA = """\
+
+def _build_json_schema(dod_items: tuple[str, ...] | None = None) -> str:
+    """Build the JSON schema string with dynamic DoD items."""
+    from scrum_agent.agent.state import DOD_ITEMS
+
+    items = dod_items or DOD_ITEMS
+    n = len(items)
+    bools = ", ".join(["true"] * n)
+    mapping = "\n".join(f"  [{i}] {item}" for i, item in enumerate(items))
+
+    return f"""\
 [
-  {
+  {{
     "id": "string — sequential ID per feature: US-F1-001, US-F1-002, ...",
     "feature_id": "string — parent feature ID: F1, F2, ...",
-    "title": "string — short summary of the story (3-7 words, e.g. 'Create Bookmark Endpoint')",
+    "title": "string — short summary of the story (3-7 words)",
     "persona": "string — the user role (e.g. 'developer', 'admin', 'end user')",
     "goal": "string — what the user wants to do (verb phrase, no 'to' prefix)",
     "benefit": "string — why this matters to the user (no 'so that' prefix)",
     "acceptance_criteria": [
-      {
+      {{
         "given": "string — precondition or initial context",
         "when": "string — action or trigger",
         "then": "string — expected outcome"
-      }
+      }}
     ],
     "story_points": "integer — Fibonacci value: 1, 2, 3, 5, or 8",
-    "points_rationale": "string — 1-2 sentences explaining the point value. Describe complexity, unknowns, or effort.",
+    "points_rationale": "string — why this size, confidence vs team data, similar stories",
+    "points_confidence": "string — high, medium, or low based on team's sample count",
     "priority": "string — one of: critical, high, medium, low",
     "discipline": "string — one of: frontend, backend, fullstack, infrastructure, design, testing",
-    "dod_applicable": [true, true, true, true, true, true, true]
-  }
+    "dod_applicable": [{bools}]
+  }}
 ]
 
-The 7 booleans in dod_applicable map in order to:
-  [0] Acceptance Criteria Met
-  [1] Documentation
-  [2] Proper Testing
-  [3] Code Merged to Main
-  [4] Released via SDLC
-  [5] Stakeholder Sign-off
-  [6] Knowledge Sharing
+The {n} booleans in dod_applicable map in order to:
+{mapping}
 Set to false when the item clearly does not apply to this specific story."""
 
 
@@ -87,6 +146,8 @@ def get_story_writer_prompt(
     features_block: str,
     *,
     out_of_scope: str = "",
+    team_calibration: str = "",
+    dod_items: tuple[str, ...] | None = None,
     review_feedback: str | None = None,
     review_mode: str | None = None,
     previous_output: str | None = None,
@@ -121,16 +182,35 @@ def get_story_writer_prompt(
     Returns:
         The complete prompt string ready to send to the LLM.
     """
+    # Extract team's avg stories/epic from calibration text if available
+    import re as _re
+
+    from scrum_agent.agent.state import DOD_ITEMS
     from scrum_agent.prompts.feature_generator import _build_review_section
 
-    task_instruction = (
-        f"Decompose each feature into {MIN_STORIES_PER_FEATURE}-{MAX_STORIES_PER_FEATURE} user stories. "
-        f"Return a JSON array matching this exact schema:\n\n"
-        f"```json\n{_JSON_SCHEMA}\n```\n\n"
-    )
-    count_rule = (
-        f"1. Produce {MIN_STORIES_PER_FEATURE}-{MAX_STORIES_PER_FEATURE} stories per feature — no fewer, no more.\n"
-    )
+    _avg_match = _re.search(r"avg\s+(\d+\.?\d*)\s+stories.epic", team_calibration, _re.IGNORECASE)
+    if _avg_match:
+        _team_avg = round(float(_avg_match.group(1)))
+        _team_min = max(1, _team_avg - 1)
+        _team_max = max(_team_avg + 1, 3)
+        task_instruction = (
+            f"Decompose each feature into approximately {_team_avg} user stories "
+            f"(range {_team_min}-{_team_max}, matching the team's historical average). "
+            f"Consolidate related work into fewer, meatier stories rather than creating many thin ones. "
+            f"Return a JSON array matching this exact schema:\n\n"
+            f"```json\n{_build_json_schema(dod_items)}\n```\n\n"
+        )
+        count_rule = (
+            f"1. Aim for ~{_team_avg} stories per feature (team avg is {_team_avg}). "
+            f"Range: {_team_min}-{_team_max}. Prefer fewer consolidated stories over many small ones.\n"
+        )
+    else:
+        task_instruction = (
+            f"Decompose each feature into {MIN_STORIES_PER_FEATURE}-{MAX_STORIES_PER_FEATURE} user stories. "
+            f"Return a JSON array matching this exact schema:\n\n"
+            f"```json\n{_build_json_schema(dod_items)}\n```\n\n"
+        )
+        count_rule = f"1. Produce {MIN_STORIES_PER_FEATURE}-{MAX_STORIES_PER_FEATURE} stories per feature.\n"
     id_rule = "2. Use sequential IDs per feature: US-F1-001, US-F1-002, US-F2-001, etc.\n"
 
     base = (
@@ -145,8 +225,7 @@ def get_story_writer_prompt(
         f"### Constraints\n{constraints}\n\n"
         f"### Out of Scope\n{out_of_scope}\n\n"
         "## Features to Decompose\n\n"
-        f"{features_block}\n\n"
-        "## Task\n\n"
+        f"{features_block}\n\n" + (team_calibration + "\n" if team_calibration else "") + "## Task\n\n"
         f"{task_instruction}"
         "## Rules\n\n"
         f"{count_rule}"
@@ -155,21 +234,15 @@ def get_story_writer_prompt(
         f"4. Story points must be Fibonacci: {', '.join(str(v) for v in _ALLOWED_STORY_POINTS)}.\n"
         f"5. No story may exceed {MAX_STORY_POINTS} points — split larger stories.\n"
         f"6. Priority must be one of: {', '.join(_ALLOWED_PRIORITIES)}.\n"
-        "7. Each story must have at least 3 acceptance criteria:\n"
-        "   - At least 1 happy-path scenario\n"
-        "   - At least 1 negative/error-path scenario\n"
-        "   - At least 1 edge case\n"
-        "8. Acceptance criteria must use Given/When/Then format.\n"
+        f"{_ac_count_rule(team_calibration)}"
+        f"{_ac_format_rule(team_calibration)}"
         "9. Stories within a feature should not overlap — each covers a distinct slice.\n"
         "10. Give each story a short title (3-7 words) summarising the core deliverable.\n"
         "11. Inherit priority from the parent feature unless there's a reason to differ.\n"
         f"12. Tag each story with a discipline: {', '.join(_ALLOWED_DISCIPLINES)}. "
         "Use 'fullstack' if the story spans multiple disciplines or is unclear.\n"
-        "13. Set dod_applicable as a 7-element boolean array. Mark false when an item clearly "
-        "does not apply — for example:\n"
-        "    - Non-code stories (docs, design, research): Code Merged = false, SDLC = false\n"
-        "    - Small or low-risk stories: Knowledge Sharing = false\n"
-        "    - Internal/automated stories: Stakeholder Sign-off = false\n"
+        f"13. Set dod_applicable as a {len(dod_items or DOD_ITEMS)}-element boolean array. "
+        "Mark false when an item clearly does not apply to this specific story.\n"
         "    Default to true when in doubt.\n"
         "14. Do NOT create stories for items listed under Out of Scope — "
         "assume these already exist or are handled elsewhere.\n"
@@ -179,7 +252,13 @@ def get_story_writer_prompt(
         "    - Triggering a job and monitoring its result → one story (they're the same workflow)\n"
         "    - Generating content and formatting it → one story (formatting is not standalone)\n"
         "    - Success notifications and failure escalation → one 'Implement Notification & Escalation' story\n"
-        "    Only split when the work is genuinely independent and would be reviewed/deployed separately.\n\n"
+        "    Only split when the work is genuinely independent and would be reviewed/deployed separately.\n"
+        "16. **points_rationale** must include: (a) why this point value fits the complexity, "
+        "(b) confidence level (high/medium/low) based on how well it matches the team's "
+        "historical data for this size, (c) reference similar completed stories from the "
+        "team's calibration data if provided (cite by ID like PROJ-123).\n"
+        "17. **points_confidence** must be 'high' if the team has ≥15 samples at this point "
+        "value, 'medium' if ≥5 samples, 'low' if fewer.\n\n"
         "## Story Splitting Strategies\n\n"
         "When a story feels too large (> 8 points), split by:\n"
         "- **Workflow step:** separate creation, editing, deletion, viewing\n"

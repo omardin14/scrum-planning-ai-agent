@@ -32,6 +32,15 @@ make clean                # Remove build artifacts and caches
 Run a single test: `uv run pytest tests/unit/test_state.py -v`
 Run a single test class: `uv run pytest tests/unit/test_state.py::TestPriority -v`
 
+### Recording terminal GIFs (for README)
+
+```bash
+brew install asciinema agg
+asciinema rec docs/demo.cast -c "scrum-agent --dry-run"   # record
+agg docs/demo.cast docs/demo.gif --theme github-dark       # convert to GIF
+rm docs/demo.cast                                           # clean up source
+```
+
 ## Code Style
 
 - Python 3.11+, ruff for linting/formatting (line-length 120)
@@ -69,6 +78,73 @@ After every code change, ALWAYS run:
 2. `make lint` — must be clean
 
 Do NOT commit until both pass.
+
+## REQUIRED: Observability & Test Coverage
+
+Every new feature MUST include all three pillars before it can be considered complete:
+
+### 1. Logging
+- **Every user action** must have a `logger.info()` — entry, exit, key decisions, errors
+- **Every LLM call** must log via `_llm_invoke()` (which calls `track_usage()` automatically)
+- **Every external API call** (Jira, AzDO, GitHub) must log start + result
+- **Every error path** must log at `warning` or `error` level with context
+- Use `logger.debug()` for detailed data (response payloads, intermediate calculations)
+
+### 2. Log Directory
+- **New TUI pages** (Usage, Settings, etc.) use the appropriate log directory from `paths.py`
+- **Analysis mode** logs go to `paths.ANALYSIS_LOGS_DIR` (~/.scrum-agent/logs/analysis/)
+- **Planning mode** session logs go to `paths.PLANNING_LOGS_DIR` (~/.scrum-agent/logs/planning/)
+- **TUI-level logs** go to `paths.TUI_LOGS_DIR` (~/.scrum-agent/logs/tui/)
+- **Exports** use `paths.get_analysis_export_dir()` or `paths.get_planning_export_dir()`
+- All paths MUST come from `src/scrum_agent/paths.py` — never hardcode `Path.home() / ".scrum-agent"`
+
+### 3. Tests
+- **Every new function** gets at least one unit test (happy path + error case)
+- **Every new screen builder** (`_build_*_screen`) gets render tests (returns Panel, handles empty data, scrollable)
+- **Every LLM-dependent function** gets mock tests (successful response, error fallback, code fence handling)
+- **Every new state field** gets serialization round-trip tests
+- **Secret/sensitive data** rendering must be tested for proper masking
+- Tests live in `tests/unit/` — one file per source module or grouped by feature
+
+## REQUIRED: TUI Component Standards
+
+All TUI screens MUST use the shared component system in `src/scrum_agent/ui/shared/_components.py`. Do NOT duplicate rendering logic.
+
+### Shared Primitives (use these, don't rewrite)
+| Component | Function | Purpose |
+|-----------|----------|---------|
+| `Theme` | `ANALYSIS_THEME`, `PLANNING_THEME`, `USAGE_THEME`, `SETTINGS_THEME` | Colour palette per mode |
+| Buttons | `build_action_buttons(actions, selected)` | Consistent button row (Accept/Edit/Export/Back etc.) |
+| Scrollbar | `build_scrollbar(viewport_h, total, offset, max_scroll)` | Right-side scroll indicator |
+| Progress | `build_progress_dots(stages, current, theme=)` | Stage indicator (● ● ○ ○ ○) |
+| Viewport | `calc_viewport(height, header_h=, action_h=)` | Viewport height calculation |
+| Titles | `planning_title()`, `analysis_title()`, `usage_title()`, `settings_title()` | ASCII art headers |
+| Popup | `build_popup(message, width=, border_style=)` | Confirmation dialogs |
+| Padding | `PAD` constant | Left indent for visual balance |
+
+### Page Structure (every `_build_*_screen` function MUST follow)
+```
+Panel(height=height, padding=(1,2))
+  ├── Text("")                    # blank
+  ├── title                       # ASCII art from *_title()
+  ├── Text("")                    # blank
+  ├── subtitle / progress dots    # context line
+  ├── Text("")                    # blank
+  ├── viewport_renderable         # scrollable content (with optional scrollbar)
+  ├── Text("")                    # blank
+  ├── btn_top                     # from build_action_buttons()
+  ├── btn_mid                     #
+  └── btn_bot                     #
+```
+
+### Rules
+1. **DRY** — Never inline button rendering, scrollbar math, or viewport calculations. Always use shared functions.
+2. **Themes** — Never hardcode colour values (`"rgb(100,180,100)"`). Use `theme.accent`, `theme.muted`, etc. from the appropriate Theme constant.
+3. **New pages** — Adding a new mode/page requires: a Theme constant, a `*_title()` function, a colour entry in `COLOR_RGB`, and an entry in `_MODE_CARDS` (if it's a main menu item).
+4. **Consistency** — All pages use the same Panel structure (title → subtitle → viewport → buttons). No exceptions.
+5. **Scrollbar** — Content that can overflow MUST use `build_scrollbar()`. Use `always_show=True` for pages where the track should always be visible.
+6. **Buttons** — Register new button labels in `_BTN_COLORS` dict in `_components.py` with accent/grey colour tuples.
+7. **No `_PAD` aliases** — Import `PAD` directly from `scrum_agent.ui.shared._components`. Legacy `_PAD = PAD` aliases exist but should not be added to new files.
 
 ## Project Structure
 
@@ -274,7 +350,7 @@ The `_dict_to_*()` functions in `sessions.py` use `.get()` for optional fields s
 
 ### Schema versioning
 
-- `CURRENT_SCHEMA_VERSION = 2` tracked in a `schema_info` table
+- `CURRENT_SCHEMA_VERSION = 5` tracked in a `schema_info` table (v3=team_profiles, v4=session_mode, v5=token_usage)
 - On startup: if stored version > current → `schema_mismatch = True` (warn user); if stored version < current → run migrations
 - Session IDs: internal `new-<8hex>-<YYYY-MM-DD>`, display `<project-slug>-<YYYY-MM-DD>`
 
@@ -292,9 +368,13 @@ The `_dict_to_*()` functions in `sessions.py` use `.get()` for optional fields s
 
 ## Logging
 
-- File-based logging to `~/.scrum-agent/scrum-agent.log` (rotates at 2 MB, 3 backups)
+- **TUI log**: `~/.scrum-agent/logs/tui/scrum-agent.log` (rotates at 2 MB, 3 backups)
+- **Analysis logs**: `~/.scrum-agent/logs/analysis/team-analysis-{project}-{timestamp}.log`
+- **Planning logs**: `~/.scrum-agent/logs/planning/{session-id}.log`
 - Log level controlled by `LOG_LEVEL` env var (default: `WARNING`; set to `DEBUG` for full diagnostics)
-- LangSmith 429 rate-limit errors are auto-suppressed via a custom logging filter in `__init__.py` — prevents noisy background trace uploader messages from cluttering the REPL
+- All paths defined in `src/scrum_agent/paths.py` — use `get_tui_log_path()`, `get_analysis_log_dir()`, `get_planning_log_dir()`
+- LangSmith 429 rate-limit errors are auto-suppressed via a custom logging filter in `__init__.py`
+- Token usage is tracked via `track_usage()` in `agent/llm.py` and persisted to `token_usage` table in SQLite
 
 ## Environment Setup
 

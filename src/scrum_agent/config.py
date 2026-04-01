@@ -239,6 +239,46 @@ def get_log_level() -> str:
     return "WARNING"
 
 
+def _env_truthy(name: str) -> bool:
+    return os.getenv(name, "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def is_team_analysis_jira_dev_links_enabled() -> bool:
+    """When true, team analysis calls Jira dev-status for linked PRs/repos (extra API calls)."""
+    return _env_truthy("TEAM_ANALYSIS_JIRA_DEV_LINKS")
+
+
+def is_team_analysis_azdo_pr_search_enabled() -> bool:
+    """When true, team analysis scans AzDO Git PRs for work item links / branch names (extra API calls)."""
+    return _env_truthy("TEAM_ANALYSIS_AZDO_BRANCH_SEARCH")
+
+
+def get_team_analysis_azdo_pr_search_max_repos() -> int:
+    """Max Git repos to scan per analysis when branch/PR search is enabled (1–50, default 10)."""
+    raw = os.getenv("TEAM_ANALYSIS_AZDO_PR_SEARCH_MAX_REPOS", "10")
+    try:
+        return max(1, min(int(raw), 50))
+    except ValueError:
+        return 10
+
+
+def get_team_analysis_azdo_pr_search_top() -> int:
+    """Max pull requests per repo per status when PR search is enabled (10–200, default 75)."""
+    raw = os.getenv("TEAM_ANALYSIS_AZDO_PR_SEARCH_PRS_PER_REPO", "75")
+    try:
+        return max(10, min(int(raw), 200))
+    except ValueError:
+        return 75
+
+
+def get_team_analysis_azdo_repo_allowlist() -> frozenset[str] | None:
+    """Optional comma-separated repo names (lowercase) to limit PR search; None = all repos up to max."""
+    raw = os.getenv("TEAM_ANALYSIS_AZDO_REPO_ALLOWLIST", "").strip()
+    if not raw:
+        return None
+    return frozenset(x.strip().lower() for x in raw.split(",") if x.strip())
+
+
 def disable_langsmith_tracing() -> None:
     """Disable LangSmith by unsetting LANGSMITH_TRACING in the current process.
 

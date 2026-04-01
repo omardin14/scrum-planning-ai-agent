@@ -186,16 +186,19 @@ def _pipeline_choice_screen(
         )
 
     live.update(_render_choices())
+    logger.info("Choice screen shown: title=%s, options=%s", title, options)
 
     while True:
         key = _key()
         if key == "esc":
+            logger.info("Choice screen: Esc pressed — cancelling")
             return None
         elif key in ("up", "scroll_up"):
             selected = (selected - 1) % num_opts
         elif key in ("down", "scroll_down"):
             selected = (selected + 1) % num_opts
-        elif key == "enter":
+        elif key in ("enter", " "):
+            logger.info("Choice screen: confirmed option %d (%s)", selected, options[selected])
             return selected
         elif key == "":
             pass
@@ -280,13 +283,14 @@ def _handle_tracker_sync(
         epic_key_field = "azdevops_epic_id"
 
     # Pick the right sync function based on stage and tracker
+    sync_fn = None
     if stage == "story_writer":
         sync_fn = sync_stories_to_jira if tracker == "jira" else sync_stories_to_azdevops
     elif stage == "task_decomposer":
         sync_fn = sync_tasks_to_jira if tracker == "jira" else sync_tasks_to_azdevops
     elif stage == "sprint_planner":
         sync_fn = sync_sprints_to_jira if tracker == "jira" else sync_iterations_to_azdevops
-    else:
+    elif stage != "epic_review":
         return None
 
     # Compute what will be created vs skipped for confirmation
@@ -300,7 +304,12 @@ def _handle_tracker_sync(
 
     # Build confirmation description
     parts: list[str] = []
-    if stage == "story_writer":
+    if stage == "epic_review":
+        if has_epic:
+            parts.append("Epic already exists — nothing to create")
+        else:
+            parts.append("1 Epic")
+    elif stage == "story_writer":
         new_stories = len(stories) - existing_stories
         if not has_epic:
             parts.append("1 Epic")
@@ -345,6 +354,130 @@ def _handle_tracker_sync(
     if choice != 0:
         return None  # User cancelled
 
+    # ── Epic-only sync (single item, no sync_fn) ──────────────────
+    if stage == "epic_review":
+        _ep_analysis = graph_state.get("project_analysis")
+        _ep_title = getattr(_ep_analysis, "project_name", "Project") if _ep_analysis else "Project"
+        _ep_desc = getattr(_ep_analysis, "project_description", "") if _ep_analysis else ""
+        _new_state = dict(graph_state)
+        _ep_error: str | None = None
+        _ep_status = ""
+
+        # Show processing animation during the API call
+        _ep_done = threading.Event()
+        _ep_result_box: list = [None, None]  # [key, error]
+
+        def _create_epic():
+            if tracker == "jira":
+                try:
+                    from jira import JIRA
+
+                    from scrum_agent.config import (
+                        get_jira_base_url,
+                        get_jira_email,
+                        get_jira_project_key,
+                        get_jira_token,
+                    )
+                    from scrum_agent.jira_sync import _discover_issue_types
+
+                    _j = JIRA(get_jira_base_url(), basic_auth=(get_jira_email(), get_jira_token()))
+                    _it = _discover_issue_types(_j, get_jira_project_key())
+                    _fields = {
+                        "project": {"key": get_jira_project_key()},
+                        "summary": _ep_title,
+                        "description": _ep_desc,
+                        "issuetype": {"name": _it.get("epic", "Epic")},
+                    }
+                    _issue = _j.create_issue(fields=_fields)
+                    _ep_result_box[0] = _issue.key
+                except Exception as exc:
+                    _ep_result_box[1] = str(exc)
+            else:
+                try:
+                    from azure.devops.v7_0.work_item_tracking.models import JsonPatchOperation
+
+                    from scrum_agent.azdevops_sync import _get_wit_client
+                    from scrum_agent.config import get_azure_devops_org_url, get_azure_devops_project
+
+                    _wit = _get_wit_client(get_azure_devops_org_url())
+                    _ops = [
+                        JsonPatchOperation(op="add", path="/fields/System.Title", value=_ep_title),
+                        JsonPatchOperation(op="add", path="/fields/System.Description", value=_ep_desc),
+                    ]
+                    _wi = _wit.create_work_item(_ops, get_azure_devops_project(), "Epic")
+                    _ep_result_box[0] = str(_wi.id)
+                except Exception as exc:
+                    _ep_result_box[1] = str(exc)
+            _ep_done.set()
+
+        _ep_thread = threading.Thread(target=_create_epic, daemon=True)
+        _ep_thread.start()
+
+        _ep_start = time.monotonic()
+        while not _ep_done.is_set():
+            tick = time.monotonic() - _ep_start
+            w, h = console.size
+            live.update(
+                _build_pipeline_screen(
+                    stage_label,
+                    progress,
+                    [f"  \033[33m▸\033[0m Creating {tracker_label} Epic..."],
+                    0,
+                    0,
+                    status="processing",
+                    width=w,
+                    height=h,
+                    tick=tick,
+                    step=step,
+                    total=total,
+                )
+            )
+            time.sleep(FRAME_TIME_30FPS)
+        _ep_thread.join()
+
+        if _ep_result_box[1]:
+            logger.error("Epic sync failed: %s", _ep_result_box[1])
+            _ep_status = f"\u2717 {tracker_label} Epic failed: {_ep_result_box[1]}"
+        elif _ep_result_box[0]:
+            _ep_key = _ep_result_box[0]
+            if tracker == "jira":
+                _new_state["jira_epic_key"] = _ep_key
+            else:
+                _new_state["azdevops_epic_id"] = _ep_key
+            logger.info("Created %s Epic: %s", tracker_label, _ep_key)
+            _ep_status = f"\u2713 {tracker_label} Epic created: {_ep_key}"
+
+        # Show result with status message — wait for user to dismiss
+        w, h = console.size
+        live.update(
+            _build_pipeline_screen(
+                stage_label,
+                progress,
+                [f"  {_ep_status}"],
+                0,
+                0,
+                status="complete",
+                width=w,
+                height=h,
+                step=step,
+                total=total,
+                actions=["OK"],
+                status_msg=_ep_status,
+            )
+        )
+        while True:
+            try:
+                _ek = _key(timeout=0.05)
+            except TypeError:
+                _ek = _key()
+            if _ek in ("enter", " ", "esc"):
+                break
+
+        if _ep_result_box[1]:
+            return None
+        return _new_state
+
+    # ── Multi-item sync (stories/tasks/sprints) ─────────────────
     # Run sync in a background thread with progress updates
     _sync_log: list[str] = []
     _sync_current: list[str] = ["Starting..."]
@@ -493,6 +626,381 @@ def _phase_pipeline(
         total = len(_PIPELINE_STEPS)
         progress = f"[{step}/{total}]"
         stage_label = _SPINNER_MESSAGES.get(next_node, "Working")
+
+        # ── Epic review intercept (before feature_generator invocation) ──
+        if (
+            next_node in ("feature_generator", "feature_skip")
+            and not graph_state.get("_epic_reviewed", False)
+            and not export_only
+        ):
+            _ep_analysis = graph_state.get("project_analysis")
+            if _ep_analysis:
+                graph_state["_epic_reviewed"] = True
+                from scrum_agent.ui.session._renderers import _render_tui_epic
+                from scrum_agent.ui.session._utils import _render_to_lines
+
+                _rw = max(40, console.size[0] - 20)
+                _ep_profile_id = graph_state.get("analysis_profile_id", "")
+                _ep_examples = None
+                _ep_profile = None
+
+                # Try to load profile — from explicit selection or auto-detect
+                try:
+                    from scrum_agent.agent.nodes import _load_profile_by_id, _load_team_examples, _load_team_profile
+
+                    if _ep_profile_id:
+                        _ep_profile, _ep_examples = _load_profile_by_id(_ep_profile_id)
+                    else:
+                        # Auto-detect from configured trackers (for resumed sessions)
+                        _ep_profile = _load_team_profile()
+                        _ep_examples = _load_team_examples()
+                        if _ep_profile:
+                            _ep_profile_id = getattr(_ep_profile, "team_id", "")
+                            logger.info("Epic review: auto-detected profile %s", _ep_profile_id)
+                except Exception:
+                    pass
+
+                # If analysis profile is active, reformat the epic using
+                # team conventions (naming, template sections, sizing)
+                logger.info(
+                    "Epic review: profile=%s, has_examples=%s, dry_run=%s",
+                    _ep_profile_id or "(none)",
+                    bool(_ep_examples),
+                    dry_run,
+                )
+                if _ep_profile and _ep_examples and not dry_run:
+                    try:
+                        from scrum_agent.agent.nodes import _format_team_calibration
+
+                        _cal_text = _format_team_calibration(_ep_profile, examples=_ep_examples)
+                        if _cal_text:
+                            # Show loading screen while LLM reformats
+                            import threading
+
+                            _epic_result = [None]
+
+                            # Check if team uses quarter-scoped naming
+                            _naming_info = _ep_examples.get("naming_conventions", {})
+                            _epic_style = (
+                                _naming_info.get("epic_naming_style", "") if isinstance(_naming_info, dict) else ""
+                            )
+                            _quarter_label = ""
+
+                            if "quarter" in _epic_style.lower():
+                                # Compute quarter/year from sprint dates
+                                from datetime import datetime as _dt
+                                from datetime import timedelta
+
+                                _sprint_start = graph_state.get("sprint_start_date", "")
+                                _target_sprints = getattr(_ep_analysis, "target_sprints", 0)
+                                _sprint_weeks = getattr(_ep_analysis, "sprint_length_weeks", 2)
+                                try:
+                                    _start_dt = _dt.fromisoformat(_sprint_start) if _sprint_start else _dt.now()
+                                except Exception:
+                                    _start_dt = _dt.now()
+                                _start_q = ((_start_dt.month - 1) // 3) + 1
+                                _start_year = _start_dt.year
+                                _end_dt = (
+                                    _start_dt + timedelta(weeks=_target_sprints * _sprint_weeks)
+                                    if _target_sprints
+                                    else _start_dt
+                                )
+                                _end_q = ((_end_dt.month - 1) // 3) + 1
+                                _end_year = _end_dt.year
+                                if _start_q == _end_q and _start_year == _end_year:
+                                    _quarter_label = f"Q{_start_q}|{_start_year}"
+                                else:
+                                    _quarter_label = f"Q{_start_q}|{_start_year}-Q{_end_q}|{_end_year}"
+
+                            def _reformat_epic():
+                                try:
+                                    from scrum_agent.tools.team_learning import _llm_invoke
+
+                                    _proj_name = getattr(_ep_analysis, "project_name", "")
+                                    _proj_desc = getattr(_ep_analysis, "project_description", "")
+                                    _naming = _ep_examples.get("naming_conventions", {})
+                                    _sections = (
+                                        _naming.get("template_sections", []) if isinstance(_naming, dict) else []
+                                    )
+                                    _sec_names = [
+                                        s[0] if isinstance(s, (list, tuple)) else str(s) for s in _sections[:5]
+                                    ]
+
+                                    _prompt = (
+                                        f"Reformat this project epic to match the team's style.\n\n"
+                                        f"Project: {_proj_name}\n"
+                                        f"Description: {_proj_desc}\n\n"
+                                    )
+                                    if _quarter_label:
+                                        _prompt += (
+                                            f"IMPORTANT: The team uses quarter-scoped naming. "
+                                            f"The correct quarter is: {_quarter_label}\n"
+                                            f"Use this EXACT quarter/year in the title.\n\n"
+                                        )
+                                    _prompt += f"{_cal_text}\n\nRequirements:\n"
+                                    if _quarter_label:
+                                        _prompt += f"1. Use the team's naming convention with {_quarter_label}\n"
+                                    else:
+                                        _prompt += "1. Use the team's naming convention for the title\n"
+                                    if _sec_names:
+                                        _prompt += (
+                                            f"2. Structure the description with these sections: "
+                                            f"{', '.join(_sec_names)}\n"
+                                        )
+                                    _prompt += (
+                                        "3. Keep the project scope — don't change what the epic is about\n"
+                                        "4. Match the team's writing style and level of detail\n\n"
+                                        "Return ONLY a JSON object:\n"
+                                        '{"title": "...", "description": "...", "stories_estimate": N, '
+                                        '"points_estimate": N, "rationale": "..."}'
+                                    )
+                                    resp = _llm_invoke(_prompt, temperature=0.2)
+                                    import json
+                                    import re
+
+                                    text = resp.content if hasattr(resp, "content") else str(resp)
+                                    text = text.strip()
+                                    if text.startswith("```"):
+                                        text = re.sub(r"^```\w*\n?", "", text)
+                                        text = re.sub(r"\n?```$", "", text)
+                                    _epic_result[0] = json.loads(text)
+                                except Exception as exc:
+                                    logger.warning("Epic reformat failed: %s", exc)
+
+                            _t = threading.Thread(target=_reformat_epic, daemon=True)
+                            _t.start()
+                            _anim_start = time.monotonic()
+                            while _t.is_alive():
+                                _tick = time.monotonic() - _anim_start
+                                w, h = console.size
+                                live.update(
+                                    _build_pipeline_screen(
+                                        "Formatting epic",
+                                        "[2/6]",
+                                        [],
+                                        0,
+                                        0,
+                                        status="processing",
+                                        width=w,
+                                        height=h,
+                                        tick=_tick,
+                                        step=1,
+                                        total=6,
+                                    )
+                                )
+                                time.sleep(1 / 30)
+                            _t.join()
+
+                            if _epic_result[0] and isinstance(_epic_result[0], dict):
+                                _new_epic = _epic_result[0]
+                                from dataclasses import fields as _dc_f
+
+                                _pa_kw = {f.name: getattr(_ep_analysis, f.name) for f in _dc_f(_ep_analysis)}
+                                _new_title = _new_epic.get("title", _pa_kw["project_name"])
+                                _new_desc = _new_epic.get("description", _pa_kw["project_description"])
+                                _pa_kw["project_name"] = _new_title
+                                _pa_kw["project_description"] = _new_desc
+                                graph_state["project_analysis"] = type(_ep_analysis)(**_pa_kw)
+                                _ep_analysis = graph_state["project_analysis"]
+                                logger.info("Epic reformatted to team style: %s", _new_title)
+                    except Exception:
+                        logger.debug("Epic reformat skipped", exc_info=True)
+
+                _ep_renderable = _render_tui_epic(_ep_analysis, render_w=_rw, examples=_ep_examples)
+                if _ep_profile_id:
+                    from rich.console import Group as _EpGroup
+                    from rich.text import Text as _EpText
+
+                    from scrum_agent.ui.session._renderers import _render_calibration_banner
+
+                    _ep_banner = _render_calibration_banner(_ep_profile_id, _rw, stage="feature_generator")
+                    if _ep_banner:
+                        _ep_renderable = _EpGroup(_ep_banner, _EpText(""), _ep_renderable)
+
+                _ep_lines = _render_to_lines(console, _ep_renderable, _rw)
+                _ep_scroll, _ep_sel = 0, 0
+                _ep_actions = ["Accept", "Edit", "Export"]
+
+                # Add tracker sync buttons (dynamic based on configured boards)
+                _ep_preferred = ""
+                _qs = graph_state.get("questionnaire")
+                if _qs:
+                    _ep_preferred = getattr(_qs, "_preferred_tracker", "")
+                try:
+                    from scrum_agent.jira_sync import is_jira_configured
+
+                    _jira_ok = is_jira_configured()
+                except Exception:
+                    _jira_ok = False
+                try:
+                    from scrum_agent.azdevops_sync import is_azdevops_board_configured
+
+                    _azdo_ok = is_azdevops_board_configured()
+                except Exception:
+                    _azdo_ok = False
+                if _ep_preferred == "jira" and _jira_ok:
+                    _ep_actions.append("Jira")
+                elif _ep_preferred == "azdevops" and _azdo_ok:
+                    _ep_actions.append("Azure DevOps")
+                elif _jira_ok:
+                    _ep_actions.append("Jira")
+                elif _azdo_ok:
+                    _ep_actions.append("Azure DevOps")
+
+                logger.info("Epic review: showing project-level epic")
+
+                while True:
+                    w, h = console.size
+                    live.update(
+                        _build_pipeline_screen(
+                            "Reviewing epic",
+                            "[2/6]",
+                            _ep_lines,
+                            _ep_scroll,
+                            _ep_sel,
+                            status="complete",
+                            width=w,
+                            height=h,
+                            actions=_ep_actions,
+                            step=1,
+                            total=6,
+                        )
+                    )
+                    key = _key()
+                    if key in ("esc", "q"):
+                        logger.info("Epic review: user pressed Esc — exiting planning")
+                        return graph_state
+                    elif key in ("up", "scroll_up"):
+                        _ep_scroll = max(0, _ep_scroll - 1)
+                    elif key in ("down", "scroll_down"):
+                        _ep_scroll += 1
+                    elif key == "left":
+                        _ep_sel = max(0, _ep_sel - 1)
+                    elif key == "right":
+                        _ep_sel = min(len(_ep_actions) - 1, _ep_sel + 1)
+                    elif key in ("enter", " "):
+                        _ep_act = _ep_actions[_ep_sel]
+                        if _ep_act == "Accept":
+                            logger.info("Epic review: accepted")
+                            break
+                        elif _ep_act == "Edit":
+                            logger.info("Epic review: editing")
+                            from dataclasses import fields as _dc_fields
+
+                            from scrum_agent.agent.state import Feature, Priority
+                            from scrum_agent.ui.session.editor._editor_artifacts import (
+                                _feature_editable_start,
+                                _features_to_text,
+                                _find_first_editable,
+                                _parse_edited_features,
+                            )
+                            from scrum_agent.ui.session.editor._editor_core import (
+                                edit_buffer_loop,
+                                render_editor_panel,
+                            )
+
+                            _ep_feat = Feature(
+                                id="EPIC",
+                                title=_ep_analysis.project_name,
+                                description=_ep_analysis.project_description,
+                                priority=Priority.HIGH,
+                            )
+                            _ep_buf = _features_to_text([_ep_feat]).split("\n")
+                            _ep_cr, _ep_cc = _find_first_editable(_ep_buf, _feature_editable_start)
+
+                            def _ep_render(buf, cr, cc, so, rw, rh):
+                                return render_editor_panel(
+                                    buf,
+                                    cr,
+                                    cc,
+                                    so,
+                                    width=rw,
+                                    height=rh,
+                                    editor_label="epic",
+                                )
+
+                            _ep_edited = edit_buffer_loop(
+                                live,
+                                console,
+                                _ep_buf,
+                                _ep_cr,
+                                _ep_cc,
+                                _key,
+                                editable_start_fn=_feature_editable_start,
+                                render_fn=_ep_render,
+                            )
+                            if _ep_edited is not None:
+                                _ep_parsed = _parse_edited_features("\n".join(_ep_edited), [_ep_feat])
+                                if _ep_parsed:
+                                    _new = _ep_parsed[0]
+                                    _pa_kw = {f.name: getattr(_ep_analysis, f.name) for f in _dc_fields(_ep_analysis)}
+                                    _pa_kw["project_name"] = _new.title
+                                    _pa_kw["project_description"] = _new.description
+                                    graph_state["project_analysis"] = type(_ep_analysis)(**_pa_kw)
+                                    _ep_analysis = graph_state["project_analysis"]
+                                    _ep_renderable = _render_tui_epic(
+                                        _ep_analysis,
+                                        render_w=_rw,
+                                        examples=_ep_examples,
+                                    )
+                                    if _ep_profile_id:
+                                        _b = _render_calibration_banner(_ep_profile_id, _rw, stage="feature_generator")
+                                        if _b:
+                                            _ep_renderable = _EpGroup(_b, _EpText(""), _ep_renderable)
+                                    _ep_lines = _render_to_lines(console, _ep_renderable, _rw)
+                        elif _ep_act == "Export":
+                            logger.info("Epic review: exporting")
+                            from scrum_agent.html_exporter import export_plan_html
+                            from scrum_agent.repl._io import _export_plan_markdown
+                            from scrum_agent.ui.mode_select.screens._screens_secondary import (
+                                _build_project_export_success_screen,
+                            )
+
+                            _h_path = export_plan_html(graph_state, stage="project_analyzer")
+                            _m_path = _export_plan_markdown(graph_state)
+                            w, h = console.size
+                            live.update(
+                                _build_project_export_success_screen(
+                                    f"HTML  {_h_path}\nMD    {_m_path}",
+                                    width=w,
+                                    height=h,
+                                    subtitle="Exported (HTML + MD)",
+                                    mode="planning",
+                                )
+                            )
+                            import time as _ep_t
+
+                            _t0 = _ep_t.monotonic()
+                            while True:
+                                try:
+                                    _ek = _key(timeout=0.05)
+                                except TypeError:
+                                    _ek = _key()
+                                if _ep_t.monotonic() - _t0 > 1.0 and _ek:
+                                    break
+                        elif _ep_act in ("Jira", "Azure DevOps"):
+                            logger.info("Epic review: syncing to %s", _ep_act)
+                            _btn_tracker = "jira" if _ep_act == "Jira" else "azdevops"
+                            _sync_result = _handle_tracker_sync(
+                                live,
+                                console,
+                                _key,
+                                graph_state,
+                                "epic_review",
+                                "Reviewing epic",
+                                "[2/6]",
+                                1,
+                                6,
+                                tracker=_btn_tracker,
+                            )
+                            logger.info(
+                                "Epic sync result: %s",
+                                "success" if _sync_result is not None else "failed/cancelled",
+                            )
+                            if _sync_result is not None:
+                                graph_state = _sync_result
+                                if project_id:
+                                    save_project_snapshot(project_id, graph_state)
 
         # Skip the LLM call if we already have artifacts awaiting review
         # (resumed session or re-entering the loop after an edit request).
@@ -901,9 +1409,41 @@ def _phase_pipeline(
                     # Cancel — stay on review
                 elif action == "Export":
                     logger.info("Review decision: Export for %s", pending)
-                    _export_checkpoint(console, graph_state, stage=pending)
-                    status_msg = "✓ Exported to scrum-plan.html + scrum-plan.md"
-                    # Force immediate redraw so the confirmation is visible
+                    from scrum_agent.html_exporter import export_plan_html
+                    from scrum_agent.repl._io import _export_plan_markdown
+
+                    html_path = export_plan_html(graph_state, stage=pending)
+                    md_path = _export_plan_markdown(graph_state)
+                    logger.info("Exported: HTML=%s, MD=%s", html_path, md_path)
+
+                    # Show export success screen using shared component
+                    from scrum_agent.ui.mode_select.screens._screens_secondary import (
+                        _build_project_export_success_screen,
+                    )
+
+                    paths = f"HTML  {html_path}\nMD    {md_path}"
+                    w, h = console.size
+                    live.update(
+                        _build_project_export_success_screen(
+                            paths,
+                            width=w,
+                            height=h,
+                            subtitle="Exported (HTML + MD)",
+                            mode="planning",
+                        )
+                    )
+                    import time as _export_time
+
+                    _t0 = _export_time.monotonic()
+                    while True:
+                        try:
+                            _ek = _key(timeout=0.05)
+                        except TypeError:
+                            _ek = _key()
+                        if _export_time.monotonic() - _t0 > 1.0 and _ek:
+                            break
+                    status_msg = ""
+                    # Force immediate redraw
                     w, h = console.size
                     live.update(
                         _build_pipeline_screen(

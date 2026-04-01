@@ -96,6 +96,7 @@ def run_session(
     theme: str = "dark",
     dry_run: bool = False,
     _read_key_fn=None,
+    analysis_profile_id: str = "",
 ) -> None:
     """Drive the full TUI session inside an existing Live context.
 
@@ -152,6 +153,7 @@ def run_session(
             export_only=export_only,
             bell=bell,
             dry_run=dry_run,
+            analysis_profile_id=analysis_profile_id,
         )
     finally:
         remove_session_logger()
@@ -170,6 +172,7 @@ def _run_session_body(
     export_only,
     bell,
     dry_run,
+    analysis_profile_id="",
 ):
     """Session body — extracted so run_session can use try/finally for log cleanup."""
     # Compile graph once for the session (skipped in dry-run — no LLM calls)
@@ -183,6 +186,26 @@ def _run_session_body(
     else:
         graph_state: dict = {"messages": []}
         graph_state["_intake_mode"] = intake_mode
+        if analysis_profile_id:
+            graph_state["analysis_profile_id"] = analysis_profile_id
+            # Extract custom DoD items from the analysis profile
+            try:
+                from scrum_agent.agent.nodes import _load_profile_by_id
+
+                _p, _ex = _load_profile_by_id(analysis_profile_id)
+                if _ex:
+                    proposed = _ex.get("proposed_dod", {})
+                    if isinstance(proposed, dict):
+                        _dod = [
+                            it["practice"]
+                            for it in proposed.get("items", [])
+                            if isinstance(it, dict) and it.get("status") in ("established", "emerging")
+                        ]
+                        if _dod:
+                            graph_state["custom_dod_items"] = tuple(_dod)
+                            logger.info("Custom DoD from analysis: %s", _dod)
+            except Exception:
+                pass
 
     if questionnaire is not None:
         questionnaire.intake_mode = intake_mode
