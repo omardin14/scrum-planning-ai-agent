@@ -155,6 +155,7 @@ def _build_team_analysis_screen(
     examples: dict | None = None,
     sprint_names: list[str] | None = None,
     team_name: str = "",
+    page: int = 1,
 ) -> Panel:
     """Build the team analysis results screen.
 
@@ -192,6 +193,8 @@ def _build_team_analysis_screen(
     def _add(item, rendered_h: int = 1) -> None:
         """Append an item to lines and track its rendered height."""
         nonlocal _rendered_lines
+        if not _active:
+            return
         lines.append(item)
         _item_heights.append(rendered_h)
         _rendered_lines += rendered_h
@@ -239,6 +242,10 @@ def _build_team_analysis_screen(
             if detail:
                 t.append(f"  {detail}", style="rgb(70,70,90)")
             _add(t)
+
+    # Page gating — _active controls whether _add() actually appends.
+    # This avoids re-indenting hundreds of lines per page.
+    _active = page == 1
 
     # ── Sprint names (compressed) ─────────────────────────────────────
     if sprint_names:
@@ -756,6 +763,9 @@ def _build_team_analysis_screen(
                     )
                     _add(ins)
 
+    # ══ PAGE 2: Delivery Patterns ═════════════════════════════════════
+    _active = page == 2
+
     # ── Spillover Root Causes ─────────────────────────────────────
     spill_corr = _ex.get("spillover_correlation", {})
     if isinstance(spill_corr, dict) and spill_corr:
@@ -1146,6 +1156,9 @@ def _build_team_analysis_screen(
             cs_parts = [f'"{cs["title"]}" ({cs["pct"]}%)' for cs in custom_steps[:4]]
             cs_row.append(", ".join(cs_parts), style=c_value)
             _add(cs_row)
+
+    # ══ PAGE 3: Style & Insights ══════════════════════════════════════
+    _active = page == 3
 
     # ── Writing Patterns ──────────────────────────────────────────────
     wp = profile.writing_patterns
@@ -1821,9 +1834,17 @@ def _build_team_analysis_screen(
 
     title = analysis_title()
 
-    # Action buttons + viewport via shared components
-    btn_top, btn_mid, btn_bot = build_action_buttons(["Export", "Continue"], export_sel)
-    body_h = calc_viewport(height, header_h=6, action_h=4)
+    # Page-specific action buttons
+    _page_labels = ["Velocity", "Patterns", "Insights"]
+    if page == 1:
+        _actions = ["Export", "Next"]
+    elif page == 2:
+        _actions = ["Back", "Next"]
+    else:
+        _actions = ["Back", "Export", "Continue"]
+    btn_top, btn_mid, btn_bot = build_action_buttons(_actions, export_sel)
+    progress_dots = build_progress_dots(_page_labels, page - 1, theme=ANALYSIS_THEME)
+    body_h = calc_viewport(height, header_h=7, action_h=4)
 
     max_scroll = max(0, _rendered_lines - body_h)
     actual_scroll = min(scroll_offset, max_scroll)
@@ -1865,6 +1886,7 @@ def _build_team_analysis_screen(
         title,
         Text(""),
         sub,
+        progress_dots,
         Text(""),
         viewport_renderable,
         Text(""),
@@ -2101,30 +2123,38 @@ def _build_sample_epic_screen(
     body_lines.append(Text(_PAD + "  " + "\u2500" * min(40, wrap_w), style=c_sep, justify="left"))
     body_lines.append(Text(""))
 
-    # ── Description — parse **Section?** markers into styled blocks ──
+    # ── Description — parse section markers into styled blocks ──
     desc = epic.get("description", "")
     if desc:
-        # Split on **Section** markers (e.g. "**What is this about?**")
         import re as _re
 
+        # Try **Bold** markers first, then ## Heading markers
         _section_re = _re.compile(r"\*\*([^*]+)\*\*\s*")
         parts = _section_re.split(desc)
-        # parts = [text_before, section_title, section_body, title2, body2, ...]
-        if parts[0].strip():
-            # Text before any section header
-            _wrap_text(parts[0].strip(), c_desc, indent="    ")
-            body_lines.append(Text(""))
+        if len(parts) <= 2:
+            # No **bold** markers — try ## heading markers
+            _heading_re = _re.compile(r"#{1,3}\s+([^\n?]+\??)\s*")
+            parts = _heading_re.split(desc)
 
-        i = 1
-        while i < len(parts) - 1:
-            section_title = parts[i].strip()
-            section_body = parts[i + 1].strip() if i + 1 < len(parts) else ""
-            # Section header
-            body_lines.append(Text(_PAD + "    " + section_title, style=f"bold {c_label}", justify="left"))
-            if section_body:
-                _wrap_text(section_body, c_desc, indent="    ")
+        if len(parts) > 2:
+            # parts = [text_before, section_title, section_body, title2, body2, ...]
+            if parts[0].strip():
+                _wrap_text(parts[0].strip(), c_desc, indent="    ")
+                body_lines.append(Text(""))
+
+            i = 1
+            while i < len(parts) - 1:
+                section_title = parts[i].strip().rstrip("?")
+                section_body = parts[i + 1].strip() if i + 1 < len(parts) else ""
+                body_lines.append(Text(_PAD + "    " + section_title, style=f"bold {c_label}", justify="left"))
+                if section_body:
+                    _wrap_text(section_body, c_desc, indent="    ")
+                body_lines.append(Text(""))
+                i += 2
+        else:
+            # No section markers at all — show raw description
+            _wrap_text(desc, c_desc, indent="    ")
             body_lines.append(Text(""))
-            i += 2
     else:
         body_lines.append(Text(_PAD + "    No description provided.", style=c_muted, justify="left"))
         body_lines.append(Text(""))

@@ -1592,8 +1592,29 @@ def select_mode(
                                     )
 
                                     _scr = 0
-                                    _esel = 2
+                                    _esel = 1  # default to "Next" on page 1
+                                    _vp = 1  # current page
                                     while True:
+                                        # Page-specific actions
+                                        if _vp == 1:
+                                            _va = ["Export", "Next"]
+                                        elif _vp == 2:
+                                            _va = ["Back", "Next"]
+                                        else:
+                                            _va = ["Back", "Export", "Continue"]
+
+                                        w, h = console.size
+                                        live.update(
+                                            _build_team_analysis_screen(
+                                                _full,
+                                                scroll_offset=_scr,
+                                                width=w,
+                                                height=h,
+                                                export_sel=_esel,
+                                                examples=_stored_ex,
+                                                page=_vp,
+                                            )
+                                        )
                                         kk = read_key(timeout=_FRAME_TIME) if _supports_timeout else read_key()
                                         if kk in ("up", "scroll_up"):
                                             _scr = max(0, _scr - 1)
@@ -1602,10 +1623,44 @@ def select_mode(
                                         elif kk == "left":
                                             _esel = max(0, _esel - 1)
                                         elif kk == "right":
-                                            _esel = min(1, _esel + 1)
-                                        elif kk == "enter" or kk == " ":
-                                            if _esel == 1:
-                                                # Continue → run preview flow
+                                            _esel = min(len(_va) - 1, _esel + 1)
+                                        elif kk in ("enter", " "):
+                                            _vact = _va[_esel]
+                                            if _vact == "Next":
+                                                _vp = min(3, _vp + 1)
+                                                _scr = 0
+                                                _esel = 0
+                                            elif _vact == "Back":
+                                                _vp = max(1, _vp - 1)
+                                                _scr = 0
+                                                _esel = 1
+                                            elif _vact == "Export":
+                                                from scrum_agent.team_profile_exporter import (
+                                                    export_team_profile_html,
+                                                    export_team_profile_md,
+                                                )
+
+                                                export_team_profile_html(_full, examples=_stored_ex)
+                                                _ep = export_team_profile_md(_full, examples=_stored_ex)
+                                                w, h = console.size
+                                                live.update(
+                                                    _build_project_export_success_screen(
+                                                        str(_ep),
+                                                        width=w,
+                                                        height=h,
+                                                        subtitle="Team profile exported",
+                                                    )
+                                                )
+                                                _et = time.monotonic()
+                                                while True:
+                                                    ek = (
+                                                        read_key(timeout=_FRAME_TIME)
+                                                        if _supports_timeout
+                                                        else read_key()
+                                                    )
+                                                    if time.monotonic() - _et > 1.5 and ek:
+                                                        break
+                                            elif _vact == "Continue":
                                                 from scrum_agent.agent.nodes import _format_team_calibration
 
                                                 _si_text = _format_team_calibration(
@@ -1628,42 +1683,8 @@ def select_mode(
                                                         resume_state=_si_resume,
                                                     )
                                                 break
-                                            if _esel == 0:
-                                                # Export both HTML and MD
-                                                from scrum_agent.team_profile_exporter import (
-                                                    export_team_profile_html,
-                                                    export_team_profile_md,
-                                                )
-
-                                                export_team_profile_html(_full, examples=_stored_ex)
-                                                _ep = export_team_profile_md(_full, examples=_stored_ex)
-                                            w, h = console.size
-                                            live.update(
-                                                _build_project_export_success_screen(
-                                                    str(_ep),
-                                                    width=w,
-                                                    height=h,
-                                                    subtitle="Team profile exported",
-                                                )
-                                            )
-                                            _et = time.monotonic()
-                                            while True:
-                                                ek = read_key(timeout=_FRAME_TIME) if _supports_timeout else read_key()
-                                                if time.monotonic() - _et > 1.5 and ek:
-                                                    break
                                         elif kk in ("esc", "q"):
                                             break
-                                        w, h = console.size
-                                        live.update(
-                                            _build_team_analysis_screen(
-                                                _full,
-                                                scroll_offset=_scr,
-                                                width=w,
-                                                height=h,
-                                                export_sel=_esel,
-                                                examples=_stored_ex,
-                                            )
-                                        )
                                 continue
                             elif _is_profile and _ana_focus == 1:
                                 # Delete profile — open confirmation popup
@@ -1969,6 +1990,11 @@ def select_mode(
                         elif _ta_error_box[0]:
                             logger.error("Analysis failed: %s", _ta_error_box[0])
                         if _ta_profile:
+                            # Attach AzDO team name to profile before saving
+                            if _ta_team_name and not _ta_profile.team_name:
+                                from dataclasses import replace as _dc_replace
+
+                                _ta_profile = _dc_replace(_ta_profile, team_name=_ta_team_name)
                             db_dir = Path.home() / ".scrum-agent"
                             db_dir.mkdir(parents=True, exist_ok=True)
                             with TeamProfileStore(db_dir / "sessions.db") as store:
@@ -1991,10 +2017,32 @@ def select_mode(
                             )
 
                             _ta_scroll = 0
-                            _ta_export_sel = 2
+                            _ta_page = 1
+                            _ta_export_sel = 1  # default to "Next"
                             _ta_examples = _ta_examples_box[0] or {}
                             _ta_sprint_names = _ta_sprint_names_box[0]
                             while True:
+                                if _ta_page == 1:
+                                    _ta_actions = ["Export", "Next"]
+                                elif _ta_page == 2:
+                                    _ta_actions = ["Back", "Next"]
+                                else:
+                                    _ta_actions = ["Back", "Export", "Continue"]
+
+                                w, h = console.size
+                                live.update(
+                                    _build_team_analysis_screen(
+                                        _ta_profile,
+                                        scroll_offset=_ta_scroll,
+                                        width=w,
+                                        height=h,
+                                        export_sel=_ta_export_sel,
+                                        examples=_ta_examples,
+                                        sprint_names=_ta_sprint_names,
+                                        team_name=_ta_team_name,
+                                        page=_ta_page,
+                                    )
+                                )
                                 kk = read_key(timeout=_FRAME_TIME) if _supports_timeout else read_key()
                                 if kk in ("up", "scroll_up"):
                                     _ta_scroll = max(0, _ta_scroll - 1)
@@ -2003,10 +2051,48 @@ def select_mode(
                                 elif kk == "left":
                                     _ta_export_sel = max(0, _ta_export_sel - 1)
                                 elif kk == "right":
-                                    _ta_export_sel = min(1, _ta_export_sel + 1)
-                                elif kk == "enter" or kk == " ":
-                                    if _ta_export_sel == 1:
-                                        # Continue → run preview flow
+                                    _ta_export_sel = min(len(_ta_actions) - 1, _ta_export_sel + 1)
+                                elif kk in ("enter", " "):
+                                    _act = _ta_actions[_ta_export_sel]
+                                    if _act == "Next":
+                                        _ta_page = min(3, _ta_page + 1)
+                                        _ta_scroll = 0
+                                        _ta_export_sel = 0
+                                    elif _act == "Back":
+                                        _ta_page = max(1, _ta_page - 1)
+                                        _ta_scroll = 0
+                                        _ta_export_sel = 1
+                                    elif _act == "Export":
+                                        from scrum_agent.team_profile_exporter import (
+                                            export_team_profile_html,
+                                            export_team_profile_md,
+                                        )
+
+                                        export_team_profile_html(
+                                            _ta_profile,
+                                            examples=_ta_examples,
+                                            sprint_names=_ta_sprint_names,
+                                        )
+                                        _ep = export_team_profile_md(
+                                            _ta_profile,
+                                            examples=_ta_examples,
+                                            sprint_names=_ta_sprint_names,
+                                        )
+                                        w, h = console.size
+                                        live.update(
+                                            _build_project_export_success_screen(
+                                                str(_ep),
+                                                width=w,
+                                                height=h,
+                                                subtitle="Team profile exported",
+                                            )
+                                        )
+                                        _et = time.monotonic()
+                                        while True:
+                                            ek = read_key(timeout=_FRAME_TIME) if _supports_timeout else read_key()
+                                            if time.monotonic() - _et > 1.5 and ek:
+                                                break
+                                    elif _act == "Continue":
                                         global _ana_sid  # noqa: PLW0603
 
                                         from scrum_agent.agent.nodes import _format_team_calibration
@@ -2029,9 +2115,6 @@ def select_mode(
                                             examples=_ta_examples,
                                         )
                                         if _instr_text.strip():
-                                            # Fresh analysis — don't resume from a previous
-                                            # session (which may have last_page="stories"
-                                            # from an old run, skipping epic).
                                             _run_preview_flow(
                                                 live,
                                                 console,
@@ -2044,52 +2127,8 @@ def select_mode(
                                                 resume_state=None,
                                             )
                                         break
-                                    if _ta_export_sel == 0:
-                                        # Export both HTML and MD
-                                        from scrum_agent.team_profile_exporter import (
-                                            export_team_profile_html,
-                                            export_team_profile_md,
-                                        )
-
-                                        export_team_profile_html(
-                                            _ta_profile,
-                                            examples=_ta_examples,
-                                            sprint_names=_ta_sprint_names,
-                                        )
-                                        _ep = export_team_profile_md(
-                                            _ta_profile,
-                                            examples=_ta_examples,
-                                            sprint_names=_ta_sprint_names,
-                                        )
-                                    w, h = console.size
-                                    live.update(
-                                        _build_project_export_success_screen(
-                                            str(_ep),
-                                            width=w,
-                                            height=h,
-                                            subtitle="Team profile exported",
-                                        )
-                                    )
-                                    _et = time.monotonic()
-                                    while True:
-                                        ek = read_key(timeout=_FRAME_TIME) if _supports_timeout else read_key()
-                                        if time.monotonic() - _et > 1.5 and ek:
-                                            break
                                 elif kk in ("esc", "q"):
                                     break
-                                w, h = console.size
-                                live.update(
-                                    _build_team_analysis_screen(
-                                        _ta_profile,
-                                        scroll_offset=_ta_scroll,
-                                        width=w,
-                                        height=h,
-                                        export_sel=_ta_export_sel,
-                                        examples=_ta_examples,
-                                        sprint_names=_ta_sprint_names,
-                                        team_name=_ta_team_name,
-                                    )
-                                )
                         elif _ta_error_box[0]:
                             w, h = console.size
                             live.update(
@@ -3141,6 +3180,12 @@ def select_mode(
                             _ta_duration,
                         )
 
+                        # Attach AzDO team name to profile before saving
+                        if _ta_team_name and not _ta_profile.team_name:
+                            from dataclasses import replace as _dc_replace
+
+                            _ta_profile = _dc_replace(_ta_profile, team_name=_ta_team_name)
+
                         # Save the fresh profile
                         db_dir = Path.home() / ".scrum-agent"
                         db_dir.mkdir(parents=True, exist_ok=True)
@@ -3168,75 +3213,52 @@ def select_mode(
                         )
 
                         _ta_scroll = 0
-                        _ta_export_sel = 2  # 0=HTML, 1=Markdown, 2=Continue (default Continue)
-                        _ta_export_fade = 0.0
-                        _ta_export_fade_target = 0.0
+                        _ta_page = 1
+                        _ta_export_sel = 1  # default to "Next" on page 1
 
                         _ta_examples = _ta_examples_box[0] or {}
                         _ta_sprint_names = _ta_sprint_names_box[0]
 
-                        # Initial render before waiting for input
-                        w, h = console.size
-                        live.update(
-                            _build_team_analysis_screen(
+                        def _ta_do_export():
+                            from scrum_agent.team_profile_exporter import (
+                                export_team_profile_html,
+                                export_team_profile_md,
+                            )
+
+                            export_team_profile_html(
                                 _ta_profile,
-                                scroll_offset=_ta_scroll,
-                                width=w,
-                                height=h,
-                                export_sel=_ta_export_sel,
                                 examples=_ta_examples,
                                 sprint_names=_ta_sprint_names,
-                                team_name=_ta_team_name,
                             )
-                        )
+                            _exp_path = export_team_profile_md(
+                                _ta_profile,
+                                examples=_ta_examples,
+                                sprint_names=_ta_sprint_names,
+                            )
+                            w, h = console.size
+                            live.update(
+                                _build_project_export_success_screen(
+                                    str(_exp_path),
+                                    width=w,
+                                    height=h,
+                                    subtitle="Team profile exported (HTML + MD)",
+                                )
+                            )
+                            _exp_t0 = time.monotonic()
+                            while True:
+                                k = read_key(timeout=_FRAME_TIME) if _supports_timeout else read_key()
+                                if time.monotonic() - _exp_t0 > 1.5 and k:
+                                    break
 
                         while True:
-                            key = read_key(timeout=_FRAME_TIME) if _supports_timeout else read_key()
-
-                            if key in ("up", "scroll_up"):
-                                _ta_scroll = max(0, _ta_scroll - 1)
-                            elif key in ("down", "scroll_down"):
-                                _ta_scroll += 1
-                            elif key == "left":
-                                _ta_export_sel = max(0, _ta_export_sel - 1)
-                            elif key == "right":
-                                _ta_export_sel = min(1, _ta_export_sel + 1)
-                            elif key == "enter" or key == " ":
-                                if _ta_export_sel == 0:
-                                    # Export both HTML and MD
-                                    from scrum_agent.team_profile_exporter import (
-                                        export_team_profile_html,
-                                        export_team_profile_md,
-                                    )
-
-                                    export_team_profile_html(
-                                        _ta_profile,
-                                        examples=_ta_examples,
-                                        sprint_names=_ta_sprint_names,
-                                    )
-                                    _exp_path = export_team_profile_md(
-                                        _ta_profile,
-                                        examples=_ta_examples,
-                                        sprint_names=_ta_sprint_names,
-                                    )
-                                    w, h = console.size
-                                    live.update(
-                                        _build_project_export_success_screen(
-                                            str(_exp_path),
-                                            width=w,
-                                            height=h,
-                                            subtitle="Team profile exported (HTML + MD)",
-                                        )
-                                    )
-                                    _exp_t0 = time.monotonic()
-                                    while True:
-                                        k = read_key(timeout=_FRAME_TIME) if _supports_timeout else read_key()
-                                        if time.monotonic() - _exp_t0 > 1.5 and k:
-                                            break
-                                else:
-                                    break  # Continue → intake
-                            elif key in ("esc", "q"):
-                                break
+                            # Page-specific actions
+                            if _ta_page == 1:
+                                _ta_actions = ["Export", "Next"]
+                            elif _ta_page == 2:
+                                _ta_actions = ["Back", "Next"]
+                            else:
+                                _ta_actions = ["Back", "Export", "Continue"]
+                            _ta_max_sel = len(_ta_actions) - 1
 
                             w, h = console.size
                             live.update(
@@ -3249,8 +3271,36 @@ def select_mode(
                                     examples=_ta_examples,
                                     sprint_names=_ta_sprint_names,
                                     team_name=_ta_team_name,
+                                    page=_ta_page,
                                 )
                             )
+
+                            key = read_key(timeout=_FRAME_TIME) if _supports_timeout else read_key()
+
+                            if key in ("up", "scroll_up"):
+                                _ta_scroll = max(0, _ta_scroll - 1)
+                            elif key in ("down", "scroll_down"):
+                                _ta_scroll += 1
+                            elif key == "left":
+                                _ta_export_sel = max(0, _ta_export_sel - 1)
+                            elif key == "right":
+                                _ta_export_sel = min(_ta_max_sel, _ta_export_sel + 1)
+                            elif key in ("enter", " "):
+                                _act = _ta_actions[_ta_export_sel]
+                                if _act == "Next":
+                                    _ta_page = min(3, _ta_page + 1)
+                                    _ta_scroll = 0
+                                    _ta_export_sel = 0
+                                elif _act == "Back":
+                                    _ta_page = max(1, _ta_page - 1)
+                                    _ta_scroll = 0
+                                    _ta_export_sel = min(1, len(["Export", "Next"]) - 1)
+                                elif _act == "Export":
+                                    _ta_do_export()
+                                elif _act == "Continue":
+                                    break  # → intake
+                            elif key in ("esc", "q"):
+                                break
                     elif _ta_error_box[0]:
                         w, h = console.size
                         live.update(

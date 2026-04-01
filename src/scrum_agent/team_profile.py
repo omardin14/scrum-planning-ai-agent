@@ -175,9 +175,10 @@ class TeamProfile:
     # See README: "Scrum Standards" — team learning, self-calibrating estimates
     """
 
-    team_id: str  # Unique identifier (e.g. "jira-PROJ" or "azdevops-MyProject")
+    team_id: str  # Unique identifier (e.g. "jira-PROJ-20260401" or "azdevops-MyProject-20260401")
     source: str  # "jira" or "azdevops"
     project_key: str  # Jira project key or AzDO project name
+    team_name: str = ""  # AzDO team name (e.g. "Dev Enablement") — empty for Jira
     sample_sprints: int = 0  # Number of sprints analysed
     sample_stories: int = 0  # Total stories analysed
     velocity_avg: float = 0.0  # Average velocity (story points per sprint)
@@ -483,6 +484,7 @@ def _json_to_profile(json_str: str) -> TeamProfile:
         sprints_analysed=d.get("sprints_analysed", 0),
         created_at=d.get("created_at", ""),
         updated_at=d.get("updated_at", ""),
+        team_name=d.get("team_name", ""),
     )
 
 

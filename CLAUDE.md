@@ -32,6 +32,15 @@ make clean                # Remove build artifacts and caches
 Run a single test: `uv run pytest tests/unit/test_state.py -v`
 Run a single test class: `uv run pytest tests/unit/test_state.py::TestPriority -v`
 
+### Recording terminal GIFs (for README)
+
+```bash
+brew install asciinema agg
+asciinema rec docs/demo.cast -c "scrum-agent --dry-run"   # record
+agg docs/demo.cast docs/demo.gif --theme github-dark       # convert to GIF
+rm docs/demo.cast                                           # clean up source
+```
+
 ## Code Style
 
 - Python 3.11+, ruff for linting/formatting (line-length 120)

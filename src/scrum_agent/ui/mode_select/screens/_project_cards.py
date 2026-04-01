@@ -342,7 +342,10 @@ def _build_profile_card(
     title + metadata lines, animated border on selection.
     """
     title_text = Text(justify="left")
+    _team = getattr(profile, "team_name", "")
     title_label = f"{profile.source}/{profile.project_key}"
+    if _team:
+        title_label += f" — {_team}"
     if selected:
         title_text.append(title_label, style=f"bold {lerp_color(opacity, BLACK_RGB, (255, 255, 255))}")
     else:

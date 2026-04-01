@@ -251,6 +251,7 @@ def _questionnaire_to_dict(qs: QuestionnaireState) -> dict:
         "extracted_questions": list(qs.extracted_questions),
         "_pending_merged_questions": list(qs._pending_merged_questions),
         "_follow_up_choices": {str(k): list(v) for k, v in qs._follow_up_choices.items()},
+        "_preferred_tracker": qs._preferred_tracker,
     }
 
 
@@ -273,6 +274,7 @@ def _dict_to_questionnaire(d: dict) -> QuestionnaireState:
         extracted_questions=set(d.get("extracted_questions", [])),
         _pending_merged_questions=d.get("_pending_merged_questions", []),
         _follow_up_choices={int(k): tuple(v) for k, v in d.get("_follow_up_choices", {}).items()},
+        _preferred_tracker=d.get("_preferred_tracker", ""),
     )
 
 

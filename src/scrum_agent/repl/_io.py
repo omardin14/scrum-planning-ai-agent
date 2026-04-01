@@ -419,6 +419,18 @@ def _export_plan_markdown(graph_state: dict, path: Path | None = None) -> Path:
     # same deduction math that drove sprint planning.
     _append_capacity_section(lines, graph_state)
 
+    # Epic
+    analysis = graph_state.get("project_analysis")
+    if analysis:
+        epic_key = graph_state.get("jira_epic_key", "") or graph_state.get("azdevops_epic_id", "")
+        key_suffix = f" ({epic_key})" if epic_key else ""
+        lines.append("# Epic")
+        lines.append("")
+        lines.append(f"## {analysis.project_name}{key_suffix}")
+        lines.append(f"{analysis.project_description}")
+        lines.append(f"\n**Target state:** {analysis.target_state}")
+        lines.append("")
+
     # Features
     features = graph_state.get("features", [])
     if features:
@@ -437,6 +449,9 @@ def _export_plan_markdown(graph_state: dict, path: Path | None = None) -> Path:
     if stories:
         lines.append("# User Stories")
         lines.append("")
+        from scrum_agent.agent.state import resolve_dod_items
+
+        dod_items = resolve_dod_items(graph_state)
         for story in stories:
             lines.append(f"## {story.id}: {story.title or story.text}")
             lines.append(f"\n*{story.text}*\n")
@@ -446,21 +461,23 @@ def _export_plan_markdown(graph_state: dict, path: Path | None = None) -> Path:
                 f"**Discipline:** {story.discipline.value if hasattr(story.discipline, 'value') else story.discipline}"
             )
             if story.points_rationale:
-                lines.append(f"\n> **Points rationale:** {story.points_rationale}")
+                confidence = getattr(story, "points_confidence", "")
+                conf_tag = f" [{confidence} confidence]" if confidence else ""
+                lines.append(f"\n> **Points rationale:** {story.points_rationale}{conf_tag}")
             if story.acceptance_criteria:
                 lines.append("")
                 lines.append("**Acceptance Criteria:**")
-                for ac in story.acceptance_criteria:
+                for i, ac in enumerate(story.acceptance_criteria):
+                    lines.append(f"\n**AC {i + 1}:**")
                     lines.append(f"- **Given** {ac.given}")
                     lines.append(f"  **When** {ac.when}")
                     lines.append(f"  **Then** {ac.then}")
-            from scrum_agent.agent.state import DOD_ITEMS
 
             dod_flags = story.dod_applicable
-            if len(dod_flags) == len(DOD_ITEMS):
+            if len(dod_flags) == len(dod_items):
                 lines.append("")
                 lines.append("**Definition of Done:**")
-                for item, applicable in zip(DOD_ITEMS, dod_flags):
+                for item, applicable in zip(dod_items, dod_flags):
                     mark = "x" if applicable else " "
                     lines.append(f"- [{mark}] {item}")
             lines.append("")
@@ -489,7 +506,18 @@ def _export_plan_markdown(graph_state: dict, path: Path | None = None) -> Path:
         for sprint in sprints:
             lines.append(f"## {sprint.name}")
             lines.append(f"**Goal:** {sprint.goal}")
-            lines.append(f"**Capacity:** {sprint.capacity_points} pts (velocity: {velocity})")
+            cap = sprint.capacity_points
+            deduction = ""
+            if cap < velocity:
+                deduction = f" _(reduced from {velocity} — bank holidays/deductions)_"
+            lines.append(f"**Capacity:** {cap} pts{deduction}")
+            used = sum(
+                (s.story_points.value if hasattr(s.story_points, "value") else int(s.story_points))
+                for s in graph_state.get("stories", [])
+                if s.id in sprint.story_ids
+            )
+            fill_pct = min(int(used / cap * 100), 100) if cap else 0
+            lines.append(f"**Used:** {used} / {cap} pts ({fill_pct}%)")
             lines.append("")
             for sid in sprint.story_ids:
                 lines.append(f"- {sid}")

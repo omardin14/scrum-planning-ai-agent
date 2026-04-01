@@ -516,7 +516,7 @@ class TestParallelAnalysis:
         progress = []
         profile, examples = _run_parallel_analysis("jira", "PROJ", sprint_data, progress)
 
-        assert profile.team_id == "jira-PROJ"
+        assert profile.team_id.startswith("jira-PROJ-")
         assert profile.sample_sprints == 2
         assert profile.sample_stories == 3
         assert profile.velocity_avg > 0

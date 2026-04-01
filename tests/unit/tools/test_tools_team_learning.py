@@ -131,7 +131,7 @@ class TestBuildProfileFromSprintData:
         ]
         profile = _build_profile_from_sprint_data("jira", "PROJ", sprints)
 
-        assert profile.team_id == "jira-PROJ"
+        assert profile.team_id.startswith("jira-PROJ-")
         assert profile.source == "jira"
         assert profile.sample_sprints == 2
         assert profile.sample_stories == 3

@@ -436,7 +436,8 @@ def _build_project_list_screen(
                 return "+ New Project"
             if idx < _profile_end:
                 p = _profiles[idx - _team_section_start]
-                return f"{p.source}/{p.project_key}"
+                _tn = getattr(p, "team_name", "")
+                return f"{p.source}/{p.project_key}" + (f" — {_tn}" if _tn else "")
             # Analysis buttons
             ai = idx - _profile_end
             if ai < len(_analysis_labels):

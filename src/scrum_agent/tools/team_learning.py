@@ -19,7 +19,7 @@ import re
 import statistics
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from langchain_core.tools import tool
 
@@ -271,7 +271,9 @@ def _build_profile_from_sprint_data(
             - stories: list of dicts with keys: points, cycle_time_days,
               discipline, task_count, ac_count, epic_key, point_changed
     """
-    team_id = f"{source}-{project_key}"
+    from datetime import datetime
+
+    team_id = f"{source}-{project_key}-{datetime.now(UTC).strftime('%Y%m%d%H%M')}"
 
     # Velocity stats
     velocities = [sd["completed_points"] for sd in sprint_data if sd.get("completed_points", 0) > 0]
@@ -1856,7 +1858,9 @@ def _run_parallel_analysis(
     examples["per_dev_velocity"] = per_dev_velocity  # type: ignore[assignment]
     examples["contributor_stats"] = contributor_stats  # type: ignore[assignment]
 
-    team_id = f"{source}-{project_key}"
+    from datetime import datetime
+
+    team_id = f"{source}-{project_key}-{datetime.now(UTC).strftime('%Y%m%d%H%M')}"
     profile = TeamProfile(
         team_id=team_id,
         source=source,

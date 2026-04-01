@@ -186,16 +186,19 @@ def _pipeline_choice_screen(
         )
 
     live.update(_render_choices())
+    logger.info("Choice screen shown: title=%s, options=%s", title, options)
 
     while True:
         key = _key()
         if key == "esc":
+            logger.info("Choice screen: Esc pressed — cancelling")
             return None
         elif key in ("up", "scroll_up"):
             selected = (selected - 1) % num_opts
         elif key in ("down", "scroll_down"):
             selected = (selected + 1) % num_opts
-        elif key == "enter":
+        elif key in ("enter", " "):
+            logger.info("Choice screen: confirmed option %d (%s)", selected, options[selected])
             return selected
         elif key == "":
             pass
@@ -280,13 +283,14 @@ def _handle_tracker_sync(
         epic_key_field = "azdevops_epic_id"
 
     # Pick the right sync function based on stage and tracker
+    sync_fn = None
     if stage == "story_writer":
         sync_fn = sync_stories_to_jira if tracker == "jira" else sync_stories_to_azdevops
     elif stage == "task_decomposer":
         sync_fn = sync_tasks_to_jira if tracker == "jira" else sync_tasks_to_azdevops
     elif stage == "sprint_planner":
         sync_fn = sync_sprints_to_jira if tracker == "jira" else sync_iterations_to_azdevops
-    else:
+    elif stage != "epic_review":
         return None
 
     # Compute what will be created vs skipped for confirmation
@@ -300,7 +304,12 @@ def _handle_tracker_sync(
 
     # Build confirmation description
     parts: list[str] = []
-    if stage == "story_writer":
+    if stage == "epic_review":
+        if has_epic:
+            parts.append("Epic already exists — nothing to create")
+        else:
+            parts.append("1 Epic")
+    elif stage == "story_writer":
         new_stories = len(stories) - existing_stories
         if not has_epic:
             parts.append("1 Epic")
@@ -345,6 +354,130 @@ def _handle_tracker_sync(
     if choice != 0:
         return None  # User cancelled
 
+    # ── Epic-only sync (single item, no sync_fn) ──────────────────
+    if stage == "epic_review":
+        _ep_analysis = graph_state.get("project_analysis")
+        _ep_title = getattr(_ep_analysis, "project_name", "Project") if _ep_analysis else "Project"
+        _ep_desc = getattr(_ep_analysis, "project_description", "") if _ep_analysis else ""
+        _new_state = dict(graph_state)
+        _ep_error: str | None = None
+        _ep_status = ""
+
+        # Show processing animation during the API call
+        _ep_done = threading.Event()
+        _ep_result_box: list = [None, None]  # [key, error]
+
+        def _create_epic():
+            if tracker == "jira":
+                try:
+                    from jira import JIRA
+
+                    from scrum_agent.config import (
+                        get_jira_base_url,
+                        get_jira_email,
+                        get_jira_project_key,
+                        get_jira_token,
+                    )
+                    from scrum_agent.jira_sync import _discover_issue_types
+
+                    _j = JIRA(get_jira_base_url(), basic_auth=(get_jira_email(), get_jira_token()))
+                    _it = _discover_issue_types(_j, get_jira_project_key())
+                    _fields = {
+                        "project": {"key": get_jira_project_key()},
+                        "summary": _ep_title,
+                        "description": _ep_desc,
+                        "issuetype": {"name": _it.get("epic", "Epic")},
+                    }
+                    _issue = _j.create_issue(fields=_fields)
+                    _ep_result_box[0] = _issue.key
+                except Exception as exc:
+                    _ep_result_box[1] = str(exc)
+            else:
+                try:
+                    from azure.devops.v7_0.work_item_tracking.models import JsonPatchOperation
+
+                    from scrum_agent.azdevops_sync import _get_wit_client
+                    from scrum_agent.config import get_azure_devops_org_url, get_azure_devops_project
+
+                    _wit = _get_wit_client(get_azure_devops_org_url())
+                    _ops = [
+                        JsonPatchOperation(op="add", path="/fields/System.Title", value=_ep_title),
+                        JsonPatchOperation(op="add", path="/fields/System.Description", value=_ep_desc),
+                    ]
+                    _wi = _wit.create_work_item(_ops, get_azure_devops_project(), "Epic")
+                    _ep_result_box[0] = str(_wi.id)
+                except Exception as exc:
+                    _ep_result_box[1] = str(exc)
+            _ep_done.set()
+
+        _ep_thread = threading.Thread(target=_create_epic, daemon=True)
+        _ep_thread.start()
+
+        _ep_start = time.monotonic()
+        while not _ep_done.is_set():
+            tick = time.monotonic() - _ep_start
+            w, h = console.size
+            live.update(
+                _build_pipeline_screen(
+                    stage_label,
+                    progress,
+                    [f"  \033[33m▸\033[0m Creating {tracker_label} Epic..."],
+                    0,
+                    0,
+                    status="processing",
+                    width=w,
+                    height=h,
+                    tick=tick,
+                    step=step,
+                    total=total,
+                )
+            )
+            time.sleep(FRAME_TIME_30FPS)
+        _ep_thread.join()
+
+        if _ep_result_box[1]:
+            logger.error("Epic sync failed: %s", _ep_result_box[1])
+            _ep_status = f"\u2717 {tracker_label} Epic failed: {_ep_result_box[1]}"
+        elif _ep_result_box[0]:
+            _ep_key = _ep_result_box[0]
+            if tracker == "jira":
+                _new_state["jira_epic_key"] = _ep_key
+            else:
+                _new_state["azdevops_epic_id"] = _ep_key
+            logger.info("Created %s Epic: %s", tracker_label, _ep_key)
+            _ep_status = f"\u2713 {tracker_label} Epic created: {_ep_key}"
+
+        # Show result with status message — wait for user to dismiss
+        w, h = console.size
+        live.update(
+            _build_pipeline_screen(
+                stage_label,
+                progress,
+                [f"  {_ep_status}"],
+                0,
+                0,
+                status="complete",
+                width=w,
+                height=h,
+                step=step,
+                total=total,
+                actions=["OK"],
+                status_msg=_ep_status,
+            )
+        )
+        while True:
+            try:
+                _ek = _key(timeout=0.05)
+            except TypeError:
+                _ek = _key()
+            if _ek in ("enter", " ", "esc"):
+                break
+
+        if _ep_result_box[1]:
+            return None
+        return _new_state
+
+    # ── Multi-item sync (stories/tasks/sprints) ─────────────────
     # Run sync in a background thread with progress updates
     _sync_log: list[str] = []
     _sync_current: list[str] = ["Starting..."]
@@ -847,74 +980,27 @@ def _phase_pipeline(
                                     break
                         elif _ep_act in ("Jira", "Azure DevOps"):
                             logger.info("Epic review: syncing to %s", _ep_act)
-                            _ep_title = getattr(_ep_analysis, "project_name", "Project")
-                            _ep_desc = getattr(_ep_analysis, "project_description", "")
-
-                            if _ep_act == "Jira":
-                                try:
-                                    from jira import JIRA
-
-                                    from scrum_agent.config import (
-                                        get_jira_base_url,
-                                        get_jira_email,
-                                        get_jira_project_key,
-                                        get_jira_token,
-                                    )
-                                    from scrum_agent.jira_sync import _detect_issue_types
-
-                                    _j = JIRA(get_jira_base_url(), basic_auth=(get_jira_email(), get_jira_token()))
-                                    _it = _detect_issue_types(_j, get_jira_project_key())
-                                    _fields = {
-                                        "project": {"key": get_jira_project_key()},
-                                        "summary": _ep_title,
-                                        "description": _ep_desc,
-                                        "issuetype": {"name": _it.get("epic", "Epic")},
-                                    }
-                                    _issue = _j.create_issue(fields=_fields)
-                                    graph_state["jira_epic_key"] = _issue.key
-                                    logger.info("Created Jira Epic: %s", _issue.key)
-                                    _ep_status = f"\u2713 Jira Epic created: {_issue.key}"
-                                except Exception as _je:
-                                    logger.warning("Jira epic creation failed: %s", _je)
-                                    _ep_status = f"\u2717 Jira epic failed: {_je}"
-                            else:
-                                try:
-                                    from azure.devops.v7_0.work_item_tracking.models import JsonPatchOperation
-
-                                    from scrum_agent.azdevops_sync import _get_wit_client
-                                    from scrum_agent.config import get_azure_devops_org_url, get_azure_devops_project
-
-                                    _wit = _get_wit_client(get_azure_devops_org_url())
-                                    _ops = [
-                                        JsonPatchOperation(op="add", path="/fields/System.Title", value=_ep_title),
-                                        JsonPatchOperation(op="add", path="/fields/System.Description", value=_ep_desc),
-                                    ]
-                                    _wi = _wit.create_work_item(_ops, get_azure_devops_project(), "Epic")
-                                    graph_state["azdevops_epic_id"] = str(_wi.id)
-                                    logger.info("Created AzDO Epic: %s", _wi.id)
-                                    _ep_status = f"\u2713 Azure DevOps Epic created: {_wi.id}"
-                                except Exception as _ae:
-                                    logger.warning("AzDO epic creation failed: %s", _ae)
-                                    _ep_status = f"\u2717 Azure DevOps epic failed: {_ae}"
-
-                            # Show status briefly then re-render
-                            w, h = console.size
-                            live.update(
-                                _build_pipeline_screen(
-                                    "Reviewing epic",
-                                    "[2/6]",
-                                    _ep_lines,
-                                    _ep_scroll,
-                                    _ep_sel,
-                                    status="complete",
-                                    width=w,
-                                    height=h,
-                                    actions=_ep_actions,
-                                    step=1,
-                                    total=6,
-                                    status_msg=_ep_status,
-                                )
+                            _btn_tracker = "jira" if _ep_act == "Jira" else "azdevops"
+                            _sync_result = _handle_tracker_sync(
+                                live,
+                                console,
+                                _key,
+                                graph_state,
+                                "epic_review",
+                                "Reviewing epic",
+                                "[2/6]",
+                                1,
+                                6,
+                                tracker=_btn_tracker,
                             )
+                            logger.info(
+                                "Epic sync result: %s",
+                                "success" if _sync_result is not None else "failed/cancelled",
+                            )
+                            if _sync_result is not None:
+                                graph_state = _sync_result
+                                if project_id:
+                                    save_project_snapshot(project_id, graph_state)
 
         # Skip the LLM call if we already have artifacts awaiting review
         # (resumed session or re-entering the loop after an edit request).

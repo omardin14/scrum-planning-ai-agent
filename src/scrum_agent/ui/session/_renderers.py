@@ -455,9 +455,15 @@ def _render_tui_epic(analysis, *, render_w: int = 80, examples: dict | None = No
     if template_sections and desc:
         import re as _re
 
-        # Try to parse **Section?** markers from description (if LLM-generated)
+        # Try to parse section markers from description (LLM may use **Bold** or ## Heading)
+        # First try **Section** markers
         section_re = _re.compile(r"\*\*([^*]+)\*\*\s*")
         section_parts = section_re.split(desc)
+
+        # If no **bold** markers found, try ## heading markers
+        if len(section_parts) <= 2:
+            heading_re = _re.compile(r"#{1,3}\s+([^\n?]+\??)\s*")
+            section_parts = heading_re.split(desc)
 
         if len(section_parts) > 2:
             # Description has sections — render them
@@ -466,7 +472,7 @@ def _render_tui_epic(analysis, *, render_w: int = 80, examples: dict | None = No
                 parts.append(Text(""))
             i = 1
             while i < len(section_parts) - 1:
-                section_title = section_parts[i].strip()
+                section_title = section_parts[i].strip().rstrip("?")
                 section_body = section_parts[i + 1].strip() if i + 1 < len(section_parts) else ""
                 parts.append(Text(f"  {section_title}", style=c_section))
                 if section_body:

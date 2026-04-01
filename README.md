@@ -776,7 +776,10 @@ After intake, the analysis review screen shows a deterministic quality rating:
 
 Team Analysis connects to your Jira or Azure DevOps board and produces a comprehensive analysis of your team's real delivery patterns. The analysis becomes a reusable **profile** that calibrates future planning sessions.
 
-<!-- TODO: Screenshot — Team Analysis results overview page -->
+<!-- TODO: Replace placeholder with actual screenshot -->
+<div align="center">
+<img src="docs/screenshots/analysis-results.png" alt="Team Analysis results overview — velocity, sprint breakdown, team members" width="700"/>
+</div>
 
 ### What gets analyzed
 
@@ -800,13 +803,19 @@ Team Analysis connects to your Jira or Azure DevOps board and produces a compreh
 3. **Review the analysis** — 6-page walkthrough: Instructions, Sample Epic, Sample Stories, Sample Tasks, Sample Sprint Plan, Analysis Report
 4. **Save as a profile** — stored in SQLite, reusable across planning sessions
 
-<!-- TODO: Video — Full analysis flow from board selection to saved profile -->
+<!-- TODO: Replace placeholder with actual video/gif -->
+<div align="center">
+<img src="docs/screenshots/analysis-flow.gif" alt="Full analysis flow — board selection to saved profile" width="700"/>
+</div>
 
 ### Per-developer breakdown
 
 Each team member gets individual analysis:
 
-<!-- TODO: Screenshot — Team Members section showing per-developer velocity table -->
+<!-- TODO: Replace placeholder with actual screenshot -->
+<div align="center">
+<img src="docs/screenshots/team-members.png" alt="Team Members — per-developer velocity, discipline, stories, sprints" width="700"/>
+</div>
 
 | Metric | Description |
 |--------|-------------|
@@ -826,7 +835,10 @@ Analysis results can be exported as HTML or Markdown reports. Both formats inclu
 
 When you start a planning session, you can select a saved analysis profile. This calibrates the entire planning pipeline to match your team's real patterns.
 
-<!-- TODO: Screenshot — Profile picker showing saved analysis profiles -->
+<!-- TODO: Replace placeholder with actual screenshot -->
+<div align="center">
+<img src="docs/screenshots/profile-picker.png" alt="Profile picker — saved analysis profiles with velocity and sprint counts" width="700"/>
+</div>
 
 ### Intake auto-fill
 
@@ -842,13 +854,19 @@ The analysis profile auto-fills intake questions so you don't have to answer the
 | **Q12 — Integrations** | Auto-filled from the analysis profile's integrations list |
 | **Q27 — Sprint selection** | Falls back to analysis sprint data when live tracker is unavailable |
 
-<!-- TODO: Screenshot — Smart intake with analysis auto-fill showing pre-filled suggestions -->
+<!-- TODO: Replace placeholder with actual screenshot -->
+<div align="center">
+<img src="docs/screenshots/smart-intake-autofill.png" alt="Smart intake with analysis auto-fill — pre-filled team size, velocity, tech stack" width="700"/>
+</div>
 
 ### Team member multi-select
 
 When an analysis profile has contributor data, Q6 (team size) becomes a multi-select picker instead of a free-text number:
 
-<!-- TODO: Screenshot — Team member multi-select with velocity and discipline labels -->
+<!-- TODO: Replace placeholder with actual screenshot -->
+<div align="center">
+<img src="docs/screenshots/member-multiselect.png" alt="Team member multi-select — pick developers with velocity and discipline labels" width="700"/>
+</div>
 
 - Each member shows their velocity (pts/sprint) and discipline
 - Select specific developers for this project with Space, confirm with Enter
@@ -859,7 +877,10 @@ When an analysis profile has contributor data, Q6 (team size) becomes a multi-se
 
 Each pipeline stage shows a calibration banner explaining what analysis data influenced the output:
 
-<!-- TODO: Screenshot — Calibration banner on the Story Writer stage -->
+<!-- TODO: Replace placeholder with actual screenshot -->
+<div align="center">
+<img src="docs/screenshots/calibration-banner.png" alt="Calibration banner on Story Writer — AC count, points scale, DoD source" width="700"/>
+</div>
 
 | Stage | Banner shows |
 |-------|-------------|
@@ -885,7 +906,10 @@ Each pipeline stage shows a calibration banner explaining what analysis data inf
 
 Before the feature generator runs, an **epic review page** lets you review and edit the project epic. When an analysis profile is active, the epic is LLM-reformatted to match your team's style:
 
-<!-- TODO: Screenshot — Epic review page with team-style formatting -->
+<!-- TODO: Replace placeholder with actual screenshot -->
+<div align="center">
+<img src="docs/screenshots/epic-review.png" alt="Epic review — team-style naming convention, template sections, Jira sync" width="700"/>
+</div>
 
 - Quarter-scoped naming when the team uses that convention (e.g., "Q2 2026 — Customer Portal")
 - Template sections matching the team's epic structure
@@ -911,7 +935,10 @@ Self-contained single-file HTML report with embedded CSS, collapsible sections, 
 scrum-agent --non-interactive --description "Build a todo app" --output html
 ```
 
-<!-- TODO: Screenshot — HTML report output -->
+<!-- TODO: Replace placeholder with actual screenshot -->
+<div align="center">
+<img src="docs/screenshots/html-export.png" alt="HTML export — self-contained report with stories, tasks, sprint capacity bars" width="700"/>
+</div>
 
 ### JSON
 
@@ -1061,7 +1088,10 @@ Sessions older than 30 days are auto-pruned at startup. Configure via `SESSION_P
 
 The Usage page tracks token consumption across all sessions, accessible from the main menu.
 
-<!-- TODO: Screenshot — Usage page showing token breakdown and session history -->
+<!-- TODO: Replace placeholder with actual screenshot -->
+<div align="center">
+<img src="docs/screenshots/usage-page.png" alt="Usage page — token consumption, per-provider breakdown, session history" width="700"/>
+</div>
 
 | Metric | Description |
 |--------|-------------|
@@ -1079,7 +1109,10 @@ Token usage is tracked automatically via `track_usage()` on every LLM call and p
 
 The Settings page provides a read-only view of your current configuration and a shortcut to the setup wizard.
 
-<!-- TODO: Screenshot — Settings page showing configuration overview -->
+<!-- TODO: Replace placeholder with actual screenshot -->
+<div align="center">
+<img src="docs/screenshots/settings-page.png" alt="Settings page — provider, API keys (masked), tracker config, paths" width="700"/>
+</div>
 
 | Section | What it shows |
 |---------|---------------|

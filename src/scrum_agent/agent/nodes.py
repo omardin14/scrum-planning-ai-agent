@@ -1608,6 +1608,16 @@ def _load_team_profile(profile_id: str = "") -> object | None:
                 if profile:
                     logger.debug("Loaded selected team profile: %s", profile_id)
                     return profile
+                # Prefix match for old-format IDs (without timestamp)
+                row = store._conn.execute(
+                    "SELECT team_id FROM team_profiles WHERE team_id LIKE ? ORDER BY updated_at DESC LIMIT 1",
+                    (f"{profile_id}%",),
+                ).fetchone()
+                if row:
+                    profile = store.load(row[0])
+                    if profile:
+                        logger.debug("Loaded team profile via prefix: %s → %s", profile_id, row[0])
+                        return profile
 
             # Auto-detect: try Jira first
             try:
@@ -1658,16 +1668,31 @@ def _load_team_examples(profile_id: str = "") -> dict | None:
         with TeamProfileStore(db_path) as store:
             if profile_id:
                 _, ex = store.load_with_examples(profile_id)
-                return ex
+                if ex:
+                    return ex
+                # Prefix match for old-format IDs
+                row = store._conn.execute(
+                    "SELECT team_id FROM team_profiles WHERE team_id LIKE ? ORDER BY updated_at DESC LIMIT 1",
+                    (f"{profile_id}%",),
+                ).fetchone()
+                if row:
+                    _, ex = store.load_with_examples(row[0])
+                    if ex:
+                        return ex
 
             try:
                 from scrum_agent.config import get_jira_project_key
 
                 jira_key = get_jira_project_key()
                 if jira_key:
-                    _, ex = store.load_with_examples(f"jira-{jira_key}")
-                    if ex:
-                        return ex
+                    row = store._conn.execute(
+                        "SELECT team_id FROM team_profiles WHERE team_id LIKE ? ORDER BY updated_at DESC LIMIT 1",
+                        (f"jira-{jira_key}%",),
+                    ).fetchone()
+                    if row:
+                        _, ex = store.load_with_examples(row[0])
+                        if ex:
+                            return ex
             except Exception:
                 pass
             try:
@@ -1675,9 +1700,14 @@ def _load_team_examples(profile_id: str = "") -> dict | None:
 
                 azdevops_project = get_azdevops_project()
                 if azdevops_project:
-                    _, ex = store.load_with_examples(f"azdevops-{azdevops_project}")
-                    if ex:
-                        return ex
+                    row = store._conn.execute(
+                        "SELECT team_id FROM team_profiles WHERE team_id LIKE ? ORDER BY updated_at DESC LIMIT 1",
+                        (f"azdevops-{azdevops_project}%",),
+                    ).fetchone()
+                    if row:
+                        _, ex = store.load_with_examples(row[0])
+                        if ex:
+                            return ex
             except Exception:
                 pass
 
@@ -1687,7 +1717,11 @@ def _load_team_examples(profile_id: str = "") -> dict | None:
 
 
 def _load_profile_by_id(profile_id: str):
-    """Load a specific team profile and examples by team_id."""
+    """Load a specific team profile and examples by team_id.
+
+    If exact match fails, tries prefix match to handle old-format IDs
+    (e.g. "azdevops-Proj" matching "azdevops-Proj-202604010430").
+    """
     try:
         from scrum_agent.paths import get_db_path
         from scrum_agent.team_profile import TeamProfileStore
@@ -1697,7 +1731,21 @@ def _load_profile_by_id(profile_id: str):
             return None, None
 
         with TeamProfileStore(db_path) as store:
-            return store.load_with_examples(profile_id)
+            # Exact match first
+            result = store.load_with_examples(profile_id)
+            if result[0] is not None:
+                return result
+
+            # Prefix match — handles old IDs without timestamp
+            row = store._conn.execute(
+                "SELECT team_id FROM team_profiles WHERE team_id LIKE ? ORDER BY updated_at DESC LIMIT 1",
+                (f"{profile_id}%",),
+            ).fetchone()
+            if row:
+                logger.info("Profile prefix match: %s → %s", profile_id, row[0])
+                return store.load_with_examples(row[0])
+
+            return None, None
     except Exception:
         logger.debug("Failed to load profile %s", profile_id, exc_info=True)
         return None, None
