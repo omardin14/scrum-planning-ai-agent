@@ -81,7 +81,6 @@ class TestBetaGate:
             "ship",
             "agent-usage",
             "agent-advisor",
-            "agent-standup",
             "agent-security",
             "weekly-review",
         }
