@@ -30,6 +30,7 @@ FAMILIES: dict[str, str] = {
     "docs": "\U0001f4d8",  # 📘
     "code": "\U0001f500",  # 🔀
     "chat": "\U0001f4ac",  # 💬
+    "calendar": "\U0001f4c5",  # 📅
     "media": "\U0001f3a4",  # 🎤
 }
 
@@ -44,6 +45,7 @@ FAMILY_ORDER: tuple[str, ...] = (
     "code",
     "docs",
     "chat",
+    "calendar",
     "media",
 )
 
@@ -56,6 +58,7 @@ FAMILY_LABELS: dict[str, str] = {
     "code": "Code",
     "docs": "Docs",
     "chat": "Chat",
+    "calendar": "Calendars",
     "media": "Voice & video",
 }
 

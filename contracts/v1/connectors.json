@@ -219,6 +219,24 @@
       "managed_by": "credentials"
     },
     {
+      "key": "google_calendar",
+      "label": "Google Calendar",
+      "family": "calendar",
+      "family_label": "Calendars",
+      "accent": "rgb(52,168,83)",
+      "glyph": "🗓️",
+      "managed_by": "credentials"
+    },
+    {
+      "key": "ms_teams",
+      "label": "Microsoft Teams",
+      "family": "calendar",
+      "family_label": "Calendars",
+      "accent": "rgb(98,100,167)",
+      "glyph": "👥",
+      "managed_by": "credentials"
+    },
+    {
       "key": "elevenlabs",
       "label": "ElevenLabs",
       "family": "media",

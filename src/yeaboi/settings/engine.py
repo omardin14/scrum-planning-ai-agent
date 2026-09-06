@@ -57,6 +57,8 @@ SECRET_ENVS: frozenset[str] = (
             "STANDUP_SMTP_PASSWORD",
             "ELEVENLABS_API_KEY",
             "TAVUS_API_KEY",
+            "GOOGLE_CALENDAR_CREDENTIALS",
+            "MS_TEAMS_CLIENT_SECRET",
         }
     )
     | _connector_secret_envs()
@@ -143,6 +145,12 @@ def _build_fields() -> tuple[SettingField, ...]:
         # -- notion --------------------------------------------------------
         SettingField("NOTION_TOKEN", "Token", "notion", secret=True),
         SettingField("NOTION_ROOT_PAGE_ID", "Root Page/DB", "notion"),
+        # -- calendars (catalogue-only until the sync is wired) --------------
+        SettingField("GOOGLE_CALENDAR_ID", "Calendar ID", "integrations"),
+        SettingField("GOOGLE_CALENDAR_CREDENTIALS", "Service Account JSON", "integrations", secret=True),
+        SettingField("MS_TEAMS_TENANT_ID", "Teams Tenant ID", "integrations"),
+        SettingField("MS_TEAMS_CLIENT_ID", "Teams Client ID", "integrations"),
+        SettingField("MS_TEAMS_CLIENT_SECRET", "Teams Client Secret", "integrations", secret=True),
         # -- slack ---------------------------------------------------------
         SettingField("SLACK_WEBHOOK_URL", "Webhook URL", "slack", secret=True),
         SettingField("SLACK_BOT_TOKEN", "Bot Token", "slack", secret=True),
@@ -292,6 +300,7 @@ SECTIONS: tuple[str, ...] = (
     "github",
     "notion",
     "slack",
+    "integrations",
     "connections",
     "sharing",
     "storage",

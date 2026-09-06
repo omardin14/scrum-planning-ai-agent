@@ -1493,6 +1493,13 @@ def _collect_settings_data() -> dict:
         # Notion (rendered by the settings screen; was missing from this list)
         "NOTION_TOKEN",
         "NOTION_ROOT_PAGE_ID",
+        # Calendars — held for the sync that is not wired yet, on both surfaces
+        # so neither grows a setting the other cannot see.
+        "GOOGLE_CALENDAR_ID",
+        "GOOGLE_CALENDAR_CREDENTIALS",
+        "MS_TEAMS_TENANT_ID",
+        "MS_TEAMS_CLIENT_ID",
+        "MS_TEAMS_CLIENT_SECRET",
         # Storage (Settings → Data Dir / Paths)
         "YEABOI_HOME",
         "YEABOI_ALLOWED_PATHS",

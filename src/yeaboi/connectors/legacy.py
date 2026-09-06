@@ -53,10 +53,13 @@ LEGACY: tuple[Connector, ...] = (
                 help_scope="'repo' scope + 'Configure SSO' if the org uses SSO (fine-grained: org-approved)",
             ),
             ConnectorField(
-                env="STANDUP_GITHUB_REPO",
-                label="Standup repo",
+                env="TEAM_ANALYSIS_GITHUB_OWNERS",
+                label="Owners to scan",
                 required=False,
-                hint="owner/repo — what standups scan for code activity. Optional: without it a standup simply reports no code.",
+                hint=(
+                    "Comma-separated owners or orgs. Blank scans every repository this token "
+                    "can see, which is what a standup does by default."
+                ),
             ),
         ),
     ),
@@ -239,6 +242,65 @@ LEGACY: tuple[Connector, ...] = (
             ),
         ),
         connected_when=("STANDUP_SMTP_HOST",),
+    ),
+    Connector(
+        key="google_calendar",
+        label="Google Calendar",
+        family="calendar",
+        section="integrations",
+        summary="Declared ceremonies as events in the calendar your team already reads",
+        detail=(
+            "Holds the credential only, for now: writing ceremonies into a calendar "
+            "and reading busy time back are not wired yet. Connecting it changes "
+            "nothing until they are."
+        ),
+        docs_url="https://console.cloud.google.com/apis/credentials",
+        glyph="\U0001f5d3\ufe0f",  # 🗓️ — the spiral calendar
+        accent="rgb(52,168,83)",
+        fields=(
+            ConnectorField(
+                env="GOOGLE_CALENDAR_ID",
+                label="Calendar ID",
+                required=False,
+                hint="The calendar ceremonies would be written to. Blank means the primary one.",
+            ),
+            ConnectorField(
+                env="GOOGLE_CALENDAR_CREDENTIALS",
+                label="Service account JSON",
+                secret=True,
+                required=False,
+                help_url="https://console.cloud.google.com/apis/credentials",
+                help_scope="A service account with the Calendar API enabled, and the calendar shared with it",
+            ),
+        ),
+        connected_when=("GOOGLE_CALENDAR_CREDENTIALS",),
+    ),
+    Connector(
+        key="ms_teams",
+        label="Microsoft Teams",
+        family="calendar",
+        section="integrations",
+        summary="Ceremonies in the Teams calendar, and the meeting link with them",
+        detail=(
+            "Holds the credential only, for now: creating Teams events for declared "
+            "ceremonies is not wired yet. Connecting it changes nothing until it is."
+        ),
+        docs_url="https://portal.azure.com",
+        glyph="\U0001f465",  # 👥
+        accent="rgb(98,100,167)",
+        fields=(
+            ConnectorField(env="MS_TEAMS_TENANT_ID", label="Tenant ID", required=False),
+            ConnectorField(env="MS_TEAMS_CLIENT_ID", label="Client ID", required=False),
+            ConnectorField(
+                env="MS_TEAMS_CLIENT_SECRET",
+                label="Client Secret",
+                secret=True,
+                required=False,
+                help_url="https://portal.azure.com",
+                help_scope="An app registration with Calendars.ReadWrite for the account ceremonies are booked as",
+            ),
+        ),
+        connected_when=("MS_TEAMS_CLIENT_SECRET",),
     ),
     Connector(
         key="elevenlabs",
