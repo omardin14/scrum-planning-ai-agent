@@ -2,6 +2,30 @@
   "schema_version": 2,
   "entries": [
     {
+      "version": "3.44.0",
+      "date": "2026-09-06",
+      "headline": "Agent spend is accurate, security findings are actionable",
+      "summary": "Agent usage now tracks spend accurately by day, including every API call and tool cost. Security findings are grouped by issue with verdicts—you can dismiss false positives, replay the exact context, and apply one-click fixes.",
+      "highlights": [
+        {
+          "text": "See accurate daily agent spend with all API calls and tool usage costs included",
+          "areas": ["usage"]
+        },
+        {
+          "text": "Security findings group by issue with verdicts guiding which ones need action",
+          "areas": ["agents"]
+        },
+        {
+          "text": "Replay the exact code and context that triggered each security finding",
+          "areas": ["agents"]
+        },
+        {
+          "text": "Apply one-click fixes for common issues or dismiss them as test data",
+          "areas": ["agents"]
+        }
+      ]
+    },
+    {
       "version": "3.43.0",
       "date": "2026-09-05",
       "headline": "Spotify, Apple Music and YouTube Music join the library",
