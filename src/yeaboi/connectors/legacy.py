@@ -378,5 +378,10 @@ def is_connected(entry: Connector, values: Mapping[str, str] | None = None) -> b
         return any(present(env) for env in any_of)
 
     fallbacks = {f.env: f.fallback_env for f in entry.fields}
-    required = tuple(f.env for f in entry.fields if f.required)
+    # `required_envs` prefers the entry's own `connected_when`. Without that
+    # fallback an entry whose fields are all optional — a mailbox, a calendar —
+    # answered `all(())`, which is True: connected with nothing set at all.
+    required = entry.required_envs
+    if not required:
+        return any(present(f.env) for f in entry.fields)
     return all(present(env) or (fallbacks.get(env) and present(fallbacks[env])) for env in required)

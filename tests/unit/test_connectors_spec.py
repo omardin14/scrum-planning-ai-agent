@@ -317,3 +317,27 @@ class TestLegacyEntries:
         assert not legacy.is_connected(slack)
         monkeypatch.setenv("SLACK_BOT_TOKEN", "xoxb-1")
         assert legacy.is_connected(slack)
+
+
+class TestOptionalOnlyEntriesAreNotConnectedByDefault:
+    """An entry whose fields are all optional must not read as connected.
+
+    `all(())` is True, so a mailbox or a calendar — every field optional, the
+    credential named by `connected_when` — arrived in the catalog wearing the
+    green badge with nothing set.
+    """
+
+    def test_nothing_set_is_not_connected(self):
+        from yeaboi.connectors.legacy import LEGACY, is_connected
+
+        for entry in LEGACY:
+            assert not is_connected(entry, {}), f"{entry.key} reads as connected with an empty config"
+
+    def test_the_named_credential_is_what_connects_it(self):
+        from yeaboi.connectors.legacy import LEGACY, is_connected
+
+        for entry in LEGACY:
+            if not entry.connected_when:
+                continue
+            values = {env: "set" for env in entry.connected_when}
+            assert is_connected(entry, values), f"{entry.key} ignores its own connected_when"
