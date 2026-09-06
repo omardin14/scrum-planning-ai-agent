@@ -25,6 +25,7 @@ from yeaboi.agent.state import (
     AgentSecurityReport,
     AgentStandupDigest,
     AgentUsageReport,
+    BoardInvite,
     DeliveryReport,
     Dispatch,
     StandupReport,
@@ -116,6 +117,32 @@ def weekly_review_dispatch(review: WeeklyReview) -> Dispatch:
             f"Went well:\n{_bullets(review.went_well)}" if review.went_well else "",
             f"To change:\n{_bullets(review.to_change)}" if review.to_change else "",
             f"Actions:\n{actions}" if actions else "",
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# The live boards
+# ---------------------------------------------------------------------------
+
+
+def board_invite_dispatch(invite: BoardInvite) -> Dispatch:
+    """An opened board, led by the way in.
+
+    The link is the whole message — anyone reading this is being asked to turn
+    up — so it is on the summary line a notification shows, not only in the
+    body. Without a tunnel there is no address to give, and the join code is
+    what a person on this network can still use.
+    """
+    way_in = invite.join_url or (f"join code {invite.display_code}" if invite.display_code else "")
+    room = "Sprint Retrospective" if invite.kind == "retro" else "Planning Poker"
+    return Dispatch(
+        title=f"{room} is open",
+        summary=f"{room} is open — {way_in}" if way_in else f"{room} is open in yeaboi",
+        body=_assemble(
+            f"{invite.title}." if invite.title else "",
+            invite.detail,
+            f"Join: {way_in}" if way_in else "Open yeaboi to join — the shareable link never landed.",
         ),
     )
 

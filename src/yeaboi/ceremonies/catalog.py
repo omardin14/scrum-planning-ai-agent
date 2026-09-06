@@ -4,7 +4,7 @@ This is the admission test for the whole feature, and it is deliberately a
 table rather than a paragraph: a mode absent from ``CATALOG`` cannot be
 scheduled from the TUI, the CLI or MCP, because every surface resolves through
 :func:`lookup`. ``UNSCHEDULABLE`` records the ones left out *with their reason*,
-so "why can't I schedule a retro" has an answer in the same file.
+so "why can't I schedule a 1:1 prep" has an answer in the same file.
 
 Engines and renderers are named as ``(module, attribute)`` strings and imported
 lazily. Importing seven engine modules to draw a list of ceremony names would
@@ -198,6 +198,45 @@ CATALOG: tuple[CeremonyMode, ...] = (
         default_weekdays="1",
         default_at="07:30",
     ),
+    # The two rooms. They run no engine and cost nothing: what fires is an
+    # opening, and the report is the way in. Both need the app up to host the
+    # board — see ceremonies/boards.py.
+    CeremonyMode(
+        key="retro",
+        label="Sprint Retrospective",
+        blurb="Opens the retro board at the hour and hands round the link. Needs yeaboi running.",
+        engine=("yeaboi.ceremonies.boards", "open_retro_board"),
+        renderer=("yeaboi.ceremonies.renderers", "board_invite_dispatch"),
+        session_param="session_id",
+        est_cost_usd=0.0,
+        default_weekdays="5",
+        default_at="15:00",
+    ),
+    CeremonyMode(
+        key="poker",
+        label="Planning Poker",
+        blurb="Opens a poker table over a scope and hands round the link. Needs yeaboi running.",
+        engine=("yeaboi.ceremonies.boards", "open_poker_board"),
+        renderer=("yeaboi.ceremonies.renderers", "board_invite_dispatch"),
+        params=(
+            CeremonyParam(
+                name="source",
+                kind="str",
+                label="Tickets from",
+                help="Blank takes the tracker this machine has configured, or the demo tickets.",
+            ),
+            CeremonyParam(
+                name="sprint",
+                kind="str",
+                label="Sprint",
+                help="Blank takes the source's own default — usually the active sprint.",
+            ),
+        ),
+        session_param="session_id",
+        est_cost_usd=0.0,
+        default_weekdays="1",
+        default_at="10:00",
+    ),
 )
 
 
@@ -206,8 +245,6 @@ CATALOG: tuple[CeremonyMode, ...] = (
 # "what can I schedule", and a reason that lives only in a review comment is one
 # nobody finds.
 UNSCHEDULABLE: dict[str, str] = {
-    "retro": "hosts a live board that needs the team in a room — history stays readable on demand",
-    "poker": "hosts a live voting board; an estimate nobody attends is not an estimate",
     "performance": "1:1 prep needs a named engineer and lands in a human conversation, not a channel",
     "ship": "launches a coding agent behind an approval gate a human answers at a terminal",
     "planning": "an intake conversation, not a recurring readout",

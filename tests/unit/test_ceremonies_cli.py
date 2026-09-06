@@ -71,8 +71,8 @@ class TestAdd:
             assert store.get("s1", "weekly-report").weekdays == "1"
 
     def test_a_refused_mode_exits_2_and_installs_nothing(self, env, capsys):
-        assert _run("add", "friday-retro", "--mode", "retro", "--at", "16:00") == 2
-        assert "live board" in capsys.readouterr().err
+        assert _run("add", "monday-prep", "--mode", "performance", "--at", "16:00") == 2
+        assert "human conversation" in capsys.readouterr().err
         assert env["installed"] == {}
 
     def test_a_malformed_arg_exits_2(self, env, capsys):
@@ -210,14 +210,14 @@ class TestModes:
         assert _run("modes") == 0
         out = capsys.readouterr().out
         assert "standup" in out
-        assert "retro" in out  # the refusals are as useful as the offers
+        assert "performance" in out  # the refusals are as useful as the offers
 
     def test_json_carries_both_halves(self, capsys):
         capsys.readouterr()
         _run("modes", "--format", "json")
         payload = json.loads(capsys.readouterr().out)
-        assert {m["key"] for m in payload["schedulable"]} >= {"standup", "report"}
-        assert "retro" in payload["refused"]
+        assert {m["key"] for m in payload["schedulable"]} >= {"standup", "report", "retro", "poker"}
+        assert "performance" in payload["refused"]
 
 
 class TestSkip:

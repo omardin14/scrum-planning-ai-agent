@@ -59,8 +59,8 @@ class TestLookupAndRefusal:
         assert catalog.refuse_reason("standup") == ""
 
     def test_a_refused_mode_says_why(self):
-        reason = catalog.refuse_reason("retro")
-        assert "live board" in reason
+        reason = catalog.refuse_reason("performance")
+        assert "human conversation" in reason
 
     def test_an_unknown_mode_lists_the_alternatives(self):
         reason = catalog.refuse_reason("brainstorm")

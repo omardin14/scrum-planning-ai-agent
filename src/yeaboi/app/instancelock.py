@@ -69,7 +69,7 @@ def acquire() -> Acquired | AlreadyRunning:
         try:
             fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
         except FileExistsError:
-            live = _probe_existing()
+            live = live_instance()
             if live is not None:
                 logger.info("existing backend is live (pid=%d) — reusing", live.pid)
                 return AlreadyRunning(live)
@@ -90,8 +90,13 @@ def release(acquired: Acquired) -> None:
     logger.info("app lock released: %s", acquired.path)
 
 
-def _probe_existing() -> Handshake | None:
-    """The handshake of a live already-running backend, else None."""
+def live_instance() -> Handshake | None:
+    """The handshake of a live already-running backend, else None.
+
+    Public because it answers a second question besides the lock's: anything
+    that needs the app itself — a ceremony opening a board it cannot host —
+    asks here whether there is one.
+    """
     handshake = read_handshake()
     if handshake is None:
         return None

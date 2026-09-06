@@ -148,9 +148,9 @@ class TestListings:
         assert _text(render.format_history_rich([])).strip()
 
     def test_the_modes_table_lists_the_refusals_with_their_reasons(self):
-        # "Why can't I schedule a retro" is answered on the same screen that
+        # "Why can't I schedule a 1:1 prep" is answered on the same screen that
         # answers "what can I schedule".
         out = _text(render.format_modes_rich())
         assert "standup" in out
-        assert "retro" in out
-        assert "live board" in out
+        assert "performance" in out
+        assert "human conversation" in out

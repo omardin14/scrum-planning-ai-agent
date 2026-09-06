@@ -2080,6 +2080,22 @@ class CeremonyRun:
 
 
 @dataclass(frozen=True)
+class BoardInvite:
+    """An opened board and the way in — what a room-shaped ceremony produces.
+
+    Its artifact is an invitation rather than a report: the run's whole output
+    is that the board is up and this is how to join it.
+    """
+
+    kind: str = ""
+    title: str = ""
+    board_id: str = ""
+    join_url: str = ""
+    display_code: str = ""
+    detail: str = ""
+
+
+@dataclass(frozen=True)
 class Dispatch:
     """What a finished ceremony has to say, in a form every channel can send.
 

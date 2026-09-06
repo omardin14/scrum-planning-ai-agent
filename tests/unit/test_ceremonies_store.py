@@ -101,8 +101,8 @@ class TestSaveRefuses:
             store.save(_ceremony(name="Morning Standup"))
 
     def test_a_mode_the_catalog_refuses_by_design(self, store):
-        with pytest.raises(ValueError, match="live board"):
-            store.save(_ceremony(mode="retro"))
+        with pytest.raises(ValueError, match="human conversation"):
+            store.save(_ceremony(mode="performance"))
 
     def test_a_mode_that_does_not_exist(self, store):
         with pytest.raises(ValueError, match="unknown ceremony mode"):
