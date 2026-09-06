@@ -173,8 +173,7 @@ LEGACY: tuple[Connector, ...] = (
         detail=(
             "yeaboi posts ceremony output to one channel through a webhook, and "
             "a bot token additionally lets it read replies to its own anchors. "
-            "Either credential alone is a working channel. Set up under "
-            "Settings ▸ Credentials."
+            "Either credential alone is a working channel."
         ),
         docs_url="https://api.slack.com/apps",
         glyph="✳️",  # the pinwheel logo shape
@@ -188,6 +187,18 @@ LEGACY: tuple[Connector, ...] = (
                 required=False,
                 help_url="https://api.slack.com/apps",
                 help_scope="Bot: chat:write · channels:history · reactions:read · users:read — then /invite it",
+            ),
+            ConnectorField(
+                env="SLACK_CHANNEL_ID",
+                label="Channel ID",
+                required=False,
+                hint="Where a ceremony posts. The channel's own ID, not its name.",
+            ),
+            ConnectorField(
+                env="SLACK_ALLOWED_MEMBER_IDS",
+                label="Who may act",
+                required=False,
+                hint="Slack member IDs whose replies yeaboi will act on. Blank means nobody.",
             ),
         ),
         connected_when=("SLACK_WEBHOOK_URL",),  # see _ANY_OF — either credential counts
