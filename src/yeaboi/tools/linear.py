@@ -165,6 +165,49 @@ def fetch_team_cycles(states: tuple[str, ...] = ("active", "future")) -> list[di
     return cycles
 
 
+def linear_open_issues(team_key: str = "", *, limit: int = 200) -> list[dict]:
+    """Open (not completed or canceled) issues of the team, newest updated first.
+
+    Each item: ``{key, title, state, url}``. Mirrors ``jira_open_tickets``:
+    returns [] when Linear is unconfigured or the query fails (logged), so a
+    caller that only wants context never has to catch.
+    """
+    if not get_linear_api_key():
+        return []
+    try:
+        team = _resolve_team(team_key)
+        data = _linear_request(
+            """
+            query($teamId: String!, $page: Int!) {
+              team(id: $teamId) {
+                issues(
+                  first: $page
+                  orderBy: updatedAt
+                  filter: { state: { type: { nin: ["completed", "canceled"] } } }
+                ) { nodes { identifier title url state { name } } }
+              }
+            }
+            """,
+            {"teamId": team["id"], "page": max(1, min(int(limit), 250))},
+        )
+    except Exception as e:
+        logger.warning("linear_open_issues failed: %s", e)
+        return []
+    nodes = ((data.get("team") or {}).get("issues") or {}).get("nodes") or []
+    out = [
+        {
+            "key": str(node.get("identifier") or ""),
+            "title": str(node.get("title") or ""),
+            "state": str((node.get("state") or {}).get("name") or ""),
+            "url": str(node.get("url") or ""),
+        }
+        for node in nodes
+        if isinstance(node, dict)
+    ]
+    logger.info("linear_open_issues: %d open issue(s)", len(out))
+    return out
+
+
 def create_sub_issue(parent_id: str, title: str, description: str = "") -> dict:
     """Create one sub-issue under a parent issue. Returns {id, identifier, url}."""
     team = _resolve_team()

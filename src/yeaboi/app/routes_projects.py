@@ -102,6 +102,46 @@ def draft(app, request: Request) -> Response:
     return json_response(result)
 
 
+def suggestions(app, request: Request) -> Response:
+    """``GET /api/projects/suggestions?refresh=1`` — the cached sheet now; a background refresh when it is stale."""
+    from yeaboi.mcp.runtime import to_jsonable
+
+    force = str(request.query.get("refresh", "")).strip().lower() in _TRUE
+    sheet, refreshing = app.suggest.get(refresh=force)
+    logger.info(
+        "project suggestions requested: %d row(s), stale=%s, refreshing=%s",
+        len(sheet.suggestions),
+        sheet.stale,
+        refreshing,
+    )
+    return json_response({"refreshing": refreshing, **to_jsonable(sheet)})
+
+
+def references(app, request: Request) -> Response:
+    """``GET /api/projects/references?source=&q=&limit=`` — one source's rows for the @ picker; 400 when malformed."""
+    from yeaboi.mcp.runtime import to_jsonable
+    from yeaboi.projects.references import DEFAULT_LIMIT, MAX_LIMIT, SOURCES
+
+    source = str(request.query.get("source", "")).strip().lower()
+    if source not in SOURCES:
+        raise HTTPError(400, f"source must be one of {', '.join(SOURCES)}")
+    q = " ".join(str(request.query.get("q", "")).split())[:200]
+    raw_limit = str(request.query.get("limit", "")).strip()
+    try:
+        limit = int(raw_limit) if raw_limit else DEFAULT_LIMIT
+    except ValueError:
+        raise HTTPError(400, "limit must be a number") from None
+    sheet = app.references.get(source, q, limit=max(1, min(limit, MAX_LIMIT)))
+    logger.info(
+        "project references requested: %s q=%r -> %d row(s)%s",
+        source,
+        q,
+        len(sheet.items),
+        " (could not be read)" if sheet.warning else "",
+    )
+    return json_response(to_jsonable(sheet))
+
+
 def sessions(app, request: Request) -> Response:
     """``GET /api/projects/{project_id}/sessions?mode=&limit=`` — the project's runs, every mode."""
     from yeaboi.paths import get_db_path

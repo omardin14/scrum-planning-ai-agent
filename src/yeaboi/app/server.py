@@ -27,6 +27,8 @@ from yeaboi.app.router import Request, Response, Router, parse_request
 from yeaboi.app.ships import ShipSupervisor
 from yeaboi.app.supervisor import BoardSupervisor
 from yeaboi.news.desk import NewsDesk
+from yeaboi.projects.references import ReferenceDesk
+from yeaboi.projects.suggest import SuggestDesk
 from yeaboi.web.security import policy, send_document, send_headers
 
 logger = logging.getLogger(__name__)
@@ -178,6 +180,8 @@ class AppServer:
         ships: ShipSupervisor | None = None,
         consent: ConsentDesk | None = None,
         news: NewsDesk | None = None,
+        suggest: SuggestDesk | None = None,
+        references: ReferenceDesk | None = None,
         on_shutdown=None,
     ) -> None:
         self.token = token
@@ -212,6 +216,11 @@ class AppServer:
         # The front page's paper and its background refresh (routes_news) —
         # one cache and one refresh lock per process, not per window.
         self.news = news if news is not None else NewsDesk()
+        # The Projects door's recommended projects (routes_projects.suggestions) —
+        # the same one-cache-one-refresh shape as the paper.
+        self.suggest = suggest if suggest is not None else SuggestDesk()
+        # The composer's @ picker (routes_projects.references) — a minute of memory per source read.
+        self.references = references if references is not None else ReferenceDesk()
         self._on_shutdown = on_shutdown
         self._shutdown_once = threading.Event()
         if router is not None:

@@ -120,6 +120,18 @@ class TestSessionsWire:
         assert "proj-<8hex>" in text
 
 
+class TestReferencesWire:
+    """The @ picker's row, pinned field for field against the contract."""
+
+    def test_item_keys_are_pinned(self):
+        from dataclasses import fields
+
+        from yeaboi.projects.references import Reference, ReferenceSheet
+
+        assert [f.name for f in fields(Reference)] == ["id", "subject", "label", "detail", "url"]
+        assert [f.name for f in fields(ReferenceSheet)] == ["source", "source_label", "items", "warning"]
+
+
 class TestNewsWire:
     """The front page's item shape, pinned field for field against the contract."""
 
