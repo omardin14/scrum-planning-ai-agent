@@ -68,7 +68,7 @@ EGRESS_DISCLOSURES: tuple[dict, ...] = (
         "where": "The AI provider you configured (Anthropic, OpenAI, Google, Bedrock — or Ollama on this machine)",
         "when": "When a mode runs",
         "default": "on — it is the product",
-        "off_switch": "Choose Ollama in Settings ▸ Credentials for a fully local model",
+        "off_switch": "Choose Ollama in Settings ▸ System for a fully local model",
     },
     {
         "key": "update-check",

@@ -117,7 +117,7 @@ def _check_provider() -> CheckResult:
         "AI provider",
         "missing",
         detail=message,
-        hint="Add a credential in Settings ▸ Credentials, or pick Ollama for a local model",
+        hint="Add a credential in Settings ▸ System, or pick Ollama for a local model",
         feature="Every mode",
     )
 
@@ -279,7 +279,7 @@ def _check_access() -> CheckResult:
         "Cloudflare Access",
         "missing",
         detail="; ".join(problems),
-        hint="Settings ▸ Sharing walks through the remaining steps",
+        hint="Settings ▸ System ▸ Sharing walks through the remaining steps",
         feature=feature,
     )
 

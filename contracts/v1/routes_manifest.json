@@ -164,7 +164,7 @@
     {
       "path": "/ceremonies/slack",
       "capability": "slack-inbound",
-      "title": "Ceremonies · Slack"
+      "title": "Ceremonies · Slack replies"
     },
     {
       "path": "/provenance",
@@ -174,12 +174,12 @@
     {
       "path": "/settings/credentials",
       "capability": "settings",
-      "title": "Settings · Credentials"
+      "title": "Settings · System"
     },
     {
       "path": "/settings/connections",
       "capability": "connections",
-      "title": "Settings · Catalog"
+      "title": "Settings · Integrations"
     },
     {
       "path": "/settings/sharing",
@@ -299,7 +299,7 @@
     {
       "path": "/settings/themes",
       "capability": null,
-      "title": "Themes"
+      "title": "Settings · Appearance"
     },
     {
       "path": "/settings/themes/edit",
@@ -338,7 +338,7 @@
     },
     {
       "route": "/settings/connections",
-      "title": "Catalog",
+      "title": "Integrations",
       "sections": [
         "connections"
       ]

@@ -39,7 +39,7 @@ LEGACY: tuple[Connector, ...] = (
         detail=(
             "yeaboi reads repositories, issues and READMEs to ground planning in "
             "the code you actually have, and Ship mode opens pull requests you "
-            "approve. Set up under Settings ▸ Credentials or the setup wizard."
+            "approve."
         ),
         docs_url="https://github.com/settings/tokens",
         glyph="\U0001f419",  # 🐙 — the octocat
@@ -62,8 +62,7 @@ LEGACY: tuple[Connector, ...] = (
         summary="The tracker sprint plans sync to — epics, stories and sprints",
         detail=(
             "yeaboi reads your board to ground planning and writes the epics, "
-            "stories and sprints an approved sprint plan creates. Set up under "
-            "Settings ▸ Credentials or the setup wizard."
+            "stories and sprints an approved sprint plan creates."
         ),
         docs_url="https://id.atlassian.com/manage-profile/security/api-tokens",
         glyph="\U0001f3ab",  # 🎫 — the ticket
@@ -90,8 +89,7 @@ LEGACY: tuple[Connector, ...] = (
         summary="The tracker sprint plans sync to — epics, stories and iterations",
         detail=(
             "yeaboi reads your board to ground planning and writes the epics, "
-            "stories and iterations an approved sprint plan creates. Set up under "
-            "Settings ▸ Credentials or the setup wizard."
+            "stories and iterations an approved sprint plan creates."
         ),
         docs_url="https://dev.azure.com",
         glyph="\U0001f4cc",  # 📌 — boards
@@ -116,7 +114,7 @@ LEGACY: tuple[Connector, ...] = (
         detail=(
             "yeaboi publishes the documents you approve into one Confluence "
             "space, reusing your Jira Atlassian identity when its own is not "
-            "set. Set up under Settings ▸ Credentials or the setup wizard."
+            "set."
         ),
         docs_url="https://id.atlassian.com/manage-profile/security/api-tokens",
         glyph="\U0001f30a",  # 🌊 — the confluence
@@ -148,8 +146,7 @@ LEGACY: tuple[Connector, ...] = (
         summary="Docs search and export against your workspace",
         detail=(
             "yeaboi searches and reads the pages you share with its integration "
-            "and publishes the documents you approve. Set up under Settings ▸ "
-            "Credentials or the setup wizard."
+            "and publishes the documents you approve."
         ),
         docs_url="https://notion.so/my-integrations",
         glyph="\U0001f5d2️",  # 🗒️ — the page
