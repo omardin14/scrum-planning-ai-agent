@@ -163,7 +163,9 @@ def _day(value: str) -> str:
     from yeaboi.timeparse import parse_datetime
 
     try:
-        return parse_datetime(str(value)).strftime("%-d %b")
+        # %-d is glibc-only; format the day ourselves so Windows renders the same.
+        moment = parse_datetime(str(value))
+        return f"{moment.day} {moment.strftime('%b')}"
     except (ValueError, TypeError):
         return str(value)
 

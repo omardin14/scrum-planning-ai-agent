@@ -217,3 +217,71 @@ class TestCycles:
             {"sprint_name": "Sprint 1", "start_date": "2026-09-01", "end_date": "2026-09-14"}
         )
         assert "cycles enabled" in result
+
+
+class TestOpenIssues:
+    ISSUES = {
+        "data": {
+            "team": {
+                "issues": {
+                    "nodes": [
+                        {
+                            "identifier": "ENG-12",
+                            "title": "Fix login bug",
+                            "url": "https://linear.app/acme/issue/ENG-12",
+                            "state": {"name": "In Progress"},
+                        },
+                        {"identifier": "ENG-9", "title": "Add dark mode", "url": "", "state": None},
+                    ]
+                }
+            }
+        }
+    }
+
+    def test_rows_carry_key_title_state_and_url(self, monkeypatch):
+        install(monkeypatch, [("teams", TEAMS), ("issues(", self.ISSUES)])
+
+        rows = linear.linear_open_issues("ENG")
+
+        assert rows == [
+            {
+                "key": "ENG-12",
+                "title": "Fix login bug",
+                "state": "In Progress",
+                "url": "https://linear.app/acme/issue/ENG-12",
+            },
+            {"key": "ENG-9", "title": "Add dark mode", "state": "", "url": ""},
+        ]
+
+    def test_the_limit_is_clamped_into_linears_page_range(self, monkeypatch):
+        router = install(monkeypatch, [("teams", TEAMS), ("issues(", self.ISSUES)])
+
+        linear.linear_open_issues("ENG", limit=5000)
+
+        assert router.calls[-1]["body"]["variables"]["page"] == 250
+
+    def test_completed_and_canceled_are_filtered_server_side(self, monkeypatch):
+        router = install(monkeypatch, [("teams", TEAMS), ("issues(", self.ISSUES)])
+
+        linear.linear_open_issues("ENG")
+
+        query = router.calls[-1]["body"]["query"]
+        assert 'nin: ["completed", "canceled"]' in query
+        assert "orderBy: updatedAt" in query
+
+    def test_an_unconfigured_linear_is_no_issues_not_a_call(self, monkeypatch):
+        monkeypatch.delenv("LINEAR_API_KEY", raising=False)
+        router = install(monkeypatch, [("teams", TEAMS), ("issues(", self.ISSUES)])
+
+        assert linear.linear_open_issues("ENG") == []
+        assert router.calls == []
+
+    def test_a_failed_query_is_no_issues_not_a_raise(self, monkeypatch):
+        install(monkeypatch, [("teams", TEAMS)], status=500)
+
+        assert linear.linear_open_issues("ENG") == []
+
+    def test_a_team_that_answers_nothing_is_no_issues(self, monkeypatch):
+        install(monkeypatch, [("teams", TEAMS), ("issues(", {"data": {"team": None}})])
+
+        assert linear.linear_open_issues("ENG") == []

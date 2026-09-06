@@ -136,9 +136,9 @@ def github_repo_overview(slug: str, *, max_titles: int = 12) -> dict:
     """What is open on one repository, for the Projects door's recommendations.
 
     ``{open_issues, milestone, milestone_due, milestone_open, issue_titles}``:
-    the count of open issues (pull requests excluded), the open milestone due
-    soonest (its title, due date and open-issue count; empty when there is
-    none), and the newest open issue titles. A repository that cannot be read
+    the count of open issues (pull requests excluded, capped at the first 200
+    the API yields), the open milestone due soonest (its title, due date and
+    open-issue count; empty when there is none), and the newest open issue titles. A repository that cannot be read
     is an empty overview, never an exception — the caller ranks what it has.
     """
     out = {"open_issues": 0, "milestone": "", "milestone_due": "", "milestone_open": 0, "issue_titles": []}

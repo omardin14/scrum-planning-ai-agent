@@ -69,6 +69,7 @@ STATUS_WORDS = {"active": "In progress", "done": "Completed"}
 SECTIONS: tuple[tuple[str, str], ...] = (("active", "In progress"), ("done", "Completed"))
 
 EMPTY_LINE = "Nothing here yet. Describe what you're building and yeaboi names it."
+DRAFT_NOTE = "Create makes the project and opens it. AI rewrite gives it a pitch and a name."
 
 
 def _cell(text: str, style: str) -> Text:
@@ -78,6 +79,11 @@ def _cell(text: str, style: str) -> Text:
 def _inner_width(width: int) -> int:
     """The columns a body line may use: the frame's borders (2), its padding (4) and the scrollbar's column."""
     return max(24, width - 7)
+
+
+def _body_width(width: int) -> int:
+    """The columns text may use once PAD has been prefixed to it."""
+    return max(20, _inner_width(width) - len(PAD))
 
 
 def list_actions(project: dict | None) -> list[str]:
@@ -251,6 +257,9 @@ def _build_projects_screen(
     body.extend(_flow_strip(world=world, width=width))
     body.append(Text(""))
     body.extend(_build_rows(projects, selected, active_project_id, theme, width))
+    if projects:
+        body.append(Text(""))
+        body.append(build_key_hints([("d", "done / reopen"), ("a", "archive"), ("c", "context sources")], pad=PAD))
     if message:
         body.append(Text(""))
         body.append(Text(f"{PAD}{message}", style=theme.accent))
@@ -301,7 +310,7 @@ def _build_project_screen(
     body: list = []
     description = project.get("description", "")
     if description:
-        for line in _wrap(description, width - 8, max_lines=3):
+        for line in _wrap(description, _body_width(width), max_lines=3):
             body.append(Text(f"{PAD}{line}", style=theme.desc))
     else:
         body.append(Text(f"{PAD}No description yet.", style=theme.dim))
@@ -359,15 +368,14 @@ def _build_draft_screen(
     name.append(draft.get("name") or "untitled project", style=f"bold {theme.accent_bright}")
     body.append(name)
     body.append(Text(""))
-    for line in _wrap(draft.get("description", ""), width - 8, max_lines=6):
+    for line in _wrap(draft.get("description", ""), _body_width(width), max_lines=6):
         body.append(Text(f"{PAD}{line}", style=theme.value))
     body.append(Text(""))
     note = draft.get("note", "")
     if note:
         body.append(Text(f"{PAD}{note}", style=theme.good if draft.get("source") == "ai" else theme.dim))
-    body.append(
-        Text(f"{PAD}Create makes the project and opens it. AI rewrite gives it a pitch and a name.", style=theme.dim)
-    )
+    for line in _wrap(DRAFT_NOTE, _body_width(width), max_lines=2):
+        body.append(Text(f"{PAD}{line}", style=theme.dim))
     if message:
         body.append(Text(""))
         body.append(Text(f"{PAD}{message}", style=theme.accent))

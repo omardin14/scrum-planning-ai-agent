@@ -260,14 +260,6 @@ def narrow(sheet: ReferenceSheet, q: str, limit: int = DEFAULT_LIMIT) -> Referen
     return ReferenceSheet(sheet.source, sheet.source_label, rows[:limit], sheet.warning)
 
 
-def search(
-    source: str, q: str = "", *, limit: int = DEFAULT_LIMIT, now: datetime | None = None, readers=None
-) -> ReferenceSheet:
-    """Read then narrow: the whole computation for one query."""
-    q = " ".join(q.split())
-    return narrow(read(source, q if source in LIVE_SOURCES else "", now=now, readers=readers), q, limit)
-
-
 class ReferenceDesk:
     """One per app process: a minute of memory per read, so typing costs one fetch, not one per key."""
 

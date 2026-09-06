@@ -20,7 +20,6 @@ from yeaboi.projects.references import (
     matches,
     narrow,
     read,
-    search,
 )
 
 NOW = datetime(2026, 9, 6, 20, 0, tzinfo=timezone.utc)
@@ -107,7 +106,7 @@ class TestSearch:
             seen.append(q)
             return _rows(3)
 
-        sheet = search("jira", "row 2", now=NOW, readers={"jira": reader})
+        sheet = narrow(read("jira", "", now=NOW, readers={"jira": reader}), "row 2")
         assert seen == [""] and [r.subject for r in sheet.items] == ["K-2"]
 
     def test_a_live_source_takes_the_query_with_it(self):
@@ -117,7 +116,7 @@ class TestSearch:
             seen.append(q)
             return _rows(1, "confluence")
 
-        sheet = search("confluence", "adr", now=NOW, readers={"confluence": reader})
+        sheet = narrow(read("confluence", "adr", now=NOW, readers={"confluence": reader}), "adr")
         assert seen == ["adr"] and len(sheet.items) == 1
 
 

@@ -965,3 +965,94 @@ class TestGithubListOwners:
         github_list_owners()
 
         assert user.get_repos.call_args.kwargs == {"sort": "pushed", "direction": "desc"}
+
+
+# ---------------------------------------------------------------------------
+# github_repo_overview
+# ---------------------------------------------------------------------------
+
+
+class TestGithubRepoOverview:
+    def _milestone(self, title: str, due, open_issues: int) -> MagicMock:
+        milestone = MagicMock()
+        milestone.title = title
+        milestone.due_on = due
+        milestone.open_issues = open_issues
+        return milestone
+
+    @patch("yeaboi.tools.github._get_github_client")
+    def test_pull_requests_are_not_open_issues(self, mock_client):
+        from yeaboi.tools.github import github_repo_overview
+
+        repo = mock_client.return_value.get_repo.return_value
+        repo.get_issues.return_value = [
+            _make_issue(1, "Fix login bug"),
+            _make_issue(2, "PR: refactor auth", is_pr=True),
+            _make_issue(3, "Add dark mode"),
+        ]
+        repo.get_milestones.return_value = []
+
+        overview = github_repo_overview("owner/repo")
+
+        assert overview["open_issues"] == 2
+        assert overview["issue_titles"] == ["Fix login bug", "Add dark mode"]
+
+    @patch("yeaboi.tools.github._get_github_client")
+    def test_titles_are_capped_while_the_count_keeps_going(self, mock_client):
+        from yeaboi.tools.github import github_repo_overview
+
+        repo = mock_client.return_value.get_repo.return_value
+        repo.get_issues.return_value = [_make_issue(i, f"Issue {i}") for i in range(1, 21)]
+        repo.get_milestones.return_value = []
+
+        overview = github_repo_overview("owner/repo", max_titles=3)
+
+        assert overview["open_issues"] == 20
+        assert overview["issue_titles"] == ["Issue 1", "Issue 2", "Issue 3"]
+
+    @patch("yeaboi.tools.github._get_github_client")
+    def test_the_soonest_due_milestone_wins_and_undated_ones_sort_last(self, mock_client):
+        from datetime import datetime, timezone
+
+        from yeaboi.tools.github import github_repo_overview
+
+        repo = mock_client.return_value.get_repo.return_value
+        repo.get_issues.return_value = []
+        repo.get_milestones.return_value = [
+            self._milestone("undated", None, 9),
+            self._milestone("4.3", datetime(2026, 10, 1, tzinfo=timezone.utc), 5),
+            self._milestone("4.2", datetime(2026, 9, 12, tzinfo=timezone.utc), 4),
+        ]
+
+        overview = github_repo_overview("owner/repo")
+
+        assert overview["milestone"] == "4.2"
+        assert overview["milestone_due"] == "2026-09-12"
+        assert overview["milestone_open"] == 4
+
+    @patch("yeaboi.tools.github._get_github_client")
+    def test_an_unreadable_repository_is_an_empty_overview_not_a_raise(self, mock_client):
+        from yeaboi.tools.github import github_repo_overview
+
+        mock_client.return_value.get_repo.side_effect = RuntimeError("404")
+
+        assert github_repo_overview("owner/gone") == {
+            "open_issues": 0,
+            "milestone": "",
+            "milestone_due": "",
+            "milestone_open": 0,
+            "issue_titles": [],
+        }
+
+    @patch("yeaboi.tools.github._get_github_client")
+    def test_milestones_failing_still_leaves_the_issue_half(self, mock_client):
+        from yeaboi.tools.github import github_repo_overview
+
+        repo = mock_client.return_value.get_repo.return_value
+        repo.get_issues.return_value = [_make_issue(1, "Fix login bug")]
+        repo.get_milestones.side_effect = RuntimeError("rate limited")
+
+        overview = github_repo_overview("owner/repo")
+
+        assert overview["open_issues"] == 1
+        assert overview["milestone"] == ""
