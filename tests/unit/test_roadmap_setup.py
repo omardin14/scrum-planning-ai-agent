@@ -30,8 +30,9 @@ class TestSourceOptions:
         monkeypatch.setattr("yeaboi.config.get_notion_token", lambda: "")
         options = {o["key"]: o for o in setup.source_options()}
         assert options["confluence"]["configured"] is False
-        assert "CONFLUENCE_" in options["confluence"]["hint"]
-        assert "NOTION_TOKEN" in options["notion"]["hint"]
+        # The hint names where to fix it, which is the catalog rather than a file.
+        assert "Integrations" in options["confluence"]["hint"]
+        assert "Integrations" in options["notion"]["hint"]
 
     def test_a_local_file_needs_no_credentials(self, monkeypatch):
         monkeypatch.setattr("yeaboi.config.get_confluence_base_url", lambda: "")

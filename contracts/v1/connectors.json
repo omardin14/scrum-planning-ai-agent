@@ -201,6 +201,15 @@
       "managed_by": "credentials"
     },
     {
+      "key": "smtp",
+      "label": "Email (SMTP)",
+      "family": "chat",
+      "family_label": "Chat",
+      "accent": "rgb(90,110,150)",
+      "glyph": "✉️",
+      "managed_by": "credentials"
+    },
+    {
       "key": "slack",
       "label": "Slack",
       "family": "chat",

@@ -52,6 +52,12 @@ LEGACY: tuple[Connector, ...] = (
                 help_url="https://github.com/settings/tokens",
                 help_scope="'repo' scope + 'Configure SSO' if the org uses SSO (fine-grained: org-approved)",
             ),
+            ConnectorField(
+                env="STANDUP_GITHUB_REPO",
+                label="Standup repo",
+                required=False,
+                hint="owner/repo — what standups scan for code activity. Optional: without it a standup simply reports no code.",
+            ),
         ),
     ),
     Connector(
@@ -199,6 +205,40 @@ LEGACY: tuple[Connector, ...] = (
             ),
         ),
         connected_when=("SLACK_WEBHOOK_URL",),  # see _ANY_OF — either credential counts
+    ),
+    Connector(
+        key="smtp",
+        label="Email (SMTP)",
+        family="chat",
+        section="standup",
+        summary="The mailbox ceremonies send through",
+        detail=(
+            "yeaboi sends ceremony output — standups, retros, reports — through "
+            "your own mail server. One of several ways a ceremony can be "
+            "delivered: with no recipients set, email is skipped and the channel "
+            "or the board carries it instead."
+        ),
+        docs_url="https://support.google.com/a/answer/176600",
+        glyph="\u2709\ufe0f",  # ✉️ — the mailbox
+        accent="rgb(90,110,150)",
+        fields=(
+            ConnectorField(env="STANDUP_SMTP_HOST", label="SMTP Host", required=False),
+            ConnectorField(env="STANDUP_SMTP_USER", label="SMTP User", required=False),
+            ConnectorField(
+                env="STANDUP_SMTP_PASSWORD",
+                label="SMTP Password",
+                secret=True,
+                required=False,
+                hint="Only needed if your server asks for a login.",
+            ),
+            ConnectorField(
+                env="STANDUP_EMAIL_RECIPIENTS",
+                label="Recipients",
+                required=False,
+                hint="Comma-separated. Email delivery is skipped entirely when empty.",
+            ),
+        ),
+        connected_when=("STANDUP_SMTP_HOST",),
     ),
     Connector(
         key="elevenlabs",

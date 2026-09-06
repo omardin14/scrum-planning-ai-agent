@@ -33,6 +33,7 @@
     "pagerduty",
     "sentry",
     "slack",
+    "smtp",
     "statuspage",
     "tavus",
     "trello"

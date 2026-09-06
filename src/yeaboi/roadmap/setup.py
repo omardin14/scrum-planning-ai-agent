@@ -52,9 +52,13 @@ def source_options() -> list[dict]:
         "confluence": (
             "Read a page by URL, ID, or title"
             if configured["confluence"]
-            else "Not configured — set CONFLUENCE_* (or JIRA_*) in .env"
+            else "Not connected — connect Confluence under Settings ▸ Integrations"
         ),
-        "notion": ("Read a page by URL or ID" if configured["notion"] else "Not configured — set NOTION_TOKEN in .env"),
+        "notion": (
+            "Read a page by URL or ID"
+            if configured["notion"]
+            else "Not connected — connect Notion under Settings ▸ Integrations"
+        ),
         "local": "Read a roadmap document from disk",
     }
     return [
