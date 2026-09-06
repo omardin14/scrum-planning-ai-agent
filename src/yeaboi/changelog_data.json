@@ -2,26 +2,60 @@
   "schema_version": 2,
   "entries": [
     {
+      "version": "3.45.0",
+      "date": "2026-09-06",
+      "headline": "Projects track status and show what you've run in them",
+      "summary": "Every project now has a dedicated page showing which modes ran inside it and the context each one built. Mark projects done or in progress to keep your work organized.",
+      "highlights": [
+        {
+          "text": "See what each mode built inside your project",
+          "areas": [
+            "planning"
+          ]
+        },
+        {
+          "text": "Mark projects done or in progress as you organize your work",
+          "areas": [
+            "planning"
+          ]
+        },
+        {
+          "text": "Let Niko suggest project names and descriptions",
+          "areas": [
+            "planning"
+          ]
+        }
+      ]
+    },
+    {
       "version": "3.44.0",
       "date": "2026-09-06",
       "headline": "Agent spend is accurate, security findings are actionable",
-      "summary": "Agent usage now tracks spend accurately by day, including every API call and tool cost. Security findings are grouped by issue with verdicts—you can dismiss false positives, replay the exact context, and apply one-click fixes.",
+      "summary": "Agent usage now tracks spend accurately by day, including every API call and tool cost. Security findings are grouped by issue with verdicts\u2014you can dismiss false positives, replay the exact context, and apply one-click fixes.",
       "highlights": [
         {
           "text": "See accurate daily agent spend with all API calls and tool usage costs included",
-          "areas": ["usage"]
+          "areas": [
+            "usage"
+          ]
         },
         {
           "text": "Security findings group by issue with verdicts guiding which ones need action",
-          "areas": ["agents"]
+          "areas": [
+            "agents"
+          ]
         },
         {
           "text": "Replay the exact code and context that triggered each security finding",
-          "areas": ["agents"]
+          "areas": [
+            "agents"
+          ]
         },
         {
           "text": "Apply one-click fixes for common issues or dismiss them as test data",
-          "areas": ["agents"]
+          "areas": [
+            "agents"
+          ]
         }
       ]
     },
@@ -33,18 +67,30 @@
       "highlights": [
         {
           "text": "Sign in to browse Spotify and YouTube Music libraries on desktop",
-          "areas": ["general"],
-          "surfaces": ["desktop"]
+          "areas": [
+            "general"
+          ],
+          "surfaces": [
+            "desktop"
+          ]
         },
         {
           "text": "Search Apple Music without signing in or installing apps",
-          "areas": ["general"],
-          "surfaces": ["desktop"]
+          "areas": [
+            "general"
+          ],
+          "surfaces": [
+            "desktop"
+          ]
         },
         {
           "text": "Music page and player settings tabs on the desktop",
-          "areas": ["settings"],
-          "surfaces": ["desktop"]
+          "areas": [
+            "settings"
+          ],
+          "surfaces": [
+            "desktop"
+          ]
         }
       ]
     },
@@ -56,13 +102,21 @@
       "highlights": [
         {
           "text": "The duck on the landing screen carries the latest headline in his bubble",
-          "areas": ["general"],
-          "surfaces": ["tui"]
+          "areas": [
+            "general"
+          ],
+          "surfaces": [
+            "tui"
+          ]
         },
         {
           "text": "A front page of its own, with the story's duck in costume in its scene",
-          "areas": ["general"],
-          "surfaces": ["tui"]
+          "areas": [
+            "general"
+          ],
+          "surfaces": [
+            "tui"
+          ]
         }
       ]
     },
@@ -74,13 +128,21 @@
       "highlights": [
         {
           "text": "Sessions and Projects doors both available on desktop",
-          "areas": ["general"],
-          "surfaces": ["desktop"]
+          "areas": [
+            "general"
+          ],
+          "surfaces": [
+            "desktop"
+          ]
         },
         {
           "text": "Navigate projects and access project details on desktop",
-          "areas": ["planning"],
-          "surfaces": ["desktop"]
+          "areas": [
+            "planning"
+          ],
+          "surfaces": [
+            "desktop"
+          ]
         }
       ]
     },
@@ -92,20 +154,33 @@
       "highlights": [
         {
           "text": "Projects organize standup, retro, reporting and poker around one codebase",
-          "areas": ["planning", "standup", "retro", "reporting"]
+          "areas": [
+            "planning",
+            "standup",
+            "retro",
+            "reporting"
+          ]
         },
         {
           "text": "Sessions are quick one-off runs that don't tie to a project",
-          "areas": ["general"]
+          "areas": [
+            "general"
+          ]
         },
         {
           "text": "See your recent work across all modes in one cross-mode list",
-          "areas": ["general"]
+          "areas": [
+            "general"
+          ]
         },
         {
           "text": "Terminal door screen lets you toggle between Projects and Sessions workflows",
-          "areas": ["general"],
-          "surfaces": ["tui"]
+          "areas": [
+            "general"
+          ],
+          "surfaces": [
+            "tui"
+          ]
         }
       ]
     },
@@ -117,15 +192,24 @@
       "highlights": [
         {
           "text": "Weekly Review: self-review your solo week with carried-forward actions",
-          "areas": ["retro", "performance"]
+          "areas": [
+            "retro",
+            "performance"
+          ]
         },
         {
           "text": "Today strip shows yesterday's progress and this week's agent spend",
-          "areas": ["general"]
+          "areas": [
+            "general"
+          ]
         },
         {
           "text": "Solo standup, planning and reporting now use single-person prompts",
-          "areas": ["standup", "planning", "reporting"]
+          "areas": [
+            "standup",
+            "planning",
+            "reporting"
+          ]
         }
       ]
     },
@@ -137,8 +221,12 @@
       "highlights": [
         {
           "text": "Desktop projects now correctly expose planning routes",
-          "areas": ["planning"],
-          "surfaces": ["desktop"]
+          "areas": [
+            "planning"
+          ],
+          "surfaces": [
+            "desktop"
+          ]
         }
       ]
     },
@@ -150,19 +238,29 @@
       "highlights": [
         {
           "text": "Browse 20 built-in integrations including Datadog, Grafana, AWS and more",
-          "areas": ["settings"]
+          "areas": [
+            "settings"
+          ]
         },
         {
           "text": "Create custom API, webhook and MCP connections with your own config",
-          "areas": ["settings"]
+          "areas": [
+            "settings"
+          ]
         },
         {
           "text": "Use Linear and Trello as first-class trackers alongside Jira and Azure DevOps",
-          "areas": ["planning"]
+          "areas": [
+            "planning"
+          ]
         },
         {
           "text": "Receive webhook events in your standup, performance and analysis views",
-          "areas": ["standup", "performance", "analysis"]
+          "areas": [
+            "standup",
+            "performance",
+            "analysis"
+          ]
         }
       ]
     },
@@ -170,12 +268,16 @@
       "version": "3.38.1",
       "date": "2026-09-01",
       "headline": "Desktop route manifest corrected",
-      "summary": "Nothing changes in how yeaboi works — this release is internal corrections to the desktop route manifest and parity checks, ensuring the desktop app builds against reality.",
+      "summary": "Nothing changes in how yeaboi works \u2014 this release is internal corrections to the desktop route manifest and parity checks, ensuring the desktop app builds against reality.",
       "highlights": [
         {
           "text": "Desktop manifest now matches what the app generates",
-          "areas": ["general"],
-          "surfaces": ["desktop"]
+          "areas": [
+            "general"
+          ],
+          "surfaces": [
+            "desktop"
+          ]
         }
       ]
     },
@@ -187,15 +289,21 @@
       "highlights": [
         {
           "text": "Scope standup, retro, poker, performance and reporting to a single project",
-          "areas": ["planning"]
+          "areas": [
+            "planning"
+          ]
         },
         {
           "text": "Three landing worlds: Team for sprints, Solo for shipping, Agents for monitoring",
-          "areas": ["general"]
+          "areas": [
+            "general"
+          ]
         },
         {
           "text": "Toggle data sources off with incognito mode for sensitive analysis",
-          "areas": ["settings"]
+          "areas": [
+            "settings"
+          ]
         }
       ]
     },
@@ -207,17 +315,27 @@
       "highlights": [
         {
           "text": "Attach screenshots and log files from the desktop feedback form",
-          "areas": ["general"],
-          "surfaces": ["desktop"]
+          "areas": [
+            "general"
+          ],
+          "surfaces": [
+            "desktop"
+          ]
         },
         {
           "text": "Text log files become searchable details in your GitHub issue",
-          "areas": ["general"],
-          "surfaces": ["web"]
+          "areas": [
+            "general"
+          ],
+          "surfaces": [
+            "web"
+          ]
         },
         {
           "text": "Attached logs help AI Polish rewrite problems more accurately",
-          "areas": ["general"]
+          "areas": [
+            "general"
+          ]
         }
       ]
     },
@@ -301,7 +419,7 @@
       "version": "3.34.0",
       "date": "2026-08-31",
       "headline": "Reach six more AI models directly",
-      "summary": "yeaboi now works with Grok, DeepSeek, Kimi, Mistral, Qwen and GLM through their native endpoints. No extra install needed — each one rides the same OpenAI-compatible integration.",
+      "summary": "yeaboi now works with Grok, DeepSeek, Kimi, Mistral, Qwen and GLM through their native endpoints. No extra install needed \u2014 each one rides the same OpenAI-compatible integration.",
       "highlights": [
         {
           "text": "Choose from Grok, DeepSeek, Kimi, Mistral, Qwen and GLM in settings",
@@ -327,7 +445,7 @@
       "version": "3.33.0",
       "date": "2026-08-31",
       "headline": "Check your sharing setup before you publish",
-      "summary": "Settings can now tell you whether secure sharing is ready — sign-in, certificate and anything still missing — before you turn it on. You find out up front instead of when a share fails.",
+      "summary": "Settings can now tell you whether secure sharing is ready \u2014 sign-in, certificate and anything still missing \u2014 before you turn it on. You find out up front instead of when a share fails.",
       "highlights": [
         {
           "text": "See whether Cloudflare Access is ready before you publish anything",
@@ -353,7 +471,7 @@
       "version": "3.32.0",
       "date": "2026-08-27",
       "headline": "Meet Niko, an assistant across all your work",
-      "summary": "Ask Niko what a mode does, or what your plans, standups, retros and agent spend actually say, and it will take you to the screen that does the thing. Niko only reads — it never changes anything.",
+      "summary": "Ask Niko what a mode does, or what your plans, standups, retros and agent spend actually say, and it will take you to the screen that does the thing. Niko only reads \u2014 it never changes anything.",
       "highlights": [
         {
           "text": "Read-only by design: Niko looks things up and points you the right way",
@@ -388,7 +506,7 @@
       "version": "3.31.0",
       "date": "2026-08-25",
       "headline": "The browser pages now install as their own package",
-      "summary": "Boards, share pages, exports and the slide deck are unchanged — they now arrive as a separate package. Upgrading or installing fresh picks it up for you.",
+      "summary": "Boards, share pages, exports and the slide deck are unchanged \u2014 they now arrive as a separate package. Upgrading or installing fresh picks it up for you.",
       "highlights": [
         {
           "text": "Boards, share pages, exports and the slide deck behave exactly as before",
@@ -545,7 +663,7 @@
           ]
         },
         {
-          "text": "Patchy wifi will not block you — only a real rejection does",
+          "text": "Patchy wifi will not block you \u2014 only a real rejection does",
           "areas": [
             "general"
           ]
@@ -683,7 +801,7 @@
           ]
         },
         {
-          "text": "Sign in without leaving yeaboi — it opens a browser for you",
+          "text": "Sign in without leaving yeaboi \u2014 it opens a browser for you",
           "areas": [
             "settings"
           ]
@@ -765,7 +883,7 @@
       "version": "3.18.2",
       "date": "2026-08-17",
       "headline": "A clearer activity timeline in Standup",
-      "summary": "The standup timeline now labels what happened — merged pull requests, ticket changes, bursts of commits — and links the lanes that touched the same pull request.",
+      "summary": "The standup timeline now labels what happened \u2014 merged pull requests, ticket changes, bursts of commits \u2014 and links the lanes that touched the same pull request.",
       "highlights": [
         {
           "text": "The timeline labels merged pull requests, ticket changes and commit bursts",
@@ -1006,7 +1124,7 @@
       "version": "3.12.1",
       "date": "2026-08-15",
       "headline": "Under-the-hood improvements",
-      "summary": "Nothing changes in how yeaboi works — this release is internal plumbing and fixes.",
+      "summary": "Nothing changes in how yeaboi works \u2014 this release is internal plumbing and fixes.",
       "highlights": [
         {
           "text": "Internal release and verification improvements only",
@@ -3603,7 +3721,7 @@
       "version": "2.1.0",
       "date": "2026-07-13",
       "headline": "Performance reviews built from real work",
-      "summary": "New Performance mode preps your 1:1s, records what you agreed, and builds a six-month review — all from real Jira and Azure DevOps activity. You can also pick your exact model.",
+      "summary": "New Performance mode preps your 1:1s, records what you agreed, and builds a six-month review \u2014 all from real Jira and Azure DevOps activity. You can also pick your exact model.",
       "highlights": [
         {
           "text": "Prepare a 1:1, then capture the actions you agreed",
@@ -3812,7 +3930,7 @@
       "version": "1.0.0",
       "date": "2026-03-20",
       "headline": "yeaboi 1.0: your AI Scrum Master arrives",
-      "summary": "Describe a project, answer a short adaptive interview, and get epics, user stories, tasks and a sprint plan — reviewed step by step, exportable, and sent to Jira in one go.",
+      "summary": "Describe a project, answer a short adaptive interview, and get epics, user stories, tasks and a sprint plan \u2014 reviewed step by step, exportable, and sent to Jira in one go.",
       "highlights": [
         {
           "text": "An adaptive intake that asks only the follow-ups that matter",

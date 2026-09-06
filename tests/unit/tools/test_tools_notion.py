@@ -733,3 +733,31 @@ class TestRegistration:
             "notion_create_page",
             "notion_update_page",
         } <= names
+
+
+class TestNotionSearchPageRows:
+    """The structured search behind the project composer's @ picker."""
+
+    def test_rows_carry_key_title_and_url(self, monkeypatch):
+        from yeaboi.tools.notion import notion_search_page_rows
+
+        mock_client = MagicMock()
+        mock_client.search.return_value = {"results": [_make_page("111", "Architecture Overview"), {"no": "id"}]}
+        monkeypatch.setattr("yeaboi.tools.notion._make_notion_client", lambda *a, **k: mock_client)
+
+        rows = notion_search_page_rows("architecture", limit=4)
+
+        assert rows == [{"key": "111", "title": "Architecture Overview", "url": "https://notion.so/My-Page-abc123"}]
+        kwargs = mock_client.search.call_args.kwargs
+        assert kwargs["query"] == "architecture" and kwargs["page_size"] == 4
+        assert kwargs["filter"] == {"property": "object", "value": "page"}
+
+    def test_unconfigured_or_failing_is_empty(self, monkeypatch):
+        from yeaboi.tools.notion import notion_search_page_rows
+
+        monkeypatch.setattr("yeaboi.tools.notion._make_notion_client", lambda *a, **k: None)
+        assert notion_search_page_rows("x") == []
+        mock_client = MagicMock()
+        mock_client.search.side_effect = _make_api_error(500)
+        monkeypatch.setattr("yeaboi.tools.notion._make_notion_client", lambda *a, **k: mock_client)
+        assert notion_search_page_rows("x") == []

@@ -772,3 +772,32 @@ def notion_read_page_text(
     except Exception as e:
         logger.error("notion_read_page_text unexpected error: %s", e)
         return {"title": "", "text": "", "truncated": False, "error": f"Notion read failed: {e}"}
+
+
+def notion_search_page_rows(query: str, limit: int = 10) -> list[dict]:
+    """Pages matching ``query``, as rows ``{key, title, url}``.
+
+    The structured sibling of :func:`notion_search_pages` for callers that
+    want data, not prose. Returns [] when Notion is unconfigured or the search
+    fails (logged).
+    """
+    client = _make_notion_client()
+    if client is None:
+        return []
+    try:
+        results = client.search(
+            query=query,
+            filter={"property": "object", "value": "page"},
+            page_size=max(1, int(limit)),
+        )
+    except Exception as exc:  # noqa: BLE001 - a picker that cannot search is empty, never broken
+        logger.warning("notion_search_page_rows failed: %s", exc)
+        return []
+    pages = results.get("results", []) if isinstance(results, dict) else []
+    out: list[dict] = []
+    for page in pages:
+        if not isinstance(page, dict) or not page.get("id"):
+            continue
+        out.append({"key": str(page["id"]), "title": _page_title(page), "url": str(page.get("url", "") or "")})
+    logger.info("notion_search_page_rows: %d page(s) for %r", len(out), query)
+    return out

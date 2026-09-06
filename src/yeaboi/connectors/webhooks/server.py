@@ -286,13 +286,14 @@ def start_server(port: int | None = None) -> dict:
     """Bind the receiver on loopback and serve on a daemon thread.
 
     Returns the status dict; raises OSError when the fixed port is taken —
-    a hard error on purpose, never a port walk.
+    a hard error on purpose, never a port walk. ``port=0`` binds an ephemeral
+    port (the tests), ``None`` the fixed one.
     """
     global _server, _thread, _started_at
     with _state_lock:
         if _server is not None:
             return server_status()
-        bind_port = port or receiver_port()
+        bind_port = receiver_port() if port is None else port
         server = ThreadingHTTPServer(("127.0.0.1", bind_port), _Handler)
         server.limiter = _Limiter()  # type: ignore[attr-defined]
         thread = threading.Thread(target=server.serve_forever, name="webhook-receiver", daemon=True)

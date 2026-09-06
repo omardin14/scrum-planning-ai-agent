@@ -1074,3 +1074,36 @@ def confluence_read_page_text(
     except Exception as e:
         logger.error("confluence_read_page_text unexpected error: %s", e)
         return {"title": "", "text": "", "truncated": False, "error": f"Confluence read failed: {e}"}
+
+
+def confluence_search_pages(query: str, space_key: str = "", limit: int = 10) -> list[dict]:
+    """Pages whose title matches ``query``, as rows ``{key, title, url}``.
+
+    The structured sibling of :func:`confluence_search_docs` for callers that
+    want data, not prose. Returns [] when Confluence is unconfigured or the
+    search fails (logged).
+    """
+    conf = _make_confluence_client()
+    if conf is None:
+        return []
+    key = space_key.strip() or (get_confluence_space_key() or "")
+    safe_query = query.replace("\\", "\\\\").replace('"', '\\"')
+    space_filter = f' AND space = "{key}"' if key else ""
+    cql = f'type = page AND title ~ "{safe_query}"{space_filter} ORDER BY lastModified DESC'
+    try:
+        results = _cql_with_retry(conf, cql, limit=max(1, int(limit)))
+    except Exception as exc:  # noqa: BLE001 - a picker that cannot search is empty, never broken
+        logger.warning("confluence_search_pages failed: %s", exc)
+        return []
+    out: list[dict] = []
+    for page in results.get("results", []) or []:
+        if not isinstance(page, dict):
+            continue
+        page_id = str(page.get("id", "") or "")
+        if not page_id:
+            continue
+        out.append(
+            {"key": page_id, "title": str(page.get("title", "") or "Untitled"), "url": _page_link(page, page_id)}
+        )
+    logger.info("confluence_search_pages: %d page(s) for %r", len(out), query)
+    return out

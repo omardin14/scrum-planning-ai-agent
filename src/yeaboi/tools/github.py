@@ -132,6 +132,48 @@ def github_repo_tree(repo_url: str) -> tuple[list[str], str]:
     return _repo_tree_paths(repo)
 
 
+def github_repo_overview(slug: str, *, max_titles: int = 12) -> dict:
+    """What is open on one repository, for the Projects door's recommendations.
+
+    ``{open_issues, milestone, milestone_due, milestone_open, issue_titles}``:
+    the count of open issues (pull requests excluded, capped at the first 200
+    the API yields), the open milestone due soonest (its title, due date and
+    open-issue count; empty when there is none), and the newest open issue titles. A repository that cannot be read
+    is an empty overview, never an exception — the caller ranks what it has.
+    """
+    out = {"open_issues": 0, "milestone": "", "milestone_due": "", "milestone_open": 0, "issue_titles": []}
+    try:
+        repo = _get_github_client().get_repo(slug)
+    except Exception as e:
+        logger.warning("github_repo_overview: %s could not be read: %s", slug, e)
+        return out
+    titles: list[str] = []
+    open_issues = 0
+    try:
+        for issue in _take(repo.get_issues(state="open"), 200):
+            if getattr(issue, "pull_request", None) is not None:
+                continue
+            open_issues += 1
+            if len(titles) < max_titles:
+                titles.append(str(getattr(issue, "title", "") or "").strip())
+    except Exception as e:
+        logger.warning("github_repo_overview: %s issues could not be listed: %s", slug, e)
+    out["open_issues"] = open_issues
+    out["issue_titles"] = [t for t in titles if t]
+    try:
+        milestones = [m for m in _take(repo.get_milestones(state="open"), 50)]
+        milestones.sort(key=lambda m: (getattr(m, "due_on", None) is None, getattr(m, "due_on", None) or datetime.max))
+        if milestones:
+            first = milestones[0]
+            due = getattr(first, "due_on", None)
+            out["milestone"] = str(getattr(first, "title", "") or "")
+            out["milestone_due"] = due.date().isoformat() if due else ""
+            out["milestone_open"] = int(getattr(first, "open_issues", 0) or 0)
+    except Exception as e:
+        logger.warning("github_repo_overview: %s milestones could not be listed: %s", slug, e)
+    return out
+
+
 def github_analysis_inventory(
     owners: list[str] | tuple[str, ...],
     days: int = 120,

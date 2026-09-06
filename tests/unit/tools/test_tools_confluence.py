@@ -628,3 +628,42 @@ class TestConfluenceToolsRegistered:
 
     def test_total_tool_count_is_thirty(self):
         assert len(get_tools()) == 48
+
+
+class TestConfluenceSearchPages:
+    """The structured search behind the project composer's @ picker."""
+
+    def test_rows_carry_key_title_and_link(self, monkeypatch):
+        from yeaboi.tools.confluence import confluence_search_pages
+
+        conf = MagicMock()
+        seen = {}
+
+        def cql(query, **kw):
+            seen["cql"], seen["kw"] = query, kw
+            return {"results": [_make_page("42", "ADR 42"), {"title": "no id"}, "junk"]}
+
+        conf.cql.side_effect = cql
+        monkeypatch.setattr("yeaboi.tools.confluence._make_confluence_client", lambda *a, **k: conf)
+        monkeypatch.setattr("yeaboi.tools.confluence.get_confluence_base_url", lambda: "https://x.atlassian.net")
+        monkeypatch.setattr("yeaboi.tools.confluence.get_confluence_space_key", lambda: "")
+
+        rows = confluence_search_pages('say "hi"', space_key="DOCS", limit=3)
+
+        assert rows == [{"key": "42", "title": "ADR 42", "url": "https://x.atlassian.net/wiki/spaces/MYSPACE/pages/42"}]
+        assert seen["cql"] == 'type = page AND title ~ "say \\"hi\\"" AND space = "DOCS" ORDER BY lastModified DESC'
+        assert seen["kw"] == {"limit": 3}
+
+    def test_unconfigured_or_failing_is_empty(self, monkeypatch):
+        from yeaboi.tools.confluence import ConfluenceDiscoveryError, confluence_search_pages
+
+        monkeypatch.setattr("yeaboi.tools.confluence._make_confluence_client", lambda *a, **k: None)
+        assert confluence_search_pages("x") == []
+
+        monkeypatch.setattr("yeaboi.tools.confluence._make_confluence_client", lambda *a, **k: MagicMock())
+
+        def boom(conf, cql, **kw):
+            raise ConfluenceDiscoveryError("down")
+
+        monkeypatch.setattr("yeaboi.tools.confluence._cql_with_retry", boom)
+        assert confluence_search_pages("x") == []

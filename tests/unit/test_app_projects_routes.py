@@ -11,7 +11,7 @@ from yeaboi.app.server import AppServer
 
 TOKEN = "test-token"
 
-ROW_KEYS = {"project_id", "name", "description", "settings", "created_at", "last_active", "archived"}
+ROW_KEYS = {"project_id", "name", "description", "settings", "created_at", "last_active", "archived", "status"}
 SESSION_KEYS = {"session_id", "run_id", "mode", "title", "created_at", "last_modified", "project_id"}
 
 
@@ -50,6 +50,8 @@ class TestAuth:
         [
             ("GET", "/api/projects"),
             ("POST", "/api/projects"),
+            ("GET", "/api/projects/suggestions"),
+            ("GET", "/api/projects/references?source=jira"),
             ("GET", "/api/projects/proj-11112222"),
             ("GET", "/api/projects/proj-11112222/sessions"),
             ("POST", "/api/projects/proj-11112222/defaults"),
@@ -214,8 +216,167 @@ class TestRegistry:
         assert owned == {
             ("GET", "/api/projects"),
             ("POST", "/api/projects"),
+            ("POST", "/api/projects/draft"),
+            ("GET", "/api/projects/suggestions"),
+            ("GET", "/api/projects/references"),
             ("GET", "/api/projects/{project_id}"),
+            ("POST", "/api/projects/{project_id}/status"),
             ("GET", "/api/projects/{project_id}/sessions"),
             ("POST", "/api/projects/{project_id}/defaults"),
         }
         assert {(r.method, r.path) for r in ROUTES if r.capability == "sessions"} == {("GET", "/api/sessions/recent")}
+
+
+class TestStatus:
+    def test_rows_carry_the_status(self, app, db):
+        created = _create(app)
+        assert created["status"] == "active"
+        assert payload(request(app, "GET", "/api/projects"))["projects"][0]["status"] == "active"
+
+    def test_done_and_reopen(self, app, db):
+        created = _create(app)
+        path = f"/api/projects/{created['project_id']}/status"
+        assert payload(request(app, "POST", path, body={"status": "done"}))["status"] == "done"
+        assert payload(request(app, "GET", f"/api/projects/{created['project_id']}"))["status"] == "done"
+        assert payload(request(app, "POST", path, body={"status": "active"}))["status"] == "active"
+
+    def test_bad_status_is_a_400(self, app, db):
+        created = _create(app)
+        assert request(app, "POST", f"/api/projects/{created['project_id']}/status", body={"status": "x"}).code == 400
+
+    def test_unknown_project_is_a_404(self, app, db):
+        assert request(app, "POST", "/api/projects/proj-00000000/status", body={"status": "done"}).code == 404
+
+
+class TestDraft:
+    def test_blank_description_is_a_400(self, app, db):
+        assert request(app, "POST", "/api/projects/draft", body={"description": " "}).code == 400
+
+    def test_returns_the_engines_draft(self, app, db, monkeypatch):
+        monkeypatch.setattr("yeaboi.config.is_llm_configured", lambda: (False, "no key"))
+        result = payload(request(app, "POST", "/api/projects/draft", body={"description": "a duck pond"}))
+        assert result["name"] == "a duck pond" and result["source"] == "original"
+        assert set(result) == {"name", "description", "source", "note"}
+
+    def test_needs_a_token(self, app, db):
+        assert request(app, "POST", "/api/projects/draft", authed=False, body={"description": "x"}).code == 401
+        assert request(app, "POST", "/api/projects/proj-1/status", authed=False, body={"status": "done"}).code == 401
+
+
+class FakeSuggestDesk:
+    def __init__(self, sheet, *, refreshing: bool = False):
+        self.sheet = sheet
+        self.refreshing = refreshing
+        self.asked: list[bool] = []
+
+    def get(self, *, refresh: bool = False):
+        self.asked.append(refresh)
+        return self.sheet, self.refreshing
+
+
+class TestSuggestions:
+    def _sheet(self):
+        from yeaboi.projects.suggest import Suggestion, SuggestionSheet
+
+        return SuggestionSheet(
+            suggestions=(
+                Suggestion(
+                    id="ab12cd34",
+                    text="Close the 14 open issues on yeaboi-shop before milestone 4.2.",
+                    source="github",
+                    source_label="GitHub",
+                    subject="yeaboi-ai/yeaboi-shop",
+                    facts="14 open issues, milestone 4.2 due 12 Sep",
+                    url="https://github.com/yeaboi-ai/yeaboi-shop",
+                    wording="ai",
+                ),
+            ),
+            sources=("github", "agents"),
+            warnings=("Jira could not be read",),
+            computed_at="2026-09-05T10:00:00+00:00",
+            connected=True,
+        )
+
+    def test_the_sheet_is_serialized_verbatim_with_the_refresh_flag(self):
+        desk = FakeSuggestDesk(self._sheet(), refreshing=True)
+        app = AppServer(token=TOKEN, suggest=desk)
+        body = payload(request(app, "GET", "/api/projects/suggestions"))
+        assert body["refreshing"] is True
+        assert body["connected"] is True and body["stale"] is False
+        assert body["sources"] == ["github", "agents"]
+        assert body["warnings"] == ["Jira could not be read"]
+        row = body["suggestions"][0]
+        assert set(row) == {"id", "text", "source", "source_label", "subject", "facts", "url", "repo_path", "wording"}
+        assert row["wording"] == "ai" and row["facts"].startswith("14 open issues")
+        assert desk.asked == [False]
+
+    def test_refresh_is_passed_through(self):
+        desk = FakeSuggestDesk(self._sheet())
+        app = AppServer(token=TOKEN, suggest=desk)
+        payload(request(app, "GET", "/api/projects/suggestions?refresh=1"))
+        payload(request(app, "GET", "/api/projects/suggestions?refresh=true"))
+        payload(request(app, "GET", "/api/projects/suggestions?refresh=0"))
+        assert desk.asked == [True, True, False]
+
+    def test_an_empty_sheet_is_the_honest_first_answer(self):
+        from yeaboi.projects.suggest import SuggestionSheet
+
+        desk = FakeSuggestDesk(SuggestionSheet(stale=True, connected=False), refreshing=True)
+        app = AppServer(token=TOKEN, suggest=desk)
+        body = payload(request(app, "GET", "/api/projects/suggestions"))
+        assert body["suggestions"] == [] and body["stale"] is True and body["connected"] is False
+
+
+class FakeReferenceDesk:
+    def __init__(self, sheet):
+        self.sheet = sheet
+        self.asked: list[tuple[str, str, int]] = []
+
+    def get(self, source, q="", *, limit):
+        self.asked.append((source, q, limit))
+        return self.sheet
+
+
+class TestReferences:
+    def _sheet(self, warning=""):
+        from yeaboi.projects.references import Reference, ReferenceSheet
+
+        return ReferenceSheet(
+            "jira",
+            "Jira",
+            (Reference("jira:OPS-12", "OPS-12", "OPS-12 Fix login", "In Progress", "https://x/browse/OPS-12"),),
+            warning,
+        )
+
+    def test_the_sheet_is_serialized_verbatim(self):
+        desk = FakeReferenceDesk(self._sheet())
+        app = AppServer(token=TOKEN, references=desk)
+        body = payload(request(app, "GET", "/api/projects/references?source=jira&q=login"))
+        assert body["source"] == "jira" and body["source_label"] == "Jira" and body["warning"] == ""
+        assert body["items"] == [
+            {
+                "id": "jira:OPS-12",
+                "subject": "OPS-12",
+                "label": "OPS-12 Fix login",
+                "detail": "In Progress",
+                "url": "https://x/browse/OPS-12",
+            }
+        ]
+        assert desk.asked == [("jira", "login", 8)]
+
+    def test_the_query_is_normalised_and_the_limit_clamped(self):
+        desk = FakeReferenceDesk(self._sheet())
+        app = AppServer(token=TOKEN, references=desk)
+        payload(request(app, "GET", "/api/projects/references?source=Notion&q=%20fix%20%20login%20&limit=999"))
+        payload(request(app, "GET", "/api/projects/references?source=github&limit=0"))
+        assert desk.asked == [("notion", "fix login", 25), ("github", "", 1)]
+
+    @pytest.mark.parametrize("query", ["", "source=aws", "source=jira&limit=lots"])
+    def test_a_bad_source_or_limit_is_400(self, query):
+        app = AppServer(token=TOKEN, references=FakeReferenceDesk(self._sheet()))
+        assert request(app, "GET", f"/api/projects/references?{query}").code == 400
+
+    def test_a_warning_passes_through(self):
+        app = AppServer(token=TOKEN, references=FakeReferenceDesk(self._sheet("Jira could not be read")))
+        body = payload(request(app, "GET", "/api/projects/references?source=jira"))
+        assert body["warning"] == "Jira could not be read"
