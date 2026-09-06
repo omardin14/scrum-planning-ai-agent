@@ -201,6 +201,45 @@ LEGACY: tuple[Connector, ...] = (
         connected_when=("SLACK_WEBHOOK_URL",),  # see _ANY_OF — either credential counts
     ),
     Connector(
+        key="standup",
+        label="Daily Standup",
+        family="chat",
+        section="standup",
+        summary="Where standups read code from, and the mailbox ceremonies send through",
+        detail=(
+            "yeaboi reads commit and PR activity from one repository to write the "
+            "standup, and sends the result through your own SMTP server. Email "
+            "delivery is skipped entirely when no recipients are set."
+        ),
+        docs_url="https://github.com/settings/tokens",
+        glyph="\U0001f305",  # 🌅 — the morning report
+        accent="rgb(180,120,40)",
+        fields=(
+            ConnectorField(
+                env="STANDUP_GITHUB_REPO",
+                label="GitHub Repo",
+                required=False,
+                hint="owner/repo — the estate standups scan for code activity.",
+            ),
+            ConnectorField(env="STANDUP_SMTP_HOST", label="SMTP Host", required=False),
+            ConnectorField(env="STANDUP_SMTP_USER", label="SMTP User", required=False),
+            ConnectorField(
+                env="STANDUP_SMTP_PASSWORD",
+                label="SMTP Password",
+                secret=True,
+                required=False,
+                hint="Only needed if your SMTP server asks for a login.",
+            ),
+            ConnectorField(
+                env="STANDUP_EMAIL_RECIPIENTS",
+                label="Email Recipients",
+                required=False,
+                hint="Comma-separated. Email delivery is skipped entirely when empty.",
+            ),
+        ),
+        connected_when=("STANDUP_GITHUB_REPO",),
+    ),
+    Connector(
         key="elevenlabs",
         label="ElevenLabs",
         family="media",
@@ -208,7 +247,7 @@ LEGACY: tuple[Connector, ...] = (
         summary="The duck's spoken voice in ceremonies and calls",
         detail=(
             "yeaboi sends only the lines it is about to speak for synthesis, and "
-            "nothing else it knows. Set up under Settings ▸ System ▸ Voice."
+            "nothing else it knows. Set up under Settings ▸ Integrations."
         ),
         docs_url="https://elevenlabs.io/app/settings/api-keys",
         glyph="\U0001f5e3️",  # 🗣️ — spoken voice
@@ -231,7 +270,7 @@ LEGACY: tuple[Connector, ...] = (
         summary="Avatar video for desktop calls",
         detail=(
             "yeaboi requests avatar video for the calls you start and sends only "
-            "the lines being spoken. Set up under Settings ▸ System ▸ Voice."
+            "the lines being spoken. Set up under Settings ▸ Integrations."
         ),
         docs_url="https://platform.tavus.io",
         glyph="\U0001f3ac",  # 🎬 — avatar video
