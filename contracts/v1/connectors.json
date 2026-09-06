@@ -201,15 +201,6 @@
       "managed_by": "credentials"
     },
     {
-      "key": "standup",
-      "label": "Daily Standup",
-      "family": "chat",
-      "family_label": "Chat",
-      "accent": "rgb(180,120,40)",
-      "glyph": "🌅",
-      "managed_by": "credentials"
-    },
-    {
       "key": "slack",
       "label": "Slack",
       "family": "chat",
