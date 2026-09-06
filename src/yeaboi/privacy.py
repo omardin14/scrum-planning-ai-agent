@@ -77,7 +77,7 @@ EGRESS_DISCLOSURES: tuple[dict, ...] = (
         "where": "PyPI",
         "when": "Terminal app start",
         "default": "on",
-        "off_switch": "YEABOI_UPDATE_CHECK=off (Settings ▸ System ▸ Privacy)",
+        "off_switch": "YEABOI_UPDATE_CHECK=off, or the switch beside this row",
     },
     {
         "key": "desktop-update",
@@ -95,7 +95,7 @@ EGRESS_DISCLOSURES: tuple[dict, ...] = (
         "where": "A Cloudflare quick tunnel on a random *.trycloudflare.com address",
         "when": "Opening a retro or poker board",
         "default": "on",
-        "off_switch": "YEABOI_NO_TUNNEL=1 — the board still runs, loopback-only (Settings ▸ System ▸ Privacy)",
+        "off_switch": "YEABOI_NO_TUNNEL=1 — the board still runs, loopback-only; or the switch beside this row",
     },
     {
         "key": "doh",
@@ -122,7 +122,7 @@ EGRESS_DISCLOSURES: tuple[dict, ...] = (
         "where": "yeaboi's collection endpoint",
         "when": "End of a completed planning session, only if you opted in",
         "default": "off",
-        "off_switch": "Stays off unless you set YEABOI_TELEMETRY=true (Settings ▸ System ▸ Privacy)",
+        "off_switch": "Stays off unless you set YEABOI_TELEMETRY=true, or the switch beside this row",
     },
     {
         "key": "tracing",
