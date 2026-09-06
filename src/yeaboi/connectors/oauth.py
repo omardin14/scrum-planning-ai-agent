@@ -153,7 +153,16 @@ def authorize_url(provider: OAuthProvider, client_id: str, redirect: str, state:
 
 
 class CallbackError(ValueError):
-    """The redirect did not carry a usable code."""
+    """The redirect did not carry a usable code.
+
+    ``settles`` says whether the sign-in is over: the vendor refusing it is;
+    a request that merely does not match (a stale tab, a reload, any page
+    poking the port) is not, and the listener keeps waiting for the real one.
+    """
+
+    def __init__(self, message: str, settles: bool = False) -> None:
+        super().__init__(message)
+        self.settles = settles
 
 
 def parse_callback(path: str, expected_state: str) -> str:
@@ -165,7 +174,9 @@ def parse_callback(path: str, expected_state: str) -> str:
     query = parse_qs(urlparse(path).query)
     error = (query.get("error") or [""])[0]
     if error:
-        raise CallbackError("Sign-in was refused" if error == "access_denied" else "Sign-in did not complete")
+        raise CallbackError(
+            "Sign-in was refused" if error == "access_denied" else "Sign-in did not complete", settles=True
+        )
     state = (query.get("state") or [""])[0]
     if not state or not secrets.compare_digest(state.encode("utf-8"), expected_state.encode("utf-8")):
         raise CallbackError("Sign-in did not match the one that was started")
@@ -214,12 +225,15 @@ class _CallbackServer:
                 # page must find the session done, not a moment from it.
                 try:
                     outer.code = parse_callback(self.path, outer.expected_state)
-                    status, page = 200, _DONE_PAGE
+                    outer._event.set()
+                    self._page(200, _DONE_PAGE)
                 except CallbackError as exc:
-                    outer.error = str(exc)
-                    status, page = 400, _FAILED_PAGE
-                outer._event.set()
-                self._page(status, page)
+                    # A mismatch is answered and forgotten: ending the sign-in on
+                    # it would let a stale tab, or any page, abort a real one.
+                    if exc.settles:
+                        outer.error = str(exc)
+                        outer._event.set()
+                    self._page(400, _FAILED_PAGE)
 
             def _page(self, status: int, body: str) -> None:
                 raw = body.encode("utf-8")
@@ -409,6 +423,10 @@ class OAuthSignIn:
             apply_config_value(connector.account_env, self.account)
         self.persisted = True
         self._refresh_token = ""
+        # Pages read as whoever was signed in before must not be served now.
+        from yeaboi.connectors import library
+
+        library.forget(self.key)
         logger.info("oauth: %s signed in as %s", self.key, self.account or "(unnamed)")
 
     def cancel(self) -> None:

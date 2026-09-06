@@ -113,7 +113,9 @@ class TestListener:
         finally:
             listener.close()
 
-    def test_a_wrong_state_is_a_400_and_a_message(self):
+    def test_a_wrong_state_is_a_400_and_the_listener_keeps_waiting(self):
+        # A stale tab, a reload, or any page poking the port must not abort the
+        # real sign-in that is still on its way.
         listener = oauth._CallbackServer("spotify", "st", 0)
         port = listener._server.server_address[1]
         try:
@@ -121,7 +123,19 @@ class TestListener:
                 urllib.request.urlopen(f"http://127.0.0.1:{port}/callback/spotify?code=x&state=nope")
             assert info.value.code == 400
             assert "x" not in info.value.read().decode().split("<h1>")[1]
-            assert listener.error and not listener.code
+            assert not listener.error and not listener.code and not listener.done
+            urllib.request.urlopen(f"http://127.0.0.1:{port}/callback/spotify?code=real&state=st").read()
+            assert listener.code == "real" and listener.done
+        finally:
+            listener.close()
+
+    def test_the_vendor_refusing_it_settles_the_sign_in(self):
+        listener = oauth._CallbackServer("spotify", "st", 0)
+        port = listener._server.server_address[1]
+        try:
+            with pytest.raises(urllib.error.HTTPError):
+                urllib.request.urlopen(f"http://127.0.0.1:{port}/callback/spotify?error=access_denied&state=st")
+            assert listener.error == "Sign-in was refused" and listener.done
         finally:
             listener.close()
 
@@ -182,11 +196,17 @@ class TestSession:
 
         def fake_post(url, *, data, timeout=10):
             posted.append({"url": url, **data})
-            return FakeResponse(200, {"access_token": "AT", "refresh_token": "RT", "expires_in": 3600})
+            return FakeResponse(
+                200,
+                {"access_token": "ACCESS-TOKEN-VALUE-1", "refresh_token": "REFRESH-TOKEN-VALUE-1", "expires_in": 3600},
+            )
 
         monkeypatch.setattr(oauth.http, "post_form", fake_post)
         monkeypatch.setattr(oauth.http, "get_json", lambda url, headers: FakeResponse(200, {"display_name": "dinho"}))
 
+        from yeaboi.connectors import library
+
+        library.cached(("spotify", "library", "old-account"), 60, lambda: library.Page())
         session = oauth.OAuthSignIn("spotify")
         assert session.start() is True
         assert session.url.startswith("https://accounts.spotify.com/authorize?")
@@ -198,11 +218,13 @@ class TestSession:
                 break
             session._worker and session._worker.join(timeout=0.1)
         assert session.ok and session.persisted
-        assert applied == {"SPOTIFY_REFRESH_TOKEN": "RT", "SPOTIFY_ACCOUNT": "dinho"}
+        assert applied == {"SPOTIFY_REFRESH_TOKEN": "REFRESH-TOKEN-VALUE-1", "SPOTIFY_ACCOUNT": "dinho"}
+        # Whoever was signed in before: their cached pages are gone.
+        assert not [k for k in library._cache if k[0] == "spotify"]
         assert posted[0]["grant_type"] == "authorization_code" and posted[0]["code"] == "the-code"
         assert posted[0]["code_verifier"] == session._verifier and "client_secret" not in posted[0]
         assert session.message == "Signed in as dinho"
-        assert "RT" not in session.message and "AT" not in session.url
+        assert "TOKEN-VALUE" not in session.message and "TOKEN-VALUE" not in session.url
 
     def test_a_refused_exchange_is_a_message(self, monkeypatch):
         monkeypatch.setenv("SPOTIFY_CLIENT_ID", "own-client")
